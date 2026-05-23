@@ -35,5 +35,5 @@ cd "$CWD"
 
 codex exec \
   --sandbox workspace-write \
-  --cwd "$CWD" \
+  --cd "$CWD" \
   "$PROMPT"
