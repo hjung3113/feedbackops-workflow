@@ -4,7 +4,7 @@ Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 
 ## Files
 
-- `ISSUE-N-PR-DRAFT.json` — CODEX → REVIEWER handoff (commit SHA, files, verify)
+- `ISSUE-N-PR-DRAFT.json` — CODEX → REVIEWER handoff (commit SHA, files, verify). A `status: "ready_for_review"` draft MUST carry `verify_result` (`verified_head_sha` + `passed`/`failed`/`exit_code`; schema requires `exit_code: 0`, `failed: 0`, `passed >= 1` when ready) — machine-checkable evidence, not prose. Also carries optional `worktree_path` (absolute path to the branch's worktree, for conductor-rebuild to resolve real HEAD) and `base_branch` (the integration branch it forked from, for artifact-fresh merge-base instead of assuming develop).
 - `ISSUE-N-BLOCKER.json` — CODEX abort report (no commit, why stopped). Cause is structured, not prose: `reason_code` (enum) + `blocking_fact` (concrete observed fact naming the ACTUAL files/symbols hit — never copied from the dispatch prompt) + `attempted_commands` (exact commands run before aborting) + `needed_decision` (the specific human/ARCHITECT call needed to unblock). `recommended_actions` is now optional/demoted.
 - `ISSUE-N-REVIEW.json` — REVIEWER findings + patch_instructions for ARCHITECT
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)

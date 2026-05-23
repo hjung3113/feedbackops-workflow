@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "artifact_type": "pr_draft",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "issue": { "number": 31, "title": "Add verify_result to pr_draft", "labels": ["workflow"] },
+  "branch": "feature/issue-31",
+  "base_sha": "e86c685a1b2c3d4e5f60718293a4b5c6d7e8f901",
+  "head_sha": "b8b6332c4d5e6f708192a3b4c5d6e7f809102132",
+  "summary": "Claims ready_for_review but verify_result is missing.",
+  "files_touched": [
+    { "path": ".review/schemas/pr_draft.schema.json", "change": "edit" }
+  ],
+  "tests": ["ajv validate"],
+  "verify_cmd": "pnpm dlx ajv-cli validate -s ... -d ...",
+  "risks": [],
+  "deviations": [],
+  "status": "ready_for_review"
+}

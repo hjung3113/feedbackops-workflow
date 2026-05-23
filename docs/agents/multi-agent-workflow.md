@@ -37,6 +37,8 @@ Every issue has one **Release Captain**. The Captain owns merge readiness with o
 - **Mandate:** verify *integrated behavior* — does the change work end-to-end, not just pass local tests?
 - **Why:** REVIEWER checks design fit and VERIFIER checks commands, but neither owns "does this actually ship safely."
 
+**Machine-checkable readiness (R5).** A `pr_draft` with `status: "ready_for_review"` is NOT done unless it carries a `verify_result` (`exit_code: 0`, `failed: 0`, `passed >= 1`) whose `verified_head_sha` equals the branch HEAD. A draft that claims ready but has no `verify_result`, or whose `verified_head_sha` no longer matches HEAD (work landed after verification), is treated by CONDUCTOR/Captain as **in_progress** — prose claims of "tests pass" do not count. The pr_draft schema enforces the `verify_result` requirement conditionally (it only fires for `ready_for_review`); `needs_amendment`/`abandoned` drafts need no evidence.
+
 ## Codex Sandbox Rule
 
 All `codex exec` invocations MUST go through `scripts/codex-safe.sh`, which enforces:

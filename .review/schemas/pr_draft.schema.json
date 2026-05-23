@@ -42,6 +42,34 @@
     "verify_output_path": { "type": "string" },
     "risks": { "type": "array", "items": { "type": "string" } },
     "deviations": { "type": "array", "items": { "type": "string" } },
-    "status": { "enum": ["ready_for_review", "needs_amendment", "abandoned"] }
+    "status": { "enum": ["ready_for_review", "needs_amendment", "abandoned"] },
+    "verify_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verified_head_sha", "passed", "failed", "exit_code"],
+      "properties": {
+        "verified_head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "pending": { "type": "integer", "minimum": 0 },
+        "exit_code": { "type": "integer" }
+      }
+    },
+    "worktree_path": { "type": "string", "description": "optional: absolute path to the worktree this artifact's branch lives in; used by conductor-rebuild to resolve the branch's real HEAD" },
+    "base_branch": { "type": "string", "description": "optional: the integration branch this feature branched from (e.g. 'develop' or 'feature/agent-workflow-trial'); used by artifact-fresh to compute merge-base instead of assuming develop" }
+  },
+  "if": { "properties": { "status": { "const": "ready_for_review" } }, "required": ["status"] },
+  "then": {
+    "required": ["verify_result"],
+    "properties": {
+      "verify_result": {
+        "type": "object",
+        "properties": {
+          "exit_code": { "const": 0 },
+          "failed": { "const": 0 },
+          "passed": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
   }
 }
