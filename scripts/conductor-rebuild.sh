@@ -87,25 +87,41 @@ process_pr_draft() {
   v_head="$(parse_field "$f" 'verify_result.verified_head_sha')"
   v_passed="$(parse_field "$f" 'verify_result.passed')"
   v_failed="$(parse_field "$f" 'verify_result.failed')"
+  v_exit="$(parse_field "$f" 'verify_result.exit_code')"
   # verify_result is "present" iff it carries a verified_head_sha (its required field).
   has_vr=""
   [ -n "$v_head" ] && has_vr="yes"
 
   # Resolve THIS artifact's real branch HEAD against its OWN worktree.
+  # head_source records WHERE actual_head came from: only a "worktree" source
+  # (an independent live `git rev-parse HEAD` on the artifact's own worktree)
+  # is trustworthy enough to certify `verified`. The optional fallback arg is
+  # NOT a per-branch HEAD — it may only ever DEMOTE, never produce `verified`
+  # (R6: an artifact must not be able to certify itself).
   actual_head=""
+  head_source=""
   if [ -n "$worktree" ] && [ -d "$worktree" ]; then
     actual_head="$(git -C "$worktree" rev-parse HEAD 2>/dev/null)"
+    [ -n "$actual_head" ] && head_source="worktree"
   elif [ -n "$FALLBACK_HEAD" ]; then
     actual_head="$FALLBACK_HEAD"
+    head_source="fallback"
   fi
 
   state="in_progress"
   if [ "$status" = "ready_for_review" ] && [ "$has_vr" = "yes" ] \
-     && [ "$v_failed" = "0" ] && [ -n "$v_passed" ] && [ "$v_passed" != "0" ]; then
+     && [ "$v_exit" = "0" ] && [ "$v_failed" = "0" ] \
+     && [ -n "$v_passed" ] && [ "$v_passed" != "0" ]; then
     if [ -z "$actual_head" ]; then
-      # ready, verified clean, but we cannot prove against a live HEAD → unknown.
+      # ready, verified clean, but we cannot prove against any HEAD → unknown.
+      state="unknown"
+    elif [ "$head_source" = "fallback" ]; then
+      # A fallback HEAD is not a trustworthy per-branch HEAD. It can never
+      # produce `verified` (that would let an artifact certify itself). Cap
+      # at `unknown` regardless of whether it happens to match verified_head_sha.
       state="unknown"
     elif [ "$v_head" = "$actual_head" ]; then
+      # head_source == "worktree": an INDEPENDENT live lookup agreed → verified.
       state="verified"
     else
       # work landed after verify
