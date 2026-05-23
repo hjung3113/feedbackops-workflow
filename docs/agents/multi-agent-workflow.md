@@ -40,3 +40,19 @@ Every `.review/ISSUE-*.json` carries `lifecycle: draft | active | superseded | f
 ## Workflow Tax Brake
 
 If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has failed and must be re-evaluated. The workflow exists to ship faster, not slower.
+
+## VERIFIER protocol
+
+VERIFIER MUST confirm green by running `scripts/verify.sh <filter>` — never by eyeballing test output and never by running a bare `pnpm test`. A bare `pnpm test` is forbidden as a green signal: in a trial it silently skipped all 31 integration tests (missing `DATABASE_URL`/`WORKSPACE_ID`) and a fully-skipped suite looked like a pass — a false green.
+
+`scripts/verify.sh` loads env (`.env` and `apps/backend/.env` if present), runs the scoped vitest filter via the JSON reporter, and classifies the result. It treats as a **FAIL**:
+
+- a fully-skipped suite (`numPassedTests + numFailedTests == 0` — discovered but pending),
+- any failed test (`numFailedTests > 0`),
+- a failed suite (`numFailedTestSuites > 0` — setup/import failure even with 0 failed tests),
+- a top-level `success === false`,
+- any `testResults[]` entry with `status === "failed"`,
+- a non-zero vitest exit code (the run crashed; JSON may be stale/partial),
+- a missing, empty, or unparseable report (fail closed).
+
+A PASS is reported only when none of the above trip.
