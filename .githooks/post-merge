@@ -7,10 +7,12 @@ CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$CUR_BRANCH" != "develop" ]] && exit 0
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-PARENT=$(dirname "$REPO_ROOT")
 
 # List all worktrees
-mapfile -t WORKTREES < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
+WORKTREES=()
+while IFS= read -r wt; do
+  WORKTREES+=("$wt")
+done < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
 
 SIBLINGS=()
 for wt in "${WORKTREES[@]}"; do
@@ -28,7 +30,7 @@ if [[ ${#SIBLINGS[@]} -eq 0 ]]; then
 fi
 
 echo ""
-echo "=== post-merge: $(echo "${#SIBLINGS[@]}") in-flight feature worktree(s) ==="
+echo "=== post-merge: ${#SIBLINGS[@]} in-flight feature worktree(s) ==="
 for entry in "${SIBLINGS[@]}"; do
   WT="${entry%%|*}"
   BR="${entry##*|}"
