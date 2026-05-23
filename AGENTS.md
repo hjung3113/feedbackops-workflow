@@ -1,0 +1,51 @@
+# Agent Workflow — Agent Guide
+
+This repo is a **multi-agent development workflow toolkit**: shell scripts, JSON artifact schemas, agent personas, and an operating playbook for running cmux × Claude × Codex clusters against a target codebase. It was built inside the FeedbackOps project and extracted here (history-preserving) so it can evolve independently and be reused on other projects.
+
+This file is the single source of truth for working in **this** repo. `CLAUDE.md` is a pointer stub. The operating playbook for the workflow itself is `docs/agents/multi-agent-workflow.md`.
+
+## What's here
+
+- `scripts/` — the workflow tooling. Host-side orchestration (`prepare-worktree.sh`, `cmux-cluster.sh`, `rebase-inflight.sh`), the codex dispatch wrapper (`codex-safe.sh`), the verification oracle (`verify.sh`), state reconstruction (`conductor-rebuild.sh`), staleness/archival (`artifact-fresh.sh`, `review-archive.sh`), tier routing (`tier-probe.sh`), and stash safety (`workflow-stash.sh`). Plus the v0.3 sandbox-network spike (`uds-pg-relay.mjs`).
+- `scripts/__tests__/*.smoke.sh` — the regression suite (8 smoke tests). Most scripts have one; `cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, and `uds-pg-relay.mjs` have no direct smoke yet (`codex-safe.sh` is partially covered by `sandbox-network-deny.smoke.sh`).
+- `.review/schemas/` — JSON Schemas (draft-07) for every workflow artifact: `pr_draft`, `review`, `touch`, `blocker`, `heartbeat`, `phase_summary`, and `verify` (artifact_type `verify_result`). Valid/invalid fixtures exist under `schemas/fixtures/` for `blocker`, `heartbeat`, `phase_summary`, and `pr_draft` only — `review`, `touch`, and `verify` have schemas but no fixtures yet.
+- `docs/agents/` — the playbook (`multi-agent-workflow.md`), role personas (`conductor-persona.md`, `visual-reviewer-persona.md`), the trial log (`workflow-trial-log.md`), and a prior session handoff.
+- `docs/superpowers/plans/` — the v0.1 and v0.2 implementation plans.
+- `STATUS.md` — current progress, the key findings, and remaining work. Read it first.
+
+## Operating Rules
+
+- Think before editing. State assumptions when a request can be read more than one way.
+- Prefer the smallest change that satisfies the request. No speculative flexibility.
+- Touch only files the task requires. Mention unrelated issues instead of fixing them.
+- Match existing patterns before inventing structure.
+- For multi-step work, define success criteria and verify them before claiming completion.
+- Don't merge to `main` or push without explicit user approval.
+
+## Dev Rules (this repo)
+
+- **bash-3.2 compatible.** Scripts must run on macOS's stock bash 3.2: no `declare -A`, no `${var,,}`, no `mapfile`. Match the style already in `scripts/`.
+- **Smoke tests are the gate.** Most scripts have a `scripts/__tests__/<name>.smoke.sh`. Run the relevant smoke after any change and add cases for new behavior. If you change a script that has no smoke yet (`cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, `uds-pg-relay.mjs`), add coverage or state why it's impractical. A change to a smoke-covered script without a passing smoke is not done.
+- **Doc-sync discipline.** Every script/schema change syncs the playbook (`docs/agents/multi-agent-workflow.md`) and any affected README/STATUS **in the same commit**. A DEVIATIONS note alone is insufficient for a contract change.
+- **Codex dispatch only via `scripts/codex-safe.sh`.** It pins `--sandbox workspace-write` and `--cd <worktree>`. Direct `codex exec` is forbidden. The sandbox blocks all network (incl. loopback) — see the Sandbox Rule in the playbook; never weaken this without recording the decision.
+- **Schemas are contracts.** When changing an artifact shape, update the schema + its fixtures together, and validate (`ajv-cli` or `node -e JSON.parse`).
+
+## Git Workflow
+
+- `main` is the trunk. Per-change branches `feat/<slug>`, `fix/<slug>`, `docs/<slug>`; PR into `main`.
+- Never commit directly to `main` or push without explicit user approval.
+- Commit messages use a `(workflow)` scope to match existing history, e.g. `feat(workflow): ...`, `fix(workflow): ...`, `docs(workflow): ...`.
+- `.githooks/post-merge` warns about in-flight sibling worktrees needing rebase. Enable once per clone: `git config core.hooksPath .githooks`.
+
+## Verification
+
+- Run the affected `scripts/__tests__/*.smoke.sh`. They are offline and bash-3.2 safe.
+- `scripts/verify.sh` is the **vitest verification oracle** for a *target* project (it loads env, runs a scoped vitest filter via the JSON reporter, and is false-green-proof). It is exercised here only by `verify.smoke.sh` (`--classify-json` mode); running its filter mode needs a target project with a backend package + local DB.
+- The network-deny regression guard is `scripts/__tests__/sandbox-network-deny.smoke.sh` (Layer 1 offline always; Layer 2 live in-sandbox probe with `RUN_LIVE_SANDBOX_PROBE=1` + `codex` on PATH).
+
+## Source Of Truth
+
+1. `AGENTS.md` (this file) — repo operating rules.
+2. `docs/agents/multi-agent-workflow.md` — the workflow operating playbook (risk tiers, roles, Release Captain, sandbox rule, VERIFIER protocol).
+3. `.review/schemas/*.schema.json` — artifact contracts.
+4. `STATUS.md` — current state + remaining work (mutable; reflects reality, not aspiration).

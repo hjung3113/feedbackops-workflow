@@ -1,0 +1,26 @@
+# deps / env
+node_modules/
+.env
+.env.*
+!.env.example
+
+# runtime workflow artifacts (schemas + README + .gitkeep stay tracked)
+.review/ISSUE-*.json
+.review/CLUSTER-*.json
+.review/PHASE-*.json
+.review/*-VERIFY.json
+.review/*-PROMPT.txt
+.review/archive/
+.review/.rebase-inflight.lock
+.review/*.sock
+.review/pg.sock
+.review/netdeny-probe.*
+.review/uds-probe-result.txt
+
+# tooling caches
+.codegraph/
+.playwright-mcp/
+
+# os / logs
+.DS_Store
+*.log
