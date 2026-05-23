@@ -67,8 +67,28 @@ if [ -z "$branch" ]; then
   exit 2
 fi
 
-# 3. Compute merge-base against the resolved branch.
-merge_base="$(git merge-base HEAD "$branch" 2>"$artifact.giterr.$$")"
+# 3. Resolve WHERE to compute the merge-base. The artifact's freshness is a
+# property of ITS OWN branch HEAD, not the caller's. If the artifact declares
+# a worktree_path that is a real directory, run git there so HEAD == the
+# artifact's branch HEAD. Otherwise fall back to the caller's cwd HEAD and
+# WARN — that result is only valid if run from the artifact's checkout.
+worktree_path="$(read_field worktree_path)" || {
+  echo "$PROG: ERROR — could not parse $artifact" >&2
+  exit 2
+}
+if [ -n "$worktree_path" ] && [ -d "$worktree_path" ]; then
+  set -- -C "$worktree_path"
+else
+  if [ -n "$worktree_path" ]; then
+    echo "$PROG: WARNING — worktree_path '$worktree_path' is not a directory; computing freshness against caller HEAD (valid only if run from the artifact's checkout)" >&2
+  else
+    echo "$PROG: WARNING — no worktree_path in $artifact; computing freshness against caller HEAD (valid only if run from the artifact's checkout)" >&2
+  fi
+  set --
+fi
+
+# 4. Compute merge-base against the resolved branch (in the resolved tree).
+merge_base="$(git "$@" merge-base HEAD "$branch" 2>"$artifact.giterr.$$")"
 git_status=$?
 git_err="$(cat "$artifact.giterr.$$" 2>/dev/null)"
 rm -f "$artifact.giterr.$$"
@@ -77,12 +97,12 @@ if [ "$git_status" -ne 0 ] || [ -z "$merge_base" ]; then
   exit 2
 fi
 
-# 4. Compare.
+# 5. Compare.
 if [ "$base_sha" != "$merge_base" ]; then
   echo "$PROG: STALE — $artifact base_sha=$base_sha but merge-base($branch)=$merge_base" >&2
   exit 1
 fi
 
-# 5. Fresh.
+# 6. Fresh.
 echo "$PROG: OK — $artifact is current (base $branch)."
 exit 0

@@ -80,6 +80,76 @@ fi
 run_case "override path: no base_branch but override arg" 0 "$a_override" "base"
 run_case "no base_sha is error (2)"                    2 "$a_nosha"
 
+# --- worktree-awareness ---
+# Build a separate base repo on branch `dev`, then a feature checkout one
+# commit ahead so merge-base(feature-HEAD, dev) == the dev tip (WT_MB).
+# The artifact declares worktree_path = the feature checkout. We run the
+# script FROM the base repo root (a DIFFERENT cwd, where HEAD is dev's tip,
+# NOT the feature HEAD). Correct behavior must use worktree_path, not cwd.
+WTREPO="$TMP_DIR/wtrepo"
+mkdir -p "$WTREPO"
+(
+  cd "$WTREPO" || exit 1
+  git init -q
+  git config user.email "smoke@test"
+  git config user.name "smoke"
+  git checkout -q -b dev
+  echo d > d.txt
+  git add d.txt
+  git commit -q -m "dev commit"
+) || { echo "wtrepo setup failed"; exit 1; }
+
+WT_MB="$(cd "$WTREPO" && git rev-parse HEAD)"
+
+# Feature worktree, one commit ahead of dev. merge-base(feature, dev)==WT_MB.
+WT_FEATURE="$TMP_DIR/wtrepo-feature"
+(
+  cd "$WTREPO" || exit 1
+  git worktree add -q -b feature/x "$WT_FEATURE" dev
+  cd "$WT_FEATURE" || exit 1
+  echo e > e.txt
+  git add e.txt
+  git commit -q -m "feature/x commit"
+) || { echo "feature worktree setup failed"; exit 1; }
+
+# run_case_cwd <name> <expected-exit> <cwd> <artifact>
+run_case_cwd() {
+  name="$1"; expected="$2"; cwd="$3"; artifact="$4"
+  ( cd "$cwd" && bash "$FRESH" "$artifact" ) >/dev/null 2>"$TMP_DIR/err.txt"
+  actual=$?
+  if [ "$actual" -eq "$expected" ]; then
+    echo "ok   - $name (exit $actual)"
+  else
+    echo "NOT OK - $name (expected exit $expected, got $actual; stderr: $(cat "$TMP_DIR/err.txt"))"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+a_wt_fresh=$(write_json wt_fresh.json \
+  "{\"base_sha\":\"$WT_MB\",\"base_branch\":\"dev\",\"worktree_path\":\"$WT_FEATURE\"}")
+# Run FROM $REPO — an unrelated repo that has branches `base`/`feature` but NOT
+# `dev`. A caller-cwd resolution would do `git merge-base HEAD dev` in $REPO,
+# where `dev` does not exist → it errors (exit 2), giving the WRONG answer.
+# A worktree-aware resolution runs git in $WT_FEATURE where `dev` exists and
+# merge-base(feature/x, dev)==WT_MB==base_sha → fresh (exit 0). Asserting 0
+# from this cwd unambiguously proves worktree_path was used, not the caller.
+run_case_cwd "worktree-aware: fresh resolved in worktree_path, not caller cwd" \
+  0 "$REPO" "$a_wt_fresh"
+
+# Now make it stale: advance dev and move feature/x onto it so the real
+# merge-base in the worktree moves away from the artifact's recorded base_sha.
+(
+  cd "$WTREPO" || exit 1
+  echo d2 > d2.txt
+  git add d2.txt
+  git commit -q -m "dev advances"
+  cd "$WT_FEATURE" || exit 1
+  git merge -q --no-edit dev
+) || { echo "dev advance setup failed"; exit 1; }
+
+run_case_cwd "worktree-aware: stale after merge-base moves in worktree_path" \
+  1 "$REPO" "$a_wt_fresh"
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

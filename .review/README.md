@@ -34,6 +34,14 @@ caller force the integration branch. If **both** the override is absent and the
 artifact has no `base_branch`, the check **refuses (fails with exit 2) rather
 than assuming develop**.
 
+Freshness is a property of the artifact's OWN branch HEAD, not the caller's.
+`artifact-fresh.sh` now resolves the merge-base in the artifact's own
+`worktree_path` when that field is present and points at a real directory (it
+runs `git -C "$worktree_path"`), so a reader running from infra/main gets the
+right answer. When `worktree_path` is absent or missing, it falls back to the
+caller's HEAD and prints a stderr **warning** that the result is only valid if
+run from the artifact's checkout.
+
 ## Lifecycle
 
 Every JSON includes `lifecycle: "draft" | "active" | "superseded" | "final"`.
