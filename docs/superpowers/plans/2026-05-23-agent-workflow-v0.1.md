@@ -330,7 +330,7 @@ UNTRACKED_DIR=".review/ISSUE-${ISSUE_N}-PARTIAL-UNTRACKED"
 
 if [[ $HAS_TRACKED -eq 1 ]]; then
   git diff HEAD > "$DIFF_OUT"
-  echo "stashed tracked diff to $DIFF_OUT ($(wc -l < "$DIFF_OUT") lines)"
+  echo "stashed tracked diff to $DIFF_OUT ($(wc -l < "$DIFF_OUT" | tr -d ' ') lines)"
 fi
 
 if [[ $HAS_UNTRACKED -eq 1 ]]; then
@@ -352,7 +352,7 @@ if [[ $HAS_UNTRACKED -eq 1 ]]; then
         break
       fi
       mkdir -p "$UNTRACKED_DIR/$(dirname "$f")"
-      cp "$f" "$UNTRACKED_DIR/$f"
+      cp "$f" "$UNTRACKED_DIR/$f" 2>/dev/null || { echo "WARN: skipping unreadable $f" >&2; continue; }
     done < <(git ls-files --others --exclude-standard -z)
     if [[ $OVER_LIMIT -eq 1 ]]; then
       echo "WARN: total untracked size exceeded MAX_UNTRACKED_BYTES=$MAX_UNTRACKED_BYTES — partial copy in $UNTRACKED_DIR/" >&2
@@ -367,7 +367,7 @@ fi
 
 ```bash
 #!/usr/bin/env bash
-# codex exec wrapper. Enforces: workspace-write sandbox, --cwd lock,
+# codex exec wrapper. Enforces: workspace-write sandbox, --cd working-dir lock,
 # optional abort-stash for partial work preservation.
 #
 # Usage:
@@ -393,6 +393,7 @@ done
 [[ -z "$ISSUE_N" ]] && { echo "missing --issue" >&2; exit 2; }
 [[ -z "$PROMPT" && -z "$PROMPT_FILE" ]] && { echo "missing --prompt or --prompt-file" >&2; exit 2; }
 [[ -n "$PROMPT_FILE" ]] && PROMPT="$(cat "$PROMPT_FILE")"
+[[ -z "$PROMPT" ]] && { echo "prompt is empty (check --prompt-file content)" >&2; exit 2; }
 
 # Trap to stash ONLY on non-zero exit (codex failure or abort).
 # On success, leave artifacts alone — agent already wrote its handoff files.
