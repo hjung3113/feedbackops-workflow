@@ -491,12 +491,20 @@ else
 fi
 
 # Spawn cmux workspace
-WS=$(cmux new-workspace --name "issue-${ISSUE_N}-${SLUG}" --cwd "$WT_PATH" | awk '{print $2}')
-LEFT=$(cmux list-pane-surfaces --workspace "$WS" | awk 'NR==1{print $2}')
+WS=$(cmux new-workspace --name "issue-${ISSUE_N}-${SLUG}" --cwd "$WT_PATH" | awk 'NR==1{print $2; exit}')
+LEFT=$(cmux list-pane-surfaces --workspace "$WS" | awk 'NR==1{print $2; exit}')
 
-RIGHT=$(cmux new-split right --workspace "$WS" --surface "$LEFT" | awk '{print $2}')
-BL=$(cmux new-split down --workspace "$WS" --surface "$LEFT" | awk '{print $2}')
-BR=$(cmux new-split down --workspace "$WS" --surface "$RIGHT" | awk '{print $2}')
+RIGHT=$(cmux new-split right --workspace "$WS" --surface "$LEFT" | awk 'NR==1{print $2; exit}')
+BL=$(cmux new-split down --workspace "$WS" --surface "$LEFT" | awk 'NR==1{print $2; exit}')
+BR=$(cmux new-split down --workspace "$WS" --surface "$RIGHT" | awk 'NR==1{print $2; exit}')
+
+# Guard: any empty ID means a cmux call produced no output — abort before half-building.
+for v in WS LEFT RIGHT BL BR; do
+  if [[ -z "${!v}" ]]; then
+    echo "ERROR: cmux produced no ID for $v — aborting (workspace may be half-built)." >&2
+    exit 1
+  fi
+done
 
 cmux rename-tab --workspace "$WS" --surface "$LEFT"  "ARCHITECT-${ISSUE_N}"
 cmux rename-tab --workspace "$WS" --surface "$RIGHT" "CODEX-${ISSUE_N}"
@@ -542,10 +550,12 @@ Visual check: open cmux, see 4 panes labeled `ARCHITECT-9999` etc.
 - [ ] **Step 5: Cleanup test workspace + worktree**
 
 ```bash
-WS_ID=$(cmux list-workspaces | awk '/issue-9999-dry/{print $2}')
+# Extract the workspace:N handle regardless of column position (a selected
+# workspace is prefixed with '*', shifting fields). Match the token by pattern.
+WS_ID=$(cmux list-workspaces | awk '/issue-9999-dry/{for(i=1;i<=NF;i++) if($i ~ /^workspace:/){print $i; exit}}')
 [[ -n "$WS_ID" ]] && cmux close-workspace --workspace "$WS_ID"
-git worktree remove ../wt-9999-dry --force
-git branch -D feature/9999-dry
+git worktree remove ../wt-9999-dry --force 2>/dev/null || true
+git branch -D feature/9999-dry 2>/dev/null || true
 ```
 
 - [ ] **Step 6: Commit**
