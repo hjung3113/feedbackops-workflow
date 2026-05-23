@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# codex exec wrapper. Enforces: workspace-write sandbox, --cwd lock,
+# codex exec wrapper. Enforces: workspace-write sandbox, --cd working-dir lock,
 # optional abort-stash for partial work preservation.
 #
 # Usage:
@@ -25,6 +25,7 @@ done
 [[ -z "$ISSUE_N" ]] && { echo "missing --issue" >&2; exit 2; }
 [[ -z "$PROMPT" && -z "$PROMPT_FILE" ]] && { echo "missing --prompt or --prompt-file" >&2; exit 2; }
 [[ -n "$PROMPT_FILE" ]] && PROMPT="$(cat "$PROMPT_FILE")"
+[[ -z "$PROMPT" ]] && { echo "prompt is empty (check --prompt-file content)" >&2; exit 2; }
 
 # Trap to stash ONLY on non-zero exit (codex failure or abort).
 # On success, leave artifacts alone — agent already wrote its handoff files.

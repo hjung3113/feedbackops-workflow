@@ -31,7 +31,7 @@ UNTRACKED_DIR=".review/ISSUE-${ISSUE_N}-PARTIAL-UNTRACKED"
 
 if [[ $HAS_TRACKED -eq 1 ]]; then
   git diff HEAD > "$DIFF_OUT"
-  echo "stashed tracked diff to $DIFF_OUT ($(wc -l < "$DIFF_OUT") lines)"
+  echo "stashed tracked diff to $DIFF_OUT ($(wc -l < "$DIFF_OUT" | tr -d ' ') lines)"
 fi
 
 if [[ $HAS_UNTRACKED -eq 1 ]]; then
@@ -53,7 +53,7 @@ if [[ $HAS_UNTRACKED -eq 1 ]]; then
         break
       fi
       mkdir -p "$UNTRACKED_DIR/$(dirname "$f")"
-      cp "$f" "$UNTRACKED_DIR/$f"
+      cp "$f" "$UNTRACKED_DIR/$f" 2>/dev/null || { echo "WARN: skipping unreadable $f" >&2; continue; }
     done < <(git ls-files --others --exclude-standard -z)
     if [[ $OVER_LIMIT -eq 1 ]]; then
       echo "WARN: total untracked size exceeded MAX_UNTRACKED_BYTES=$MAX_UNTRACKED_BYTES — partial copy in $UNTRACKED_DIR/" >&2
