@@ -658,10 +658,10 @@ git commit -m "feat(workflow): post-merge hook warns about in-flight worktrees n
 ## Task 5: AGENTS.md Patch — Risk-Tier Routing + Release Captain + Sandbox Rule
 
 **Files:**
-- Create: `docs/agents/workflow.md`
+- Create: `docs/agents/multi-agent-workflow.md`
 - Modify: `AGENTS.md` (add pointer + sandbox rule)
 
-- [ ] **Step 1: Write `docs/agents/workflow.md`**
+- [ ] **Step 1: Write `docs/agents/multi-agent-workflow.md`**
 
 ```markdown
 # Multi-Agent Workflow — Operating Playbook v0.1
@@ -693,9 +693,9 @@ Every issue has one **Release Captain**. The Captain owns merge readiness with o
 
 All `codex exec` invocations MUST go through `scripts/codex-safe.sh`, which enforces:
 
-- `--sandbox workspace-write` (no read/write outside cwd)
-- `--cwd <worktree>` (lock to single worktree)
-- abort-time `workflow-stash.sh` (preserve partial diff)
+- `--sandbox workspace-write` (no read/write outside the working root)
+- `--cd <worktree>` on the codex call (locks codex's writable root to one worktree). The wrapper's own CLI flag is `--cwd`; it maps that to codex's `-C/--cd`.
+- abort-time `workflow-stash.sh` (preserve partial diff on non-zero exit)
 
 Direct `codex exec` invocations are forbidden in this workflow.
 
@@ -713,21 +713,21 @@ If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has f
 Add new bullet at the end of the `## Agent Skills` block:
 
 ```markdown
-- **Multi-agent workflow (v0.1 trial).** Operating playbook in `docs/agents/workflow.md`. Risk tiers, Release Captain, codex sandbox rule. All `codex exec` MUST go through `scripts/codex-safe.sh`.
+- **Multi-agent workflow (v0.1 trial).** Operating playbook in `docs/agents/multi-agent-workflow.md`. Risk tiers, Release Captain, codex sandbox rule. All `codex exec` MUST go through `scripts/codex-safe.sh`.
 ```
 
 - [ ] **Step 3: Verify links resolve**
 
 ```bash
-test -f docs/agents/workflow.md && echo "workflow.md OK"
-grep -q "docs/agents/workflow.md" AGENTS.md && echo "AGENTS.md pointer OK"
+test -f docs/agents/multi-agent-workflow.md && echo "workflow.md OK"
+grep -q "docs/agents/multi-agent-workflow.md" AGENTS.md && echo "AGENTS.md pointer OK"
 ```
 Expected: both `OK` lines.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/agents/workflow.md AGENTS.md
+git add docs/agents/multi-agent-workflow.md AGENTS.md
 git commit -m "docs(workflow): operating playbook v0.1 — risk tiers + Release Captain + sandbox rule"
 ```
 
@@ -762,7 +762,7 @@ TRIAL_BASE="${TRIAL_BASE:-develop}"
 git worktree add "$WT_PATH" -b "$BRANCH" "$TRIAL_BASE"
 ```
 
-Note the workspace ID and pane IDs printed. Cluster tier: **Trivial** (P3, single file, type-only change). The new worktree will contain `scripts/codex-safe.sh`, `.review/schemas/*`, `docs/agents/workflow.md`.
+Note the workspace ID and pane IDs printed. Cluster tier: **Trivial** (P3, single file, type-only change). The new worktree will contain `scripts/codex-safe.sh`, `.review/schemas/*`, `docs/agents/multi-agent-workflow.md`.
 
 - [ ] **Step 2: ARCHITECT writes prompt (Trivial template — MINIMAL)**
 
@@ -810,7 +810,7 @@ Expected: `valid`.
 In REVIEWER pane, launch fresh `claude --model sonnet` session. Hand it:
 - `git diff develop...HEAD` of the worktree
 - `.review/ISSUE-33-PR-DRAFT.json`
-- `docs/agents/workflow.md` (for checklist template)
+- `docs/agents/multi-agent-workflow.md` (for checklist template)
 
 REVIEWER produces `.review/ISSUE-33-REVIEW.json` with status `pass` or `fail`. Validate:
 
