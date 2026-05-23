@@ -37,8 +37,9 @@ than assuming develop**.
 ## Lifecycle
 
 Every JSON includes `lifecycle: "draft" | "active" | "superseded" | "final"`.
-Superseded files MUST be ignored by readers. Cleanup: archived under
-`.review/archive/YYYY-MM/` on PR merge.
+Superseded files MUST be ignored by readers. Cleanup: on PR merge, run
+`scripts/review-archive.sh <issue>` to move that issue's artifacts to
+`.review/archive/YYYY-MM/`.
 
 ## Schema versioning
 
