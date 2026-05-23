@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "artifact_type": "blocker",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "producer_version": "0.2.0",
+  "issue": {
+    "number": 33,
+    "title": "Add per-tenant rate limit to VOC ingest"
+  },
+  "reason_code": "tier_escalation_required",
+  "blocking_fact": "Implementing the rate limit requires editing src/permissions/tenantPolicy.ts (a shared permission gate) and src/voc/ingestPipeline.ts, both consumed across modules — typecheck flags 4 downstream callers of TenantPolicy.resolve.",
+  "attempted_commands": ["pnpm --filter backend run typecheck"],
+  "needed_decision": "ARCHITECT must decide whether to widen TenantPolicy.resolve's signature (breaking 4 callers) or add a separate VocRateLimitPolicy alongside it.",
+  "files_touched_before_abort": ["src/voc/ingestPipeline.ts"],
+  "partial_diff_path": ".review/ISSUE-33-PARTIAL.diff"
+}

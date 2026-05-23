@@ -3,7 +3,7 @@
   "title": "Blocker Artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "attempted_command", "blocker", "recommended_actions"],
+  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "reason_code", "blocking_fact", "attempted_commands", "needed_decision"],
   "properties": {
     "schema_version": { "const": "1" },
     "artifact_type": { "const": "blocker" },
@@ -19,13 +19,28 @@
         "title": { "type": "string" }
       }
     },
-    "attempted_command": { "type": "string" },
-    "blocker": { "type": "string" },
+    "reason_code": {
+      "enum": ["scope_violation", "missing_dependency", "ambiguous_requirement", "failing_precondition", "sandbox_limitation", "tier_escalation_required"],
+      "description": "Pick the closest cause; do NOT free-write the cause as prose."
+    },
+    "blocking_fact": {
+      "type": "string",
+      "description": "The CONCRETE observed fact naming ACTUAL files/symbols hit. Never copy phrasing from the dispatch prompt."
+    },
+    "attempted_commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Exact commands run before aborting."
+    },
+    "needed_decision": {
+      "type": "string",
+      "description": "The specific human/ARCHITECT decision required to unblock."
+    },
     "files_touched_before_abort": { "type": "array", "items": { "type": "string" } },
     "partial_diff_path": { "type": "string" },
     "recommended_actions": {
       "type": "array",
-      "minItems": 1,
       "items": { "type": "string" }
     }
   }

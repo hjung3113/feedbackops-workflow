@@ -5,7 +5,7 @@ Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 ## Files
 
 - `ISSUE-N-PR-DRAFT.json` — CODEX → REVIEWER handoff (commit SHA, files, verify)
-- `ISSUE-N-BLOCKER.json` — CODEX abort report (no commit, why stopped)
+- `ISSUE-N-BLOCKER.json` — CODEX abort report (no commit, why stopped). Cause is structured, not prose: `reason_code` (enum) + `blocking_fact` (concrete observed fact naming the ACTUAL files/symbols hit — never copied from the dispatch prompt) + `attempted_commands` (exact commands run before aborting) + `needed_decision` (the specific human/ARCHITECT call needed to unblock). `recommended_actions` is now optional/demoted.
 - `ISSUE-N-REVIEW.json` — REVIEWER findings + patch_instructions for ARCHITECT
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)
 - `ISSUE-N-PARTIAL.diff` — stashed partial work on abort (v0.1: optional)

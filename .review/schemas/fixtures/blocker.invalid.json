@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "artifact_type": "blocker",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "issue": {
+    "number": 33,
+    "title": "Add per-tenant rate limit to VOC ingest"
+  },
+  "attempted_commands": ["pnpm --filter backend run typecheck"],
+  "needed_decision": "ARCHITECT must pick the escalation tier.",
+  "recommended_actions": ["escalate to Full Cluster tier (touches packages/shared)"]
+}
