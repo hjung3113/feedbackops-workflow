@@ -37,4 +37,6 @@ for entry in "${SIBLINGS[@]}"; do
   echo "  • $BR at $WT"
   echo "    suggest: (cd $WT && git fetch && git rebase develop && pnpm test:affected)"
 done
+echo "  → or run: scripts/rebase-inflight.sh --onto $CUR_BRANCH"
+echo "    (explicit, dirty-safe, conflict-aborting — this hook only warns; R9)"
 echo ""
