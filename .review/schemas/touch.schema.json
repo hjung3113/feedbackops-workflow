@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Touch Declaration Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "files", "escalation_required"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "touch" },
+    "lifecycle": { "enum": ["active", "superseded", "final"] },
+    "producer_role": { "const": "CODEX" },
+    "producer_version": { "type": "string" },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number"],
+      "properties": { "number": { "type": "integer" } }
+    },
+    "files": { "type": "array", "items": { "type": "string" } },
+    "escalation_required": { "type": "boolean", "description": "true if touches packages/shared, migrations, shared UI, permissions, or auth" }
+  }
+}

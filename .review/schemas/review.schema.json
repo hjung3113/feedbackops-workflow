@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Review Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "reviewed_head_sha", "status", "checklist"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "review" },
+    "lifecycle": { "enum": ["draft", "active", "superseded", "final"] },
+    "producer_role": { "const": "REVIEWER" },
+    "producer_version": { "type": "string" },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number"],
+      "properties": { "number": { "type": "integer" } }
+    },
+    "reviewed_head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "status": { "enum": ["pass", "fail", "blocked"] },
+    "checklist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "met"],
+        "properties": {
+          "item": { "type": "string" },
+          "met": { "type": "boolean" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "description"],
+        "properties": {
+          "severity": { "enum": ["block", "fix", "nit"] },
+          "description": { "type": "string" },
+          "file": { "type": "string" }
+        }
+      }
+    },
+    "patch_instructions": { "type": "string" }
+  }
+}

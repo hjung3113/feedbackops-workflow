@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PR Draft Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "branch", "base_sha", "head_sha", "files_touched", "verify_cmd", "status"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "pr_draft" },
+    "lifecycle": { "enum": ["draft", "active", "superseded", "final"] },
+    "producer_role": { "const": "CODEX" },
+    "producer_version": { "type": "string", "description": "optional: agent CLI version (e.g. 'codex/0.133.0') for debugging provenance" },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "title"],
+      "properties": {
+        "number": { "type": "integer" },
+        "title": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "branch": { "type": "string" },
+    "base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "summary": { "type": "string" },
+    "files_touched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change"],
+        "properties": {
+          "path": { "type": "string" },
+          "change": { "enum": ["add", "edit", "delete"] }
+        }
+      }
+    },
+    "tests": { "type": "array", "items": { "type": "string" } },
+    "verify_cmd": { "type": "string" },
+    "verify_output_path": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "deviations": { "type": "array", "items": { "type": "string" } },
+    "status": { "enum": ["ready_for_review", "needs_amendment", "abandoned"] }
+  }
+}
