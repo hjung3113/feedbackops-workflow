@@ -20,7 +20,39 @@ set -u
 
 usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
+  echo "       verify.sh --typecheck-diff <baseline-file> <current-file>" >&2
+  echo "       verify.sh --typecheck" >&2
   echo "       verify.sh <vitest-filter>" >&2
+}
+
+# typecheck_diff <baseline-file> <current-file>
+# Any error line in <current> but NOT in <baseline> is a NEW error → FAIL.
+# Missing baseline is treated as empty (all current lines are new).
+typecheck_diff() {
+  baseline="$1"
+  current="$2"
+
+  if [ ! -f "$current" ]; then
+    echo "FAIL: current typecheck file not found: $current (fail closed)" >&2
+    return 1
+  fi
+
+  baseline_src="$baseline"
+  if [ ! -f "$baseline" ]; then
+    baseline_src="/dev/null"
+  fi
+
+  # New-only lines: present in current, absent from baseline.
+  new_lines="$(comm -13 <(sort -u "$baseline_src") <(sort -u "$current"))"
+
+  if [ -n "$new_lines" ]; then
+    echo "FAIL: NEW typecheck error(s) not in baseline ($baseline):" >&2
+    echo "$new_lines" >&2
+    return 1
+  fi
+
+  echo "PASS: no new typecheck errors beyond baseline ($baseline)"
+  return 0
 }
 
 # classify_json <report-file> <vitest-exit-code>
@@ -141,6 +173,30 @@ main() {
     report="$2"
     vitest_ec="${3:-0}"
     classify_json "$report" "$vitest_ec"
+    exit $?
+  fi
+
+  if [ "$1" = "--typecheck-diff" ]; then
+    if [ "$#" -lt 3 ]; then
+      usage
+      exit 2
+    fi
+    typecheck_diff "$2" "$3"
+    exit $?
+  fi
+
+  if [ "$1" = "--typecheck" ]; then
+    root="$(git rev-parse --show-toplevel)"
+    cd "$root" || exit 2
+    baseline=".review/typecheck-baseline.txt"
+    if [ ! -f "$baseline" ]; then
+      mkdir -p "$(dirname "$baseline")"
+      : > "$baseline"
+    fi
+    tmp_current="$(mktemp -t verify-typecheck.XXXXXX)"
+    trap 'rm -f "$tmp_current"' EXIT
+    pnpm --filter backend run typecheck 2>&1 | grep -E "error TS[0-9]+" | sort -u > "$tmp_current" || true
+    typecheck_diff "$baseline" "$tmp_current"
     exit $?
   fi
 

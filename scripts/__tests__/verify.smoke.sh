@@ -54,6 +54,32 @@ run_case "non-zero vitest exit is FAIL"     FAIL "$f_green" "1"
 run_case "malformed JSON is FAIL"           FAIL "$f_malformed"
 run_case "missing report file is FAIL"      FAIL "$f_missing"
 
+echo "--- typecheck baseline diff ---"
+
+# run_diff_case <name> <expected: PASS|FAIL> <baseline-file> <current-file>
+run_diff_case() {
+  name="$1"; expected="$2"; baseline="$3"; current="$4"
+  bash "$VERIFY" --typecheck-diff "$baseline" "$current" >/dev/null 2>&1
+  actual_ec=$?
+  if [ "$actual_ec" -eq 0 ]; then actual="PASS"; else actual="FAIL"; fi
+  if [ "$actual" = "$expected" ]; then
+    echo "ok   - $name (expected $expected, got $actual)"
+  else
+    echo "NOT OK - $name (expected $expected, got $actual)"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+tc_baseline="$TMP_DIR/tc_baseline.txt"
+printf '%s\n' 'a.ts(1,1): error TS1 known' > "$tc_baseline"
+tc_current="$TMP_DIR/tc_current.txt"
+printf '%s\n%s\n' 'a.ts(1,1): error TS1 known' 'b.ts(2,2): error TS2 NEW' > "$tc_current"
+tc_missing="$TMP_DIR/tc_does_not_exist.txt"
+
+run_diff_case "new error vs baseline is FAIL"        FAIL "$tc_baseline" "$tc_current"
+run_diff_case "current==baseline is PASS"            PASS "$tc_baseline" "$tc_baseline"
+run_diff_case "missing baseline + errors is FAIL"    FAIL "$tc_missing"  "$tc_current"
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

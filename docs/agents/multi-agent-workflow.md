@@ -56,3 +56,9 @@ VERIFIER MUST confirm green by running `scripts/verify.sh <filter>` — never by
 - a missing, empty, or unparseable report (fail closed).
 
 A PASS is reported only when none of the above trip.
+
+### Baseline-aware typecheck
+
+Typecheck is **baseline-aware**: VERIFIER runs `scripts/verify.sh --typecheck`. It runs `pnpm --filter backend run typecheck`, extracts `error TS…` lines, and diffs them against `.review/typecheck-baseline.txt`. It fails **only** on errors absent from that baseline — i.e. NEW compile errors the change introduced. A pre-existing baseline error is never permission to merge a NEW compile error.
+
+Refresh `.review/typecheck-baseline.txt` (noting it in the commit) **only** when a pre-existing error is independently fixed — never to silence a new error.
