@@ -87,6 +87,15 @@ printf '%s\n' 'export const VALUE = 42;' > "$r/const.ts"
 printf '%s\n%s\n' '// document the value' 'export const VALUE = 42;' > "$r/const.ts"
 assert_exit "exported file, comment-only diff -> permissible (provably comment-only)" 0 "$r" const.ts
 
+# --- Case 7: exported const, only changed line is a wrapped `*`-operator
+#     continuation -> DISALLOW (1). Regression: a `*`-prefixed code line
+#     must NOT be misread as a comment continuation and permit Trivial. ---
+r=$(fresh_repo)
+printf '%s\n%s\n' 'export const MASK = 0xff' '  * 2;' > "$r/mask.ts"
+( cd "$r" && git add mask.ts && git commit -qm base )
+printf '%s\n%s\n' 'export const MASK = 0xff' '  * 256;' > "$r/mask.ts"
+assert_exit "exported const wrapped *-operator continuation -> DISALLOW (regression)" 1 "$r" mask.ts
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

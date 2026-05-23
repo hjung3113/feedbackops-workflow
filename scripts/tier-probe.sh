@@ -113,11 +113,21 @@ for f in "$@"; do
   # If the file contains ANY `export` keyword AND the diff is not provably
   # comment/whitespace-only, DISALLOW. "Provably comment/whitespace-only" =
   # every changed content line, after stripping leading whitespace, starts
-  # with //, /*, *, */, or is blank.
+  # with //, /*, */, or is blank.
+  #
+  # NOTE: a bare-`*` prefix is NOT a comment marker here. A line starting
+  # with `*` is only a comment inside a `/* */` block — line-locally we
+  # can't know that, and a real wrapped operator continuation like
+  # `  * 256;` (e.g. `0xff * 256`) starts with `*` too. Treating bare-`*`
+  # as a comment once let such an exported-const code change slip through
+  # as "comment-only" → false negative (the exact R2 harm). Per R2's bias
+  # we drop the bare-`*` alternative: a pure JSDoc-continuation edit now
+  # DISALLOWs (acceptable false positive), but a real code line can never
+  # again be absorbed by a `*`-continuation.
   if grep -q 'export' "$f" 2>/dev/null; then
     non_comment="$(printf '%s\n' "$changed" \
       | sed -E 's/^[[:space:]]+//' \
-      | grep -Ev '^(//|/\*|\*/|\*|$)')"
+      | grep -Ev '^(//|/\*|\*/|$)')"
     if [ -n "$non_comment" ]; then
       DISALLOW=1
       note_reason "$f: exported-TS file with non-comment/whitespace diff (ambiguous — non-Trivial unless proven otherwise)"
