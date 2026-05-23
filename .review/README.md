@@ -16,6 +16,24 @@ Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 
 PHASE-SUMMARY is a cache of lower-level artifacts. Readers MUST treat `derived_from` as authority; a `chunks[].state == "verified"` claim is INVALID unless `evidence_head_sha` equals the branch HEAD, and a `derived_from[].content_sha256` that no longer matches the on-disk artifact means the summary is STALE and must be regenerated.
 
+## Artifact expiry
+
+An artifact carries a `base_sha` (the merge-base it was created against). As a
+branch's base drifts, that artifact goes STALE. Before trusting any artifact, a
+reader MUST run:
+
+```bash
+scripts/artifact-fresh.sh <artifact.json> [<integration-branch-override>]
+```
+
+Exit 0 = fresh; **any non-zero exit means the artifact is INVALID** and must be
+rejected, not merely logged. Freshness is computed against the artifact's own
+declared `base_branch` (NOT a hardcoded `develop`) — worker branches may fork
+from an infra branch like `feature/agent-workflow-trial`. A CLI override lets a
+caller force the integration branch. If **both** the override is absent and the
+artifact has no `base_branch`, the check **refuses (fails with exit 2) rather
+than assuming develop**.
+
 ## Lifecycle
 
 Every JSON includes `lifecycle: "draft" | "active" | "superseded" | "final"`.
