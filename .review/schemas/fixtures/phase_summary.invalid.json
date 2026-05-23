@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "artifact_type": "phase_summary",
+  "lifecycle": "active",
+  "producer_role": "CONDUCTOR",
+  "phase": 2,
+  "generated_at": "2026-05-23T14:30:00Z",
+  "derived_from": [
+    {
+      "artifact_path": ".review/ISSUE-31-PR-DRAFT.json",
+      "content_sha256": "9f86d081884c7d659a2",
+      "head_sha": "e86c685a1b2c3d4e5f60718293a4b5c6d7e8f901"
+    }
+  ],
+  "chunks": [
+    {
+      "issue": 31,
+      "state": "verified",
+      "evidence_artifact": ".review/ISSUE-31-PR-DRAFT.json"
+    }
+  ]
+}

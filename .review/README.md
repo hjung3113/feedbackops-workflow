@@ -9,6 +9,12 @@ Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 - `ISSUE-N-REVIEW.json` — REVIEWER findings + patch_instructions for ARCHITECT
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)
 - `ISSUE-N-PARTIAL.diff` — stashed partial work on abort (v0.1: optional)
+- `PHASE-N-SUMMARY.json` — CONDUCTOR roll-up of a phase's worker clusters. A DERIVED artifact (a cache of lower-level artifacts), never source of truth. Carries `derived_from[]` (each with `content_sha256` of the on-disk artifact + `head_sha`) and `chunks[]` (per-issue `state` + `evidence_artifact` + `evidence_head_sha`).
+- `HEARTBEAT-<pane>.json` — per-pane liveness proof (pane, branch, head_sha, task, blocked, dirty, updated_at). Proves LIVENESS, not correctness.
+
+## Derived-not-truth (PHASE-SUMMARY)
+
+PHASE-SUMMARY is a cache of lower-level artifacts. Readers MUST treat `derived_from` as authority; a `chunks[].state == "verified"` claim is INVALID unless `evidence_head_sha` equals the branch HEAD, and a `derived_from[].content_sha256` that no longer matches the on-disk artifact means the summary is STALE and must be regenerated.
 
 ## Lifecycle
 
@@ -30,3 +36,5 @@ Superseded files MUST be ignored by readers. Cleanup: archived under
 ```bash
 pnpm dlx ajv-cli validate -s .review/schemas/pr_draft.schema.json -d .review/ISSUE-33-PR-DRAFT.json
 ```
+
+Note: `phase_summary` and `heartbeat` carry date-time string fields (`generated_at`, `updated_at`, `last_verify_at`). They are validated as plain `type: "string"` (no JSON Schema `format: "date-time"` keyword) because the `ajv-formats` plugin is not installable via `pnpm dlx` in this environment. If `ajv-formats` becomes available, re-add `"format": "date-time"` to those fields and validate with `-c ajv-formats`.

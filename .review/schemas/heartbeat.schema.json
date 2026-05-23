@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Heartbeat Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "pane", "branch", "head_sha", "task", "blocked", "dirty", "updated_at"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "heartbeat" },
+    "pane": { "type": "string", "description": "e.g. 'surface:75'" },
+    "branch": { "type": "string" },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "task": { "type": "string" },
+    "blocked": { "type": "boolean" },
+    "dirty": { "type": "boolean" },
+    "updated_at": { "type": "string" },
+    "last_verify_at": { "type": "string" },
+    "last_verify_artifact": { "type": "string" }
+  }
+}

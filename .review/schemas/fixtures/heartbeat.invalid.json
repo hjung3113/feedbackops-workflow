@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "artifact_type": "heartbeat",
+  "pane": "surface:75",
+  "branch": "feature/issue-31",
+  "head_sha": "e86c685",
+  "task": "implement Task B1 phase_summary + heartbeat schemas",
+  "blocked": false,
+  "dirty": true
+}
