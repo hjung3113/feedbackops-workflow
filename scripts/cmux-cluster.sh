@@ -30,6 +30,20 @@ else
   fi
 fi
 
+# Refuse to launch a worktree that isn't dispatch-ready. A fresh worktree has no
+# node_modules and no gitignored .env, and the codex sandbox blocks network so it
+# cannot self-provision. Prep MUST happen host-side, outside the sandbox.
+MISSING=()
+[[ ! -d "$WT_PATH/node_modules" ]] && MISSING+=("node_modules")
+[[ ! -f "$WT_PATH/.env" ]] && MISSING+=(".env")
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+  echo "ERROR: worktree at $WT_PATH is not dispatch-ready (missing: ${MISSING[*]})." >&2
+  echo "       The codex sandbox blocks network, so deps/env cannot install inside it." >&2
+  echo "       Run this on the HOST first (outside the sandbox):" >&2
+  echo "         scripts/prepare-worktree.sh $WT_PATH" >&2
+  exit 1
+fi
+
 # Spawn cmux workspace
 WS=$(cmux new-workspace --name "issue-${ISSUE_N}-${SLUG}" --cwd "$WT_PATH" | awk 'NR==1{print $2; exit}')
 LEFT=$(cmux list-pane-surfaces --workspace "$WS" | awk 'NR==1{print $2; exit}')
