@@ -585,10 +585,12 @@ CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [[ "$CUR_BRANCH" != "develop" ]] && exit 0
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-PARENT=$(dirname "$REPO_ROOT")
 
-# List all worktrees
-mapfile -t WORKTREES < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
+# List all worktrees (while-read, not mapfile — macOS stock bash is 3.2, no mapfile)
+WORKTREES=()
+while IFS= read -r wt; do
+  WORKTREES+=("$wt")
+done < <(git worktree list --porcelain | awk '/^worktree /{print $2}')
 
 SIBLINGS=()
 for wt in "${WORKTREES[@]}"; do
@@ -606,7 +608,7 @@ if [[ ${#SIBLINGS[@]} -eq 0 ]]; then
 fi
 
 echo ""
-echo "=== post-merge: $(echo "${#SIBLINGS[@]}") in-flight feature worktree(s) ==="
+echo "=== post-merge: ${#SIBLINGS[@]} in-flight feature worktree(s) ==="
 for entry in "${SIBLINGS[@]}"; do
   WT="${entry%%|*}"
   BR="${entry##*|}"
@@ -633,13 +635,16 @@ Append to `AGENTS.md` under `## Git Workflow` after the Pre-push hook line:
 - [ ] **Step 4: Verify hook runs (simulate)**
 
 ```bash
-git config core.hooksPath .githooks
-git merge --no-commit --no-ff HEAD --allow-empty -m "test"  # no actual merge
-git reset --hard HEAD~0
-# direct invocation:
-bash .githooks/post-merge
+# SAFE verify — do NOT simulate with `git merge`/`git reset --hard` (can destroy
+# uncommitted work). Direct invocation only:
+bash .githooks/post-merge; echo "exit=$?"
 ```
-Expected: no error. If no sibling worktrees, no output.
+Expected when NOT on develop: no output, `exit=0` (branch guard fires).
+On develop with sibling feature/* worktrees: warning lines listing each. Hook is
+non-blocking — git ignores its exit code regardless.
+
+To enable the hook (one-time per clone, separate from this task):
+`git config core.hooksPath .githooks`
 
 - [ ] **Step 5: Commit**
 
