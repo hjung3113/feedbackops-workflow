@@ -12,8 +12,9 @@
 #
 # Env is shared-state coupling (codex review R3): copying the same .env into
 # multiple worktrees points them all at the same mutable DATABASE_URL /
-# WORKSPACE_ID / storage bucket. With >1 prepared worktree, this script REFUSES
-# to copy unless you pass --allow-shared-env (accept the risk) or
+# WORKSPACE_ID / storage bucket. When ANY OTHER prepared worktree already exists
+# (>=1), this script REFUSES to copy unless you pass --allow-shared-env (accept
+# the risk) or
 # --env-profile <path> (use a per-worktree env file).
 set -euo pipefail
 
@@ -61,10 +62,44 @@ report_env_keys() {
   done < "$file"
 }
 
+# --- shared-env guard decision (codex review R3 — shared-state coupling) ---
+# Returns 0 (REFUSE) when copying shared env would point an ADDITIONAL worktree
+# at the same mutable state, i.e. when ANY OTHER prepared worktree already exists
+# (count >= 1) and no override flag was given. Returns 1 (ALLOW) otherwise.
+# Factored out so the threshold is unit-testable without a pnpm install.
+should_refuse_shared_env() {
+  _count="$1"; _allow="$2"; _profile="$3"
+  if [[ "$_count" -ge 1 && "$_allow" -eq 0 && -z "$_profile" ]]; then
+    return 0   # REFUSE
+  fi
+  return 1     # ALLOW
+}
+
 # --- hidden test mode: just report keys for one file and exit ---
 if [[ "${1:-}" == "--report-env-only" ]]; then
   report_env_keys "${2:?usage: --report-env-only <env-file>}"
   exit $?
+fi
+
+# --- hidden test mode: evaluate the shared-env guard for a given count + flags.
+# Usage: --check-shared-env-guard <count> [--allow-shared-env] [--env-profile <p>]
+# Prints REFUSE or ALLOW and exits 0. No filesystem / pnpm side effects.
+if [[ "${1:-}" == "--check-shared-env-guard" ]]; then
+  _gc="${2:?usage: --check-shared-env-guard <count> [flags]}"; shift 2
+  _allow=0; _profile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --allow-shared-env) _allow=1; shift ;;
+      --env-profile) _profile="$2"; shift 2 ;;
+      *) echo "unknown arg: $1" >&2; exit 2 ;;
+    esac
+  done
+  if should_refuse_shared_env "$_gc" "$_allow" "$_profile"; then
+    echo "REFUSE"
+  else
+    echo "ALLOW"
+  fi
+  exit 0
 fi
 
 # --- arg parsing ---
@@ -128,9 +163,11 @@ done < <(git -C "$SOURCE_ENV" worktree list --porcelain 2>/dev/null || true)
 
 echo "  other prepared worktrees (have node_modules): $PREPARED_COUNT"
 
-# Refuse shared env when >1 prepared worktree already exists and no override.
-if [[ "$PREPARED_COUNT" -gt 1 && "$ALLOW_SHARED_ENV" -eq 0 && -z "$ENV_PROFILE" ]]; then
-  echo "ERROR: refusing to copy env — $PREPARED_COUNT prepared worktrees already exist." >&2
+# Refuse shared env when ANY OTHER prepared worktree already exists (>=1) and
+# no override. Preparing the FIRST worktree (0 others) is fine; the SECOND
+# (1 other) would silently share the same mutable DB — refuse it.
+if should_refuse_shared_env "$PREPARED_COUNT" "$ALLOW_SHARED_ENV" "$ENV_PROFILE"; then
+  echo "ERROR: refusing to copy env — $PREPARED_COUNT other prepared worktree(s) already exist." >&2
   echo "       Copying the same .env into multiple worktrees points them ALL at the" >&2
   echo "       same mutable DATABASE_URL / WORKSPACE_ID / storage bucket — parallel" >&2
   echo "       clusters will corrupt each other's shared state." >&2

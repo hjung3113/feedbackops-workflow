@@ -78,6 +78,42 @@ bash "$PREP" "$TMP_DIR/does-not-exist-worktree" >/dev/null 2>&1
 ec=$?
 if [ "$ec" -ne 0 ]; then pass "missing worktree path exits non-zero (got $ec)"; else fail "missing worktree path exits non-zero (got $ec)"; fi
 
+# --- Case 7: shared-env guard threshold (off-by-one regression RF4) ---
+# The guard must refuse to copy shared env when ANY other prepared worktree
+# already exists (>=1), not only when >1. Driven via the hidden
+# --check-shared-env-guard <count> mode so no pnpm install runs.
+guard() { bash "$PREP" --check-shared-env-guard "$@" 2>&1; }
+
+# 0 others → ALLOW even with no flag (first worktree is fine).
+case "$(guard 0)" in
+  ALLOW) pass "guard: 0 others → ALLOW (no flag)" ;;
+  *) fail "guard: 0 others → ALLOW (no flag) [got: $(guard 0)]" ;;
+esac
+
+# 1 other → REFUSE without a flag (this is the off-by-one being fixed).
+case "$(guard 1)" in
+  REFUSE) pass "guard: 1 other → REFUSE (no flag)" ;;
+  *) fail "guard: 1 other → REFUSE (no flag) [got: $(guard 1)]" ;;
+esac
+
+# 1 other + --allow-shared-env → ALLOW (explicit override).
+case "$(guard 1 --allow-shared-env)" in
+  ALLOW) pass "guard: 1 other + --allow-shared-env → ALLOW" ;;
+  *) fail "guard: 1 other + --allow-shared-env → ALLOW [got: $(guard 1 --allow-shared-env)]" ;;
+esac
+
+# 1 other + --env-profile → ALLOW (per-worktree env file).
+case "$(guard 1 --env-profile "$ENV_FILE")" in
+  ALLOW) pass "guard: 1 other + --env-profile → ALLOW" ;;
+  *) fail "guard: 1 other + --env-profile → ALLOW [got: $(guard 1 --env-profile "$ENV_FILE")]" ;;
+esac
+
+# 2 others → REFUSE without a flag (unchanged behaviour).
+case "$(guard 2)" in
+  REFUSE) pass "guard: 2 others → REFUSE (no flag)" ;;
+  *) fail "guard: 2 others → REFUSE (no flag) [got: $(guard 2)]" ;;
+esac
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"
