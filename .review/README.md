@@ -20,6 +20,11 @@ Superseded files MUST be ignored by readers. Cleanup: archived under
 
 `schema_version: "1"` mandatory. Cross-version reads refused.
 
+## Conventions
+
+- SHA fields (`base_sha`, `head_sha`, `reviewed_head_sha`) require the **full 40-char lowercase hex SHA**. Never use `git rev-parse --short`.
+- `schema_version` is the **string** `"1"`, not the integer `1`. Writers MUST quote it.
+
 ## Validation
 
 ```bash

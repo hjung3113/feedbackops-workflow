@@ -13,8 +13,11 @@
     "issue": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["number"],
-      "properties": { "number": { "type": "integer" } }
+      "required": ["number", "title"],
+      "properties": {
+        "number": { "type": "integer" },
+        "title": { "type": "string" }
+      }
     },
     "attempted_command": { "type": "string" },
     "blocker": { "type": "string" },
