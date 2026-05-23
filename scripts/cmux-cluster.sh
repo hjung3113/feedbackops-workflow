@@ -31,12 +31,19 @@ else
 fi
 
 # Spawn cmux workspace
-WS=$(cmux new-workspace --name "issue-${ISSUE_N}-${SLUG}" --cwd "$WT_PATH" | awk '{print $2}')
-LEFT=$(cmux list-pane-surfaces --workspace "$WS" | awk 'NR==1{print $2}')
+WS=$(cmux new-workspace --name "issue-${ISSUE_N}-${SLUG}" --cwd "$WT_PATH" | awk 'NR==1{print $2; exit}')
+LEFT=$(cmux list-pane-surfaces --workspace "$WS" | awk 'NR==1{print $2; exit}')
 
-RIGHT=$(cmux new-split right --workspace "$WS" --surface "$LEFT" | awk '{print $2}')
-BL=$(cmux new-split down --workspace "$WS" --surface "$LEFT" | awk '{print $2}')
-BR=$(cmux new-split down --workspace "$WS" --surface "$RIGHT" | awk '{print $2}')
+RIGHT=$(cmux new-split right --workspace "$WS" --surface "$LEFT" | awk 'NR==1{print $2; exit}')
+BL=$(cmux new-split down --workspace "$WS" --surface "$LEFT" | awk 'NR==1{print $2; exit}')
+BR=$(cmux new-split down --workspace "$WS" --surface "$RIGHT" | awk 'NR==1{print $2; exit}')
+
+for v in WS LEFT RIGHT BL BR; do
+  if [[ -z "${!v}" ]]; then
+    echo "ERROR: cmux produced no ID for $v — aborting (workspace may be half-built)." >&2
+    exit 1
+  fi
+done
 
 cmux rename-tab --workspace "$WS" --surface "$LEFT"  "ARCHITECT-${ISSUE_N}"
 cmux rename-tab --workspace "$WS" --surface "$RIGHT" "CODEX-${ISSUE_N}"
