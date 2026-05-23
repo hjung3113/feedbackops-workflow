@@ -43,3 +43,37 @@ Re-scope. #33 is not Trivial. Options:
 - Or split: introduce `DetailShape` as an *optional* alias first, migrate call sites module-by-module, then tighten the constructor last.
 
 Recommend commenting this finding on the GitHub issue so the mis-scope is recorded.
+
+---
+
+## Trial 2 — Issue #31 (idempotency replay audit assertion) — 2026-05-23
+
+**Tier:** Trivial (CODEX + VERIFIER). REVIEWER also run. ARCHITECT + Release Captain = human/Claude.
+**Outcome:** GREEN. Full happy path validated end-to-end.
+**Verdict:** SUCCESSFUL trial of the **happy path** — complements Trial 1's failure-path validation.
+
+### Flow exercised
+
+| Step | Result |
+|---|---|
+| cmux-cluster.sh spawned 4-pane workspace from feature branch | ✓ workspace:20 |
+| codex-safe drove codex (`--cd`, `--sandbox workspace-write`) | ✓ |
+| CODEX edited test only (+7 lines), committed `655756a`, no production change | ✓ |
+| PR-DRAFT.json conforms to schema (ajv) | ✓ valid |
+| VERIFIER ran `pnpm --filter backend test create-voc` against live DB | ✓ 31/31 pass |
+| REVIEWER produced schema-valid `ISSUE-31-REVIEW.json`, status=pass | ✓ |
+| Assertion correctness (before-after audit delta isolates replay) | ✓ confirmed by REVIEWER + green run |
+
+### Friction / findings → v0.2 candidates
+
+5. **vitest does not auto-load `.env`.** Integration suites gate on `runIntegration = DATABASE_URL && WORKSPACE_ID`. VERIFIER's first run SKIPPED all 31 tests silently because env wasn't exported. Had to `set -a; source .env; set +a` before the run. **Lesson:** VERIFIER step must source env first, or the suite's skip is a silent false-green. Add an explicit env-load to the VERIFIER protocol, and treat "all skipped" as NOT a pass.
+
+6. **Worktree needs its own `node_modules` + `.env`.** A fresh git worktree (sibling dir) is outside the pnpm workspace root, so it has no deps and no gitignored `.env`. The Release Captain (outside sandbox) had to `pnpm install` + copy `.env` into the worktree before VERIFIER could run. **v0.2:** cmux-cluster.sh should optionally run `pnpm install` + copy env into the new worktree, or the protocol must document this prep step.
+
+7. **Pre-existing unrelated typecheck error.** `pnpm --filter backend run typecheck` fails on `src/cli/storage-bootstrap.ts(54,31) TS2559` — unrelated to #31, pre-existing on the branch. CODEX correctly noted it as a deviation rather than trying to fix out-of-scope. **Lesson:** VERIFIER should scope verification to the touched area (run the specific test) rather than a repo-wide typecheck that trips on pre-existing breakage — or the pre-existing error should be fixed separately.
+
+8. **Trial branch based on workflow infra branch.** Per the plan's branch model, the trial worktree branched from `feature/agent-workflow-trial` (so it could see the scripts/schemas), NOT from `develop`. Consequence: `feature/31-idem-audit-assertion` carries all the infra commits + the test commit. For the *real* #31 fix to land on `develop` cleanly, cherry-pick the single test commit (`655756a`) onto a develop-based branch, OR merge the infra to develop first. This is an artifact of trialing before the infra is merged — not a workflow defect.
+
+### Net assessment after 2 trials
+
+Both paths validated: **failure/escalation** (Trial 1) and **happy/green** (Trial 2). The core plumbing — codex-safe sandbox, JSON artifacts + schema validation, role separation (CODEX writes / VERIFIER verifies outside sandbox / REVIEWER judges), clean abort, escalation — all work. The friction items (env loading, worktree prep, tier blast-radius assessment, sandbox network) are v0.2 hardening, not blockers.
