@@ -21,10 +21,13 @@ set -euo pipefail
 # Returns 0 if KEY is high-risk. bash-3.2-compatible (no associative arrays).
 is_high_risk_key() {
   key="$1"
-  case "$key" in
+  # Upcase before matching so lowercase/mixed-case keys (database_url, secret_key,
+  # aws_s3_bucket) are caught too. bash-3.2-safe (no ${var,,}).
+  ukey=$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')
+  case "$ukey" in
     DATABASE_URL|WORKSPACE_ID|PORT) return 0 ;;
   esac
-  case "$key" in
+  case "$ukey" in
     *STORAGE*|*BUCKET*|*S3*) return 0 ;;
     *SECRET*|*TOKEN*|*KEY*|*PASSWORD*|*CREDENTIAL*) return 0 ;;
   esac

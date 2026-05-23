@@ -23,6 +23,8 @@ ENV_FILE="$TMP_DIR/.env"
   printf '%s\n' 'API_TOKEN=tok_should_never_print'
   printf '%s\n' '# a comment line that is not a key'
   printf '%s\n' 'PORT=3000'
+  printf '%s\n' 'database_url=postgres://lc_secret@db/lc'
+  printf '%s\n' 'aws_s3_bucket=lc-bucket-name'
 } > "$ENV_FILE"
 
 OUT="$(bash "$PREP" --report-env-only "$ENV_FILE" 2>&1)"
@@ -41,7 +43,7 @@ esac
 
 # Case 3: secret VALUEs never printed (redaction)
 leaked=0
-for secret in secretpass secretuser ws_supersecret_123 tok_should_never_print "postgres://"; do
+for secret in secretpass secretuser ws_supersecret_123 tok_should_never_print lc_secret lc-bucket-name "postgres://"; do
   case "$OUT" in
     *"$secret"*) echo "    LEAKED: $secret" >&2; leaked=1 ;;
   esac
@@ -53,6 +55,15 @@ for hk in WORKSPACE_ID API_TOKEN PORT; do
   case "$OUT" in
     *"high-risk env key copied: $hk"*) pass "$hk flagged high-risk" ;;
     *) fail "$hk flagged high-risk" ;;
+  esac
+done
+
+# Case 4b: lowercase/mixed-case keys flagged high-risk (regression: classifier
+# was uppercase-only, so database_url / aws_s3_bucket slipped through as benign).
+for hk in database_url aws_s3_bucket; do
+  case "$OUT" in
+    *"high-risk env key copied: $hk"*) pass "lowercase $hk flagged high-risk" ;;
+    *) fail "lowercase $hk flagged high-risk" ;;
   esac
 done
 
