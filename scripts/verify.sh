@@ -166,6 +166,119 @@ classify_json() {
   return $?
 }
 
+emit_verify_artifact() {
+  issue="$1"
+  filter="$2"
+  report="$3"
+  vitest_ec="$4"
+  classifier="$5"
+
+  case "$issue" in
+    ""|*[!0-9]*)
+      echo "WARN: VERIFY_ISSUE must be a non-empty integer; skipping verify artifact" >&2
+      return 0
+      ;;
+  esac
+
+  artifact_path=".review/ISSUE-${issue}-VERIFY.json"
+  mkdir -p .review || {
+    echo "WARN: unable to create .review directory; skipping verify artifact" >&2
+    return 0
+  }
+
+  db_host=""
+  db_database=""
+  db_role=""
+  if [ -n "${DATABASE_URL+x}" ] && [ -n "$DATABASE_URL" ]; then
+    db_after_scheme="$(printf '%s\n' "$DATABASE_URL" | sed 's,^[^:][^:]*://,,')"
+    db_role=""
+    case "$db_after_scheme" in
+      *@*) db_role="$(printf '%s\n' "$db_after_scheme" | sed 's/[:@].*//')" ;;
+    esac
+
+    db_authority="$db_after_scheme"
+    case "$db_authority" in
+      *@*) db_authority="${db_authority#*@}" ;;
+    esac
+    db_host="$(printf '%s\n' "$db_authority" | sed 's/[/:].*//')"
+    case "$db_authority" in
+      \[*\]*) db_host="$(printf '%s\n' "$db_authority" | sed 's/^\(\[[^]]*\]\).*/\1/')" ;;
+      "::1"|::1/*|::1:*) db_host="::1" ;;
+    esac
+    case "$db_after_scheme" in
+      */*) db_database="$(printf '%s\n' "$db_after_scheme" | sed 's/[?].*$//; s,.*/,,')" ;;
+    esac
+  fi
+
+  head_sha="$(git rev-parse HEAD 2>/dev/null || printf '')"
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
+  cwd="$(pwd)"
+  verify_cmd="verify.sh $filter"
+  created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  VERIFY_ARTIFACT_PATH="$artifact_path" \
+  VERIFY_ARTIFACT_ISSUE="$issue" \
+  VERIFY_ARTIFACT_BRANCH="$branch" \
+  VERIFY_ARTIFACT_HEAD_SHA="$head_sha" \
+  VERIFY_ARTIFACT_CWD="$cwd" \
+  VERIFY_ARTIFACT_CMD="$verify_cmd" \
+  VERIFY_ARTIFACT_DB_HOST="$db_host" \
+  VERIFY_ARTIFACT_DB_DATABASE="$db_database" \
+  VERIFY_ARTIFACT_DB_ROLE="$db_role" \
+  VERIFY_ARTIFACT_EXIT_CODE="$vitest_ec" \
+  VERIFY_ARTIFACT_CLASSIFIER="$classifier" \
+  VERIFY_ARTIFACT_CREATED_AT="$created_at" \
+  VERIFY_ARTIFACT_REPORT="$report" \
+  node -e '
+    var fs = require("fs");
+    function count(data, key) {
+      var value = data && data[key];
+      return (typeof value === "number" && isFinite(value)) ? value : 0;
+    }
+
+    var data = {};
+    try {
+      data = JSON.parse(fs.readFileSync(process.env.VERIFY_ARTIFACT_REPORT, "utf8"));
+    } catch (e) {
+      data = {};
+    }
+
+    var artifact = {
+      schema_version: "1",
+      artifact_type: "verify_result",
+      producer_role: "VERIFIER",
+      issue: parseInt(process.env.VERIFY_ARTIFACT_ISSUE, 10),
+      branch: process.env.VERIFY_ARTIFACT_BRANCH || "",
+      head_sha: process.env.VERIFY_ARTIFACT_HEAD_SHA || "",
+      cwd: process.env.VERIFY_ARTIFACT_CWD || "",
+      verify_cmd: process.env.VERIFY_ARTIFACT_CMD || "",
+      env_profile: "scrubbed",
+      db_target: {
+        host: process.env.VERIFY_ARTIFACT_DB_HOST || "",
+        database: process.env.VERIFY_ARTIFACT_DB_DATABASE || "",
+        role: process.env.VERIFY_ARTIFACT_DB_ROLE || ""
+      },
+      verdict: {
+        passed: count(data, "numPassedTests"),
+        failed: count(data, "numFailedTests"),
+        pending: count(data, "numPendingTests"),
+        exit_code: parseInt(process.env.VERIFY_ARTIFACT_EXIT_CODE, 10) || 0
+      },
+      classifier: process.env.VERIFY_ARTIFACT_CLASSIFIER === "PASS" ? "PASS" : "FAIL",
+      created_at: process.env.VERIFY_ARTIFACT_CREATED_AT || ""
+    };
+
+    if (process.env.CODEX_VERSION) {
+      artifact.producer_version = "codex/" + process.env.CODEX_VERSION;
+    }
+
+    fs.writeFileSync(process.env.VERIFY_ARTIFACT_PATH, JSON.stringify(artifact, null, 2) + "\n");
+  ' || {
+    echo "WARN: unable to write verify artifact: $artifact_path" >&2
+    return 0
+  }
+}
+
 main() {
   if [ "$#" -lt 1 ]; then
     usage
@@ -221,14 +334,70 @@ main() {
     set +a
   fi
 
+  if [ -n "${VERIFY_DATABASE_URL+x}" ] && [ -n "$VERIFY_DATABASE_URL" ]; then
+    export DATABASE_URL="$VERIFY_DATABASE_URL"
+    export DATABASE_URL_MIGRATE="${VERIFY_DATABASE_URL_MIGRATE:-$VERIFY_DATABASE_URL}"
+  fi
+
+  if [ -n "${DATABASE_URL+x}" ] && [ -n "$DATABASE_URL" ]; then
+    db_after_scheme="$(printf '%s\n' "$DATABASE_URL" | sed 's,^[^:][^:]*://,,')"
+    db_user="$(printf '%s\n' "$db_after_scheme" | sed 's/[:@].*//')"
+    if [ "$db_user" = "postgres" ]; then
+      echo "WARN: verifier running as superuser role 'postgres' — prefer a low-privilege role (e.g. fops_app) via VERIFY_DATABASE_URL" >&2
+    fi
+
+    db_authority="$db_after_scheme"
+    case "$db_authority" in
+      *@*) db_authority="${db_authority#*@}" ;;
+    esac
+    db_host="$(printf '%s\n' "$db_authority" | sed 's/[/:].*//')"
+    case "$db_authority" in
+      \[*\]*) db_host="$(printf '%s\n' "$db_authority" | sed 's/^\(\[[^]]*\]\).*/\1/')" ;;
+      "::1"|::1/*|::1:*) db_host="::1" ;;
+    esac
+    case "$db_host" in
+      ""|"localhost"|"127.0.0.1"|"::1"|"[::1]") ;;
+      *)
+        echo "FAIL: refusing to verify against non-local DATABASE_URL host '$db_host' (fail closed — verifier must run against a local/ephemeral DB)" >&2
+        exit 3
+        ;;
+    esac
+  fi
+
   tmp_report="$(mktemp -t verify-vitest.XXXXXX)"
   trap 'rm -f "$tmp_report"' EXIT
 
-  pnpm --filter backend exec vitest run "$filter" --reporter=json --outputFile="$tmp_report"
+  set -- env -i
+  for env_name in PATH HOME SHELL TERM LANG LC_ALL TMPDIR TMP USER LOGNAME PWD NODE_OPTIONS NODE_ENV DATABASE_URL DATABASE_URL_MIGRATE WORKSPACE_ID CI; do
+    eval 'if [ -n "${'"$env_name"'+x}" ]; then env_value=$'"$env_name"'; set -- "$@" "'"$env_name"'=$env_value"; fi'
+  done
+  for env_name in $(env | sed -n 's/^\(PNPM_[A-Za-z0-9_]*\)=.*/\1/p; s/^\(npm_config_[A-Za-z0-9_]*\)=.*/\1/p' | sort -u); do
+    eval 'if [ -n "${'"$env_name"'+x}" ]; then env_value=$'"$env_name"'; set -- "$@" "'"$env_name"'=$env_value"; fi'
+  done
+  for env_name in ${VERIFY_ENV_ALLOW:-}; do
+    case "$env_name" in
+      [A-Za-z_][A-Za-z0-9_]*)
+        eval 'if [ -n "${'"$env_name"'+x}" ]; then env_value=$'"$env_name"'; set -- "$@" "'"$env_name"'=$env_value"; fi'
+        ;;
+    esac
+  done
+
+  "$@" pnpm --filter backend exec vitest run "$filter" --reporter=json --outputFile="$tmp_report"
   vitest_ec=$?
 
   classify_json "$tmp_report" "$vitest_ec"
-  exit $?
+  cls_ec=$?
+  if [ "$cls_ec" -eq 0 ]; then
+    classifier="PASS"
+  else
+    classifier="FAIL"
+  fi
+
+  if [ -n "${VERIFY_ISSUE+x}" ] && [ -n "$VERIFY_ISSUE" ]; then
+    emit_verify_artifact "$VERIFY_ISSUE" "$filter" "$tmp_report" "$vitest_ec" "$classifier"
+  fi
+
+  exit "$cls_ec"
 }
 
 main "$@"

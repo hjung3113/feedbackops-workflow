@@ -72,6 +72,20 @@ All `codex exec` invocations MUST go through `scripts/codex-safe.sh`, which enfo
 
 Direct `codex exec` invocations are forbidden in this workflow.
 
+### Sandbox network containment — why the worker can't self-verify DB tests (v0.3)
+
+`workspace-write` blocks **all** network egress, including **loopback**. A v0.3 spike proved this is total: a probe run inside the sandbox cannot `connect()` even to `127.0.0.1` (TCP) **nor** to a Unix-domain socket placed inside the writable root — both fail with `EPERM`. (Repro: host-side relay `scripts/uds-pg-relay.mjs` + in-sandbox `scripts/__tests__/uds-sandbox-probe.mjs`; the TCP-loopback case is the live layer of the network-deny smoke below.) So there is **no containment-preserving way** to give a sandboxed worker access to the local Postgres on current codex (0.133.0):
+
+- A loopback-only network allowance is **not shipped** (codex issue #6737 open; #6807 closed-folded). `network_access` is all-or-nothing.
+- The "UDS proxy" idea (front Postgres with a socket in a writable root) was **rejected** — Seatbelt denies AF_UNIX `connect()` too.
+- A full-egress `dbtest` profile (`network_access=true`) was **rejected** as a standing workflow: with the principled UDS fallback dead, it is a pure risk-trade (tests run arbitrary dep/app code → exfil surface), and VERIFIER already runs the same tests cleanly outside the sandbox.
+
+**Decision: status-quo.** The worker stays network-denied; the **VERIFIER runs DB tests outside the sandbox** (see VERIFIER protocol). Revisit only when (a) codex ships loopback-only network (#6737), or (b) data shows DB-test verifier churn is a real throughput bottleneck.
+
+Hardening shipped alongside this decision:
+- Global `~/.codex/config.toml` default lowered `danger-full-access` → `workspace-write` (defense-in-depth for bare `codex`; the wrapper already forces `--sandbox workspace-write` explicitly).
+- `scripts/__tests__/sandbox-network-deny.smoke.sh` guards against regression: Layer 1 (offline) asserts `codex-safe.sh` still pins `--sandbox workspace-write` and grants no `danger-full-access`/`network_access`; Layer 2 (opt-in, `RUN_LIVE_SANDBOX_PROBE=1`) runs `scripts/__tests__/net-deny-probe.mjs` inside the sandbox and asserts loopback is `BLOCKED`.
+
 ## Worktree Prep
 
 A fresh `git worktree` is **NOT dispatch-ready**: it has no `node_modules` and no gitignored `.env`. Because the codex sandbox blocks network, deps and env cannot self-provision inside it — provisioning MUST happen host-side, **outside the sandbox**, before dispatch.
@@ -111,6 +125,15 @@ The `<filter>` arg is a **Vitest test name/path filter scoped to the backend pac
 - a missing, empty, or unparseable report (fail closed).
 
 A PASS is reported only when none of the above trip.
+
+### Verifier hardening (v0.3)
+
+Because the VERIFIER runs tests **outside** the sandbox (full host access), the filter-mode run is hardened:
+
+- **Local-DB guard (fail closed).** `verify.sh` extracts the `DATABASE_URL` host and **refuses with `exit 3`** if it is not local (`localhost`/`127.0.0.1`/`::1`/`[::1]`/empty unix-socket form). The verifier must never run against a remote/staging/prod DB.
+- **Least-privilege role.** Set `VERIFY_DATABASE_URL` (and optionally `VERIFY_DATABASE_URL_MIGRATE`) to point the run at a low-privilege role; it overrides `DATABASE_URL` for the run only. If the effective role is the superuser `postgres`, `verify.sh` prints a `WARN` recommending `fops_app`. Pair with an **ephemeral per-issue DB** (see Parallel-cluster DB isolation) so a verifier run can never mutate shared state.
+- **Env scrub (default-deny allowlist).** The vitest child runs under `env -i` with only an allowlist passed through (`PATH HOME SHELL TERM LANG LC_ALL TMPDIR TMP USER LOGNAME PWD NODE_OPTIONS NODE_ENV DATABASE_URL DATABASE_URL_MIGRATE WORKSPACE_ID CI`, plus `PNPM_*`/`npm_config_*`, plus any names in `VERIFY_ENV_ALLOW`). Arbitrary host secrets (tokens/keys) do **not** leak into test/app code.
+- **Canonical provenance artifact.** When `VERIFY_ISSUE=<n>` is set, `verify.sh` writes `.review/ISSUE-<n>-VERIFY.json` (schema `.review/schemas/verify.schema.json`, `artifact_type: "verify_result"`, `producer_role: "VERIFIER"`): branch, `head_sha`, cwd, `verify_cmd`, `env_profile`, `db_target` (host/database/role — **never a password**), `verdict` (passed/failed/pending/exit_code), `classifier` (PASS/FAIL), `created_at`. This makes verifier output the canonical readiness signal, not worker prose. Artifact-write failure is non-fatal and never flips the run's exit code. With `VERIFY_ISSUE` unset, behavior is unchanged (no artifact).
 
 ### Baseline-aware typecheck
 

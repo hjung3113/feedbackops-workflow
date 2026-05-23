@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Verify Result Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "cwd", "verify_cmd", "db_target", "verdict", "classifier", "created_at"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "verify_result" },
+    "producer_role": { "const": "VERIFIER" },
+    "producer_version": { "type": "string", "description": "optional: agent CLI version (e.g. 'codex/0.133.0') for debugging provenance" },
+    "issue": { "type": "integer" },
+    "branch": { "type": "string" },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "cwd": { "type": "string" },
+    "verify_cmd": { "type": "string" },
+    "env_profile": { "type": "string", "description": "optional: verifier environment profile (e.g. 'scrubbed')" },
+    "db_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "database", "role"],
+      "properties": {
+        "host": { "type": "string" },
+        "database": { "type": "string" },
+        "role": { "type": "string" }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed", "failed", "pending", "exit_code"],
+      "properties": {
+        "passed": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "pending": { "type": "integer", "minimum": 0 },
+        "exit_code": { "type": "integer" }
+      }
+    },
+    "classifier": { "enum": ["PASS", "FAIL"] },
+    "created_at": { "type": "string", "description": "ISO-8601 timestamp" }
+  }
+}
