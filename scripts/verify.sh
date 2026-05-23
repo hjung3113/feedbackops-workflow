@@ -89,7 +89,7 @@ classify_json() {
 
     // Rule 2: discovered-but-fully-skipped suite — the false-green bug.
     if (passed + failed === 0) {
-      reasons.push("no tests ran (passed+failed==0); " + pending + " pending — suite discovered but fully skipped, likely missing env (DATABASE_URL/WORKSPACE_ID)");
+      reasons.push("no executable tests ran (passed+failed==0); " + pending + " pending — suite fully skipped or filter matched nothing; if integration, check DATABASE_URL/WORKSPACE_ID");
     }
 
     // Rule 3
