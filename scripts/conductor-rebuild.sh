@@ -98,12 +98,30 @@ process_pr_draft() {
   # is trustworthy enough to certify `verified`. The optional fallback arg is
   # NOT a per-branch HEAD — it may only ever DEMOTE, never produce `verified`
   # (R6: an artifact must not be able to certify itself).
+  #
+  # RF2 (branch-identity binding): a worktree HEAD is only trustworthy if that
+  # worktree is actually checked out on the artifact's DECLARED branch. A stale
+  # or wrong worktree_path (symlink, sibling branch's checkout) could point at a
+  # DIFFERENT branch whose HEAD coincidentally equals verified_head_sha — that
+  # certifies the wrong identity. So when the artifact carries a `branch` field
+  # and the worktree's live branch does NOT match it, we refuse to treat the
+  # worktree as a trustworthy source (head_source stays empty → state `unknown`).
+  # With no `branch` field we cannot cross-check, so we keep prior behavior.
   actual_head=""
   head_source=""
   if [ -n "$worktree" ] && [ -d "$worktree" ]; then
-    actual_head="$(git -C "$worktree" rev-parse HEAD 2>/dev/null)"
-    [ -n "$actual_head" ] && head_source="worktree"
-  elif [ -n "$FALLBACK_HEAD" ]; then
+    actual_branch="$(git -C "$worktree" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+    if [ -n "$branch" ] && [ "$branch" != "(unknown-branch)" ] \
+       && [ -n "$actual_branch" ] && [ "$actual_branch" != "$branch" ]; then
+      # identity mismatch: worktree is on a different branch than the artifact
+      # claims. Do NOT trust it as a `verified` source.
+      echo "conductor-rebuild: $f worktree on branch '$actual_branch' but artifact claims '$branch' — identity mismatch, not verifiable" >&2
+    else
+      actual_head="$(git -C "$worktree" rev-parse HEAD 2>/dev/null)"
+      [ -n "$actual_head" ] && head_source="worktree"
+    fi
+  fi
+  if [ -z "$head_source" ] && [ -z "$actual_head" ] && [ -n "$FALLBACK_HEAD" ]; then
     actual_head="$FALLBACK_HEAD"
     head_source="fallback"
   fi

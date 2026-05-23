@@ -20,8 +20,9 @@ mkdir -p "$REVIEW"
 
 # --- helper: make a temp git repo, return its HEAD sha via stdout ---
 mk_repo() {
-  # $1 = repo dir
+  # $1 = repo dir, $2 = optional branch name to check out on
   local d="$1"
+  local b="${2:-}"
   mkdir -p "$d"
   git -C "$d" init -q
   git -C "$d" config user.email "smoke@test.local"
@@ -29,12 +30,13 @@ mk_repo() {
   echo "seed" > "$d/file.txt"
   git -C "$d" add -A
   git -C "$d" commit -q -m "seed"
+  [ -n "$b" ] && git -C "$d" checkout -q -b "$b"
 }
 head_of() { git -C "$1" rev-parse HEAD; }
 
 # --- Case 1: verified (worktree HEAD == verified_head_sha) ---
 REPO1="$TMP_DIR/wt-101"
-mk_repo "$REPO1"
+mk_repo "$REPO1" "feat/101"
 SHA1="$(head_of "$REPO1")"
 cat > "$REVIEW/ISSUE-101-PR-DRAFT.json" <<EOF
 {
@@ -56,7 +58,7 @@ EOF
 
 # --- Case 2: stale_verify (advance HEAD after writing artifact) ---
 REPO2="$TMP_DIR/wt-102"
-mk_repo "$REPO2"
+mk_repo "$REPO2" "feat/102"
 SHA2="$(head_of "$REPO2")"
 cat > "$REVIEW/ISSUE-102-PR-DRAFT.json" <<EOF
 {
@@ -190,6 +192,33 @@ cat > "$REVIEW/ISSUE-108-PR-DRAFT.json" <<EOF
 }
 EOF
 
+# --- Case 9 (RF2 regression): branch-identity mismatch. The artifact for issue
+# 110 declares branch "feature/110", but its worktree_path points at a repo that
+# is actually checked out on "feature/999". That repo's HEAD coincidentally
+# equals verified_head_sha (status ready, passed>0, failed 0, exit 0). A naive
+# resolver would call it `verified` — but it certified the WRONG branch identity.
+# Expect `unknown` (NOT verified). ---
+REPO9="$TMP_DIR/wt-110"
+mk_repo "$REPO9" "feature/999"
+SHA9="$(head_of "$REPO9")"
+cat > "$REVIEW/ISSUE-110-PR-DRAFT.json" <<EOF
+{
+  "schema_version": "1",
+  "artifact_type": "pr_draft",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "issue": { "number": 110, "title": "branch-identity mismatch case" },
+  "branch": "feature/110",
+  "base_sha": "$SHA9",
+  "head_sha": "$SHA9",
+  "files_touched": [ { "path": "file.txt", "change": "edit" } ],
+  "verify_cmd": "true",
+  "status": "ready_for_review",
+  "worktree_path": "$REPO9",
+  "verify_result": { "verified_head_sha": "$SHA9", "passed": 7, "failed": 0, "exit_code": 0 }
+}
+EOF
+
 # --- run (no fallback arg, so case 3 stays unknown) ---
 OUT="$(bash "$REBUILD" "$REVIEW" 2>/dev/null)"
 echo "----- conductor-rebuild output -----"
@@ -215,6 +244,10 @@ if printf '%s\n' "$OUT" | grep -q "^105	blocked	missing_dependency"; then pass "
 
 # Case 6: superseded skipped
 if printf '%s\n' "$OUT" | grep -q "^106"; then fail "106 must be skipped (superseded)"; else pass "106 skipped (superseded)"; fi
+
+# Case 9 (RF2): branch-identity mismatch → unknown, NEVER verified.
+if printf '%s\n' "$OUT" | grep -q "^110	unknown"; then pass "110 -> unknown (branch-identity mismatch)"; else fail "110 -> unknown (branch-identity mismatch)"; fi
+if printf '%s\n' "$OUT" | grep -q "^110	verified"; then fail "110 must NOT be verified (wrong branch identity)"; else pass "110 not verified (RF2)"; fi
 
 # --- second run WITH a fallback SHA == verified_head_sha of cases 7 & 8.
 # This is the regression guard for the fallback self-certify hole. ---
