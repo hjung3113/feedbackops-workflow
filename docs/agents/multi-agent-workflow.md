@@ -39,6 +39,16 @@ The **CONDUCTOR** is the 5th role: the orchestrator. Claude Opus, in a **dedicat
 
 Full operating prompt: **`docs/agents/conductor-persona.md`**.
 
+## VISUAL-REVIEWER
+
+The tier table's `(+ VISUAL if UI)` is the **VISUAL-REVIEWER** — a sub-role run **under the REVIEWER umbrella** (its own pane when the UI surface is complex). It runs only on the **Full Cluster** tier when the change actually touches UI: **layout / copy placement / interaction states / design tokens / shells / reusable UI**. SKIP it for pure API-hook wiring or other non-visual logic.
+
+- **Two tools, two jobs.** **playwright** (`mcp__plugin_playwright_playwright__*`) is the **live driver** — it navigates the running app, screenshots, and asserts interaction states in a real browser (authoritative). `impeccable` is an **OPTIONAL plugin** for static design-vocabulary / anti-pattern critique (`/impeccable critique`, `/impeccable audit`); if it isn't enabled the role degrades to playwright + heuristics.
+- **A visual pass ALONE cannot close a chunk.** It MUST pair with an **INTERACTION SCRIPT** covering **create / edit / error / empty / permission** states. REVIEWER (incl. VISUAL-REVIEWER) owns the checklist + live smoke; **VERIFIER owns the durable Playwright specs.** The verdict feeds the existing `review` artifact — it does not invent a new type.
+- **Enabling impeccable is OPTIONAL and LOCAL:** add `"impeccable@impeccable": true` to gitignored `.claude/settings.local.json` (confirm the exact `name@marketplace` ref first) — **never** the committed project `.claude/settings.json`, which would break teammates without the plugin.
+
+Full operating prompt: **`docs/agents/visual-reviewer-persona.md`**.
+
 ## Release Captain
 
 Every issue has one **Release Captain**. The Captain owns merge readiness with override authority.
