@@ -96,6 +96,40 @@ else
 fi
 rm -f "$FEAT/wip.txt"
 
+# === Assertion 5: worktree with in-progress git op is SKIPPED, NOT clobbered ===
+# Simulation approach: create the rebase-merge state dir via the worktree's
+# resolved git-path so the guard's detection fires, while `git status
+# --porcelain` stays empty (a clean tree mid-operation). Deterministic, no
+# reliance on leaving a real rebase mid-conflict.
+INPROG_DIR="$(git -C "$FEAT" rev-parse --git-path rebase-merge)"
+mkdir -p "$INPROG_DIR"
+printf 'simulated\n' > "$INPROG_DIR/marker"
+# Confirm the precondition: the worktree LOOKS clean to porcelain.
+if [ -z "$(git -C "$FEAT" status --porcelain 2>/dev/null)" ]; then
+  pass "in-progress worktree has empty porcelain (precondition)"
+else
+  fail "in-progress worktree has empty porcelain (precondition)"
+fi
+OUT="$(cd "$MAIN" && bash "$REBASE" --onto develop 2>&1)"; RC=$?
+case "$OUT" in
+  *WARNING*in-progress*) pass "in-progress worktree warned" ;;
+  *) fail "in-progress worktree warned (out: $OUT)" ;;
+esac
+[ "$RC" -eq 0 ] && pass "in-progress run exit 0" || fail "in-progress run exit 0 (rc=$RC)"
+# NOT rebased: advance2 commit must still be absent from feature/x.
+if git -C "$FEAT" merge-base --is-ancestor "$ADVANCE2_SHA" HEAD 2>/dev/null; then
+  fail "in-progress worktree NOT rebased (clobber-safe)"
+else
+  pass "in-progress worktree NOT rebased (clobber-safe)"
+fi
+# CRUCIAL: the simulated in-progress dir must STILL EXIST (we didn't abort it).
+if [ -d "$INPROG_DIR" ] && [ -f "$INPROG_DIR/marker" ]; then
+  pass "in-progress op preserved (not clobbered/aborted)"
+else
+  fail "in-progress op preserved (not clobbered/aborted)"
+fi
+rm -rf "$INPROG_DIR"
+
 # === Assertion 4: lock contention exits 1 ===
 LOCK="$MAIN/.review/.rebase-inflight.lock"
 mkdir -p "$MAIN/.review"

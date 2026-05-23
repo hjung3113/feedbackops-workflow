@@ -11,6 +11,9 @@
 #   --dry-run        list what WOULD happen; mutate nothing
 #
 # Safety:
+#   - SKIPS a worktree with an in-progress git operation (rebase/merge/
+#     cherry-pick/revert) — even when `git status --porcelain` looks clean —
+#     so we never clobber an agent's hand-resolution in progress.
 #   - REFUSES to rebase a dirty worktree (never clobbers uncommitted work).
 #   - On rebase conflict it aborts the rebase — never leaves a worktree
 #     mid-rebase.
@@ -114,8 +117,23 @@ for wt in ${WORKTREES[@]+"${WORKTREES[@]}"}; do
   fi
 done
 
+# detect a foreign in-progress git operation in a worktree (rebase / merge /
+# cherry-pick / revert). Resolves state paths via rev-parse --git-path so it is
+# correct for LINKED worktrees (whose git dir is not <wt>/.git). Returns 0 if an
+# operation is in progress.
+has_inprogress_op() {
+  wt="$1"
+  [ -d "$(git -C "$wt" rev-parse --git-path rebase-merge 2>/dev/null)" ] && return 0
+  [ -d "$(git -C "$wt" rev-parse --git-path rebase-apply 2>/dev/null)" ] && return 0
+  git -C "$wt" rev-parse -q --verify MERGE_HEAD       >/dev/null 2>&1 && return 0
+  git -C "$wt" rev-parse -q --verify CHERRY_PICK_HEAD >/dev/null 2>&1 && return 0
+  git -C "$wt" rev-parse -q --verify REVERT_HEAD      >/dev/null 2>&1 && return 0
+  return 1
+}
+
 REBASED=0
 SKIPPED=0
+SKIPPED_INPROG=0
 FAILED=0
 
 echo "=== rebase-inflight: onto '$ONTO' (${#SIBLINGS[@]} in-flight feature worktree(s)) ==="
@@ -128,6 +146,16 @@ for entry in ${SIBLINGS[@]+"${SIBLINGS[@]}"}; do
   BR="${entry##*|}"
   echo ""
   echo "  • $BR at $WT"
+
+  # GUARD: a foreign git operation may be in progress while the tree still
+  # looks clean to `git status --porcelain` (e.g. an agent hand-resolving a
+  # rebase). Attempting a rebase here would fail and our abort path would
+  # CLOBBER that work. Skip such worktrees outright — never touch them.
+  if has_inprogress_op "$WT"; then
+    echo "    WARNING: $WT has an in-progress git operation (rebase/merge/cherry-pick) — skipping to avoid clobbering it"
+    SKIPPED_INPROG=$((SKIPPED_INPROG + 1))
+    continue
+  fi
 
   # REFUSE dirty worktrees — never rebase over uncommitted work.
   if [ -n "$(git -C "$WT" status --porcelain 2>/dev/null)" ]; then
@@ -153,6 +181,6 @@ for entry in ${SIBLINGS[@]+"${SIBLINGS[@]}"}; do
 done
 
 echo ""
-echo "=== summary: rebased=$REBASED skipped(dirty)=$SKIPPED failed(aborted)=$FAILED ==="
+echo "=== summary: rebased=$REBASED skipped(dirty)=$SKIPPED skipped(in-progress op)=$SKIPPED_INPROG failed(aborted)=$FAILED ==="
 
 exit 0
