@@ -17,7 +17,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["artifact_path", "content_sha256", "head_sha"],
+        "required": ["artifact_path", "content_sha256", "head_sha", "generated_at"],
         "properties": {
           "artifact_path": { "type": "string", "description": "the lower-level artifact this was derived from" },
           "content_sha256": {
@@ -37,7 +37,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["issue", "state", "evidence_artifact", "evidence_head_sha"],
+        "required": ["issue", "state", "evidence_artifact", "evidence_head_sha", "branch", "worktree_path"],
         "properties": {
           "issue": { "type": "integer" },
           "state": { "enum": ["dispatched", "in_progress", "blocked", "verified", "merged"] },

@@ -9,6 +9,13 @@
 #   verify.sh <vitest-filter>
 #       Loads env, runs the scoped backend vitest filter with the JSON
 #       reporter, captures vitest's exit code, then classifies.
+#       NOTE: <vitest-filter> is a VITEST test name/path filter scoped to
+#       the backend package — it matches test file paths/names WITHIN the
+#       backend package. It is NOT a package selector. Example:
+#         verify.sh create-voc
+#       runs backend tests whose path/name matches "create-voc". Passing a
+#       package name (e.g. "backend") would be treated as a name filter and
+#       would likely match nothing.
 #
 # A fully-skipped (discovered-but-pending) suite, a failed suite, a
 # top-level success:false, any failed testResults entry, or a non-zero
@@ -22,7 +29,7 @@ usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
   echo "       verify.sh --typecheck-diff <baseline-file> <current-file>" >&2
   echo "       verify.sh --typecheck" >&2
-  echo "       verify.sh <vitest-filter>" >&2
+  echo "       verify.sh <vitest-filter>   (vitest test name/path filter scoped to backend; NOT a package selector)" >&2
 }
 
 # typecheck_diff <baseline-file> <current-file>

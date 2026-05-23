@@ -30,7 +30,8 @@
       "state": "in_progress",
       "evidence_artifact": ".review/ISSUE-33-BLOCKER.json",
       "evidence_head_sha": "b8b6332c4d5e6f708192a3b4c5d6e7f809102132",
-      "branch": "feature/issue-33"
+      "branch": "feature/issue-33",
+      "worktree_path": "/Users/hyojung/Desktop/2026/FeedbackOps-wt/issue-33"
     }
   ]
 }

@@ -38,10 +38,6 @@
       "description": "The specific human/ARCHITECT decision required to unblock."
     },
     "files_touched_before_abort": { "type": "array", "items": { "type": "string" } },
-    "partial_diff_path": { "type": "string" },
-    "recommended_actions": {
-      "type": "array",
-      "items": { "type": "string" }
-    }
+    "partial_diff_path": { "type": "string" }
   }
 }

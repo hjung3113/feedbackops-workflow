@@ -57,47 +57,13 @@ mkdir "$LOCK" 2>/dev/null || { echo "another rebase-inflight is running (lock: $
 # Only this process should remove the lock it acquired.
 trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 
-# map a touched file path to a top-level workspace package name.
-# apps/<pkg>/... → <pkg>;  packages/<pkg>/... → <pkg>;  else empty.
-pkg_from_path() {
-  case "$1" in
-    apps/*/*)     p="${1#apps/}";     echo "${p%%/*}" ;;
-    packages/*/*) p="${1#packages/}"; echo "${p%%/*}" ;;
-    *) echo "" ;;
-  esac
-}
-
 # print a suggested verify command for a freshly-rebased worktree.
+# NOTE: scripts/verify.sh's positional arg is a VITEST test name/path filter
+# scoped to the backend package — NOT a package selector. So we deliberately
+# do NOT emit a package name (e.g. "backend"), which vitest would treat as a
+# name filter and likely match nothing. Stay a SUGGESTION only (never auto-run).
 suggest_verify() {
-  wt="$1"
-  draft=""
-  for f in "$wt"/.review/ISSUE-*-PR-DRAFT.json; do
-    [ -f "$f" ] && { draft="$f"; break; }
-  done
-  if [ -z "$draft" ]; then
-    echo "    suggest: run scripts/verify.sh for affected area"
-    return
-  fi
-  # Extract files_touched[].path values without a JSON dep: grep the path keys.
-  pkgs=""
-  while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    pkg="$(pkg_from_path "$path")"
-    [ -n "$pkg" ] || continue
-    case " $pkgs " in
-      *" $pkg "*) ;;            # already present
-      *) pkgs="$pkgs $pkg" ;;
-    esac
-  done <<EOF
-$(grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$draft" 2>/dev/null \
-    | sed 's/.*"path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-EOF
-  pkgs="$(echo "$pkgs" | sed 's/^ *//;s/ *$//')"
-  if [ -n "$pkgs" ]; then
-    echo "    suggest: scripts/verify.sh $pkgs"
-  else
-    echo "    suggest: run scripts/verify.sh for affected area"
-  fi
+  echo "    suggest: run scripts/verify.sh <test-name-filter> for the affected area (e.g. a touched test's name)"
 }
 
 # --- discover sibling in-flight feature worktrees (mirrors .githooks/post-merge) ---
