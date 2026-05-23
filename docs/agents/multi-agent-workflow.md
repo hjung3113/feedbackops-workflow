@@ -14,6 +14,20 @@ Every issue is one of three tiers. The tier picks the agent set.
 
 **Escalation rule:** if a Trivial or Standard issue's actual touch set hits any Full Cluster trigger (e.g. `packages/shared/*`, migrations), CODEX MUST abort with a `blocker` artifact whose `recommended_actions[0]` is `"escalate to Full Cluster tier"`.
 
+### Pre-dispatch tier probe
+
+Before assigning the **Trivial** tier, run the probe over the touched files:
+
+```
+scripts/tier-probe.sh <touched-file> [<touched-file>...]
+```
+
+A non-zero exit **forbids Trivial — escalate.** The probe disallows Trivial when the diff changes an exported contract (`export interface|type|class|enum|function|const`, `export default`, named/star re-exports, `... from` re-exports, `constructor(`, `as const`, generic-constraint changes), when an `index.ts`/`index.tsx` barrel is touched at all, or — the catch-all anti-false-negative bias — when an exported-TS file's diff is not provably comment/whitespace-only.
+
+The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is this change safe?". It is biased to disallow: **false positives (disallowing Trivial when it might've been fine) are acceptable; false negatives (allowing Trivial when a contract changed) are the harm.** The probe is advisory; `scripts/verify.sh --typecheck` is the precise blast-radius oracle and must still cover importing modules.
+
+This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
+
 ## Release Captain
 
 Every issue has one **Release Captain**. The Captain owns merge readiness with override authority.
