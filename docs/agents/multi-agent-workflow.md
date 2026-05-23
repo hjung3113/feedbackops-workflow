@@ -28,11 +28,22 @@ The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is
 
 This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
 
+## CONDUCTOR
+
+The **CONDUCTOR** is the 5th role: the orchestrator. Claude Opus, in a **dedicated pane OUTSIDE all clusters**, overseeing every in-flight cluster (one CONDUCTOR, not one per cluster). It dispatches work to the worker roles (ARCHITECT, CODEX, REVIEWER, VERIFIER, VISUAL) and tracks chunk state.
+
+- **READ-ONLY on product code.** CONDUCTOR never edits source files — any source edit is *role bleed*, a defect. It reads `.review/*.json` and dispatches.
+- **Disk is truth.** It reads worker state EXCLUSIVELY from `.review/*.json` via `scripts/conductor-rebuild.sh` — never inferred from pane scrollback or prose. It holds no in-memory-only state and is rotatable/reconstructable.
+- **Owns:** serial vs parallel, task split, role/model/persona assignment, tier (via `scripts/tier-probe.sh`).
+- **Anti-bottleneck:** ARCHITECT may make routine intra-chunk choices (within-module refactors, adding tests, doc fixes, implementation details inside a scoped chunk) WITHOUT waiting on CONDUCTOR; CONDUCTOR is consulted only for cross-chunk/contract/tier decisions.
+
+Full operating prompt: **`docs/agents/conductor-persona.md`**.
+
 ## Release Captain
 
 Every issue has one **Release Captain**. The Captain owns merge readiness with override authority.
 
-- **Default Captain:** the user (interactive mode) or CONDUCTOR (v0.2+).
+- **Default Captain:** the user (interactive mode) or, in orchestrated mode, **CONDUCTOR (v0.2)** — the dedicated read-only orchestrator role (see `docs/agents/conductor-persona.md`). As Captain, CONDUCTOR stays READ-ONLY on product code and merges only on **evidence-backed** readiness: a `verify_result` with `exit_code: 0`, `failed: 0`, `passed >= 1` whose `verified_head_sha` equals the branch's live worktree HEAD (per R5/R6 below) — never on prose claims.
 - **Authority:** may reject merge despite all-green artifacts.
 - **Mandate:** verify *integrated behavior* — does the change work end-to-end, not just pass local tests?
 - **Why:** REVIEWER checks design fit and VERIFIER checks commands, but neither owns "does this actually ship safely."
