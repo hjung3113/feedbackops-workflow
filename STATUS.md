@@ -47,12 +47,14 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 
 ## Remaining work / next
 
-1. **FeedbackOps PR cleanup (in the OTHER repo).** The original repo has open PRs: `#80`/`#81`/`#82` (product fixes #30/#31/#32, vs `develop`), `#83` (v0.1+v0.2 infra, vs `develop`), `#84` (v0.3, stacked on `#83`). **Decision pending:** keep the workflow separated here and do **not** merge `#83`/`#84` into FeedbackOps `develop` (so the workflow doesn't get permanently imprinted on the product history) — or merge them there too. If staying separated, close `#83`/`#84` and treat this repo as canonical.
-2. **VERIFIER ephemeral-DB automation.** Per-issue throwaway DB is currently a manual `createdb` + double-seed. Codex recommended automating: dedicated low-priv role, ephemeral DB/schema per issue, prod-cred block (partly done via the local-DB guard). Build a `prepare-verify-db.sh` helper.
-3. **v0.4 — loopback revisit.** Watch codex issue #6737 (allow binding to local addresses). If it ships a loopback-only allowance, re-evaluate in-sandbox self-verify (would remove the VERIFIER-outside-sandbox split).
-4. **Smoke runner + CI + coverage gaps.** Add a `run-all` that executes every `scripts/__tests__/*.smoke.sh` with a TAP summary; optionally wire a GitHub Action. Close coverage gaps: no direct smoke for `cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, `uds-pg-relay.mjs`; no schema fixtures for `review`, `touch`, `verify`.
-5. **`.env.example`** documenting the env contract the scripts expect (`DATABASE_URL`, `DATABASE_URL_MIGRATE`, `WORKSPACE_ID`, `VERIFY_DATABASE_URL`, `VERIFY_ENV_ALLOW`).
-6. **Reviewer follow-up from v0.3:** confirm the `env -i` scrub doesn't starve a DB-backed suite other than `create-voc` (only that one was validated end-to-end).
+1. **FeedbackOps PR cleanup — DONE (2026-05-24).** Product fixes `#80`/`#81`/`#82` (#30/#31/#32) squash-merged to FeedbackOps `develop`. Workflow PRs `#83`/`#84` closed and their remote branches deleted — this repo is now canonical for the workflow; FeedbackOps is product-only.
+
+2. **Usage ergonomics — how to point this toolkit at a target project.** Because the workflow was extracted OUT of FeedbackOps, the scripts no longer live inside any target repo. Running them means invoking by absolute path with cwd = the target worktree (see README "Usage"), and the target needs a `.review/` dir for artifacts. There is no install/vendor step yet. Candidate: an `install-into.sh <target-repo>` that symlinks or copies `scripts/` + `.review/schemas/` into a target, or a documented submodule pattern. Until then, invoke scripts by absolute path.
+3. **VERIFIER ephemeral-DB automation.** Per-issue throwaway DB is currently a manual `createdb` + double-seed. Codex recommended automating: dedicated low-priv role, ephemeral DB/schema per issue, prod-cred block (partly done via the local-DB guard). Build a `prepare-verify-db.sh` helper.
+4. **v0.4 — loopback revisit.** Watch codex issue #6737 (allow binding to local addresses). If it ships a loopback-only allowance, re-evaluate in-sandbox self-verify (would remove the VERIFIER-outside-sandbox split).
+5. **Smoke runner + CI + coverage gaps.** Add a `run-all` that executes every `scripts/__tests__/*.smoke.sh` with a TAP summary; optionally wire a GitHub Action. Close coverage gaps: no direct smoke for `cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, `uds-pg-relay.mjs`; no schema fixtures for `review`, `touch`, `verify`.
+6. **`.env.example`** documenting the env contract the scripts expect (`DATABASE_URL`, `DATABASE_URL_MIGRATE`, `WORKSPACE_ID`, `VERIFY_DATABASE_URL`, `VERIFY_ENV_ALLOW`).
+7. **Reviewer follow-up from v0.3:** confirm the `env -i` scrub doesn't starve a DB-backed suite other than `create-voc` (only that one was validated end-to-end).
 
 ## Method (how this was built — continue the same)
 - Co-design + adversarially review with a long-lived `codex exec` pane before/after implementing.
