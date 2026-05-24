@@ -1,0 +1,26 @@
+{
+  "schema_version": "1",
+  "artifact_type": "review",
+  "lifecycle": "final",
+  "producer_role": "REVIEWER",
+  "producer_version": "0.2.0",
+  "issue": {
+    "number": 33
+  },
+  "reviewed_head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "status": "fail",
+  "checklist": [
+    {
+      "item": "Relevant smoke test passes",
+      "met": false,
+      "note": "Smoke test failed on stale artifact detection"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "fix",
+      "description": "artifact-fresh.sh does not classify the stale artifact as expected.",
+      "file": "scripts/artifact-fresh.sh"
+    }
+  ]
+}

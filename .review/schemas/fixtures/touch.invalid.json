@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "artifact_type": "touch",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "producer_version": "0.2.0",
+  "issue": {
+    "number": 33
+  },
+  "files": [],
+  "escalation_required": false
+}

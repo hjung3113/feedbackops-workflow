@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "artifact_type": "touch",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "producer_version": "0.2.0",
+  "issue": {
+    "number": 33
+  },
+  "files": [
+    "scripts/artifact-fresh.sh",
+    "scripts/__tests__/artifact-fresh.smoke.sh"
+  ],
+  "escalation_required": false
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": "1",
+  "artifact_type": "verify_result",
+  "producer_role": "VERIFIER",
+  "producer_version": "codex/0.133.0",
+  "issue": 33,
+  "branch": "fix/33-artifact-fresh",
+  "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "cwd": "/Users/hyojung/Desktop/2026/FeedbackOps",
+  "verify_cmd": "scripts/verify.sh --filter voc-list",
+  "env_profile": "scrubbed",
+  "db_target": {
+    "host": "localhost",
+    "database": "feedbackops",
+    "role": "fops_verifier"
+  },
+  "verdict": {
+    "passed": 12,
+    "failed": 0,
+    "pending": 0,
+    "exit_code": 0
+  },
+  "classifier": "PASS",
+  "created_at": "2026-05-24T09:00:00Z"
+}
