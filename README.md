@@ -53,6 +53,16 @@ scripts/conductor-rebuild.sh .review
 
 See `STATUS.md` for what's shipped (v0.1–v0.3), the trial results, the key findings, and remaining work.
 
+## Install into a target project
+
+The toolkit lives outside any target repo. Wire a target to it (default: symlink, so the target tracks toolkit updates):
+
+```
+scripts/install-into.sh <target-repo> [--mode symlink|copy] [--force]
+```
+
+This creates `<target>/.agent-workflow/{scripts,schemas}` (→ this toolkit) and ensures `<target>/.review/` exists for runtime artifacts. Then invoke e.g. `<target>/.agent-workflow/scripts/verify.sh` and copy `.env.example` into the target's `.env`.
+
 ## Setup
 
 ```
