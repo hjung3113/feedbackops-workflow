@@ -382,7 +382,14 @@ main() {
     esac
   done
 
-  "$@" pnpm --filter backend exec vitest run "$filter" --reporter=json --outputFile="$tmp_report"
+  # NOTE: vitest 2.1.8 with a JSON-ONLY reporter intermittently crashes the
+  # worker and emits a false-fail report (every test marked failed with an
+  # EMPTY failureMessage) even when the suite passes. Pairing the JSON reporter
+  # with a console reporter stabilizes the worker. The `default` reporter writes
+  # to stdout and does NOT touch the JSON outputFile, so the classifier still
+  # reads a faithful machine report. Proven on FeedbackOps #112: json-only →
+  # 0/7 (empty messages); json+default → 7/7. Do not drop the second reporter.
+  "$@" pnpm --filter backend exec vitest run "$filter" --reporter=json --reporter=default --outputFile="$tmp_report"
   vitest_ec=$?
 
   classify_json "$tmp_report" "$vitest_ec"
