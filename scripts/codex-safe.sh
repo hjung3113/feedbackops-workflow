@@ -11,6 +11,8 @@ ISSUE_N=""
 PROMPT=""
 PROMPT_FILE=""
 CWD="$(pwd)"
+MODEL=""
+EFFORT=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -18,9 +20,24 @@ while [[ $# -gt 0 ]]; do
     --prompt) PROMPT="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --cwd) CWD="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
+    --effort) EFFORT="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
+
+# Policy guard: gpt-5.6 ABOVE medium reasoning is forbidden (cost). medium and
+# below are allowed; only high/xhigh/max are banned. Enforced here so no
+# dispatch can bypass it.
+_eff="${EFFORT:-medium}"   # config default is medium
+case "$MODEL" in
+  *5.6*|*5-6*)
+    case "$_eff" in
+      high|xhigh|max)
+        echo "REFUSED: gpt-5.6 at '$_eff' reasoning is banned (max allowed: medium); lower --effort or change model" >&2
+        exit 2 ;;
+    esac ;;
+esac
 
 [[ -z "$ISSUE_N" ]] && { echo "missing --issue" >&2; exit 2; }
 [[ -z "$PROMPT" && -z "$PROMPT_FILE" ]] && { echo "missing --prompt or --prompt-file" >&2; exit 2; }
@@ -34,7 +51,12 @@ trap 's=$?; if [[ $s -ne 0 ]]; then "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "
 
 cd "$CWD"
 
+EXTRA=()
+[[ -n "$MODEL" ]] && EXTRA+=( -m "$MODEL" )
+[[ -n "$EFFORT" ]] && EXTRA+=( -c "model_reasoning_effort=\"$EFFORT\"" )
+
 codex exec \
   --sandbox workspace-write \
   --cd "$CWD" \
+  "${EXTRA[@]}" \
   "$PROMPT"
