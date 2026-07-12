@@ -18,7 +18,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 - `conductor-rebuild.sh`: reconstructs CONDUCTOR state from `.review/*.json`; per-worktree HEAD + branch-identity check; fallback can only demote, never `verified`.
 - `artifact-fresh.sh`: base_branch-aware staleness, resolves in the artifact's OWN worktree.
 - `review-archive.sh`, `rebase-inflight.sh` (dirty-safe, conflict-aborting; post-merge hook stays warn-only).
-- Schemas: structured `blocker` (reason_code+evidence, no prose), conditional-required `verify_result` in `pr_draft`, new `phase_summary` + `heartbeat`.
+- Schemas: structured `blocker` (reason_code+evidence, no prose), deprecated-optional `pr_draft.verify_result` kept only for backward compatibility, new `phase_summary` + `heartbeat`.
 - Personas + expanded playbook.
 - Reviewed: every task spec+quality reviewed; 2 codex adversarial rounds; 3 build-time bugs + 7 integration-seam holes fixed.
 
@@ -42,7 +42,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 
 ## Key operating facts (don't relearn)
 - Parallel clusters need **one throwaway DB each** — schema/workspace isolation is insufficient (fixed `core`/`permission` schemas + instance-global `pg_locks`). Seed with BOTH `DATABASE_URL` and `DATABASE_URL_MIGRATE` at the new DB.
-- codex `workspace-write` blocks the DB → VERIFIER verifies outside the sandbox; `pr_draft`'s conditional `verify_result` blocks false `ready` claims.
+- codex `workspace-write` blocks the DB → VERIFIER verifies outside the sandbox; CONDUCTOR ignores deprecated `pr_draft.verify_result` and trusts only canonical `ISSUE-<n>-VERIFY.json` from VERIFIER.
 - All `codex exec` MUST go through `scripts/codex-safe.sh`. Bare `codex exec` is forbidden.
 
 ## Remaining work / next

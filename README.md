@@ -14,7 +14,7 @@ Running multiple AI coding agents in parallel breaks in non-obvious ways: a sile
 - **CODEX** — implementer, run inside a `workspace-write` sandbox via `scripts/codex-safe.sh`.
 - **REVIEWER / VISUAL-REVIEWER** — design-fit + live UI review.
 - **VERIFIER** — runs the verification oracle (`scripts/verify.sh`) **outside** the sandbox (the sandbox blocks all network, incl. the local DB).
-- **Release Captain** — owns merge readiness; merges only on evidence (`verify_result` artifact), never on prose.
+- **Release Captain** — owns merge readiness; merges only on canonical VERIFIER evidence (`ISSUE-<N>-VERIFY.json`), never on prose or embedded CODEX fields.
 
 Risk tiers (Trivial / Standard / Full Cluster) pick the agent set. See `docs/agents/multi-agent-workflow.md` for the full playbook and `docs/agents/conductor-persona.md` / `visual-reviewer-persona.md` for role prompts.
 

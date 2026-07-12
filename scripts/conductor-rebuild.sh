@@ -4,10 +4,10 @@
 #
 # Codex review R6 (CRITICAL): the CONDUCTOR spans MULTIPLE branches/worktrees,
 # so there is NO single global branch HEAD. Each pr_draft is resolved against
-# ITS OWN worktree's current HEAD. A pr_draft is "verified" ONLY if, in its own
-# worktree, `git rev-parse HEAD` equals its verify_result.verified_head_sha
-# (and failed==0, passed>0). If the artifact has no resolvable worktree HEAD,
-# its state is "unknown" — NEVER "verified".
+# ITS OWN worktree's current HEAD. A pr_draft is "verified" ONLY from the
+# canonical ISSUE-<n>-VERIFY.json written by VERIFIER; embedded
+# pr_draft.verify_result is deprecated and ignored. If the artifact has no
+# resolvable worktree HEAD, its state is "unknown" — NEVER "verified".
 #
 # Usage: scripts/conductor-rebuild.sh <review-dir> [<fallback-head-sha>]
 # Output: a header line, then one TSV line per (non-superseded) artifact:
@@ -55,6 +55,37 @@ parse_field() {
   ' "$1" "$2" 2>/dev/null
 }
 
+parse_verify_artifact() {
+  node -e '
+    const fs = require("fs");
+    let o;
+    try { o = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); }
+    catch (e) { process.exit(2); }
+    if (!o || typeof o !== "object" || Array.isArray(o)) process.exit(2);
+    function get(path) {
+      let v = o;
+      for (let i = 0; i < path.length; i++) {
+        if (v === undefined || v === null) return "";
+        v = v[path[i]];
+      }
+      if (v === undefined || v === null) return "";
+      return String(v);
+    }
+    const values = [
+      get(["producer_role"]),
+      get(["classifier"]),
+      get(["verdict", "failed"]),
+      get(["verdict", "passed"]),
+      get(["verdict", "exit_code"]),
+      get(["head_sha"]),
+      get(["issue"]),
+      get(["branch"]),
+      get(["verify_cmd"])
+    ];
+    process.stdout.write(values.join("\t"));
+  ' "$1" 2>/dev/null
+}
+
 process_blocker() {
   f="$1"
   lifecycle="$(parse_field "$f" 'lifecycle')"
@@ -84,13 +115,54 @@ process_pr_draft() {
 
   status="$(parse_field "$f" 'status')"
   worktree="$(parse_field "$f" 'worktree_path')"
-  v_head="$(parse_field "$f" 'verify_result.verified_head_sha')"
-  v_passed="$(parse_field "$f" 'verify_result.passed')"
-  v_failed="$(parse_field "$f" 'verify_result.failed')"
-  v_exit="$(parse_field "$f" 'verify_result.exit_code')"
-  # verify_result is "present" iff it carries a verified_head_sha (its required field).
-  has_vr=""
-  [ -n "$v_head" ] && has_vr="yes"
+  verify_cmd="$(parse_field "$f" 'verify_cmd')"
+
+  if [ "$status" != "ready_for_review" ]; then
+    printf '%s\t%s\t%s\n' "$issue" "in_progress" "$branch"
+    return 0
+  fi
+
+  vfile="$REVIEW_DIR/ISSUE-${issue}-VERIFY.json"
+  if [ ! -f "$vfile" ]; then
+    echo "conductor-rebuild: $f ready_for_review but missing canonical verify artifact $vfile — unknown" >&2
+    printf '%s\t%s\t%s\n' "$issue" "unknown" "$branch"
+    return 0
+  fi
+
+  vline="$(parse_verify_artifact "$vfile")"
+  vrc=$?
+  if [ "$vrc" -ne 0 ] || [ -z "$vline" ]; then
+    echo "conductor-rebuild: $vfile parse failed — unknown (fail closed)" >&2
+    printf '%s\t%s\t%s\n' "$issue" "unknown" "$branch"
+    return 0
+  fi
+
+  oldIFS=$IFS
+  IFS="$(printf '\t')"
+  set -- $vline
+  IFS=$oldIFS
+  v_role="${1:-}"
+  v_class="${2:-}"
+  v_failed="${3:-}"
+  v_passed="${4:-}"
+  v_exit="${5:-}"
+  v_head="${6:-}"
+  v_issue="${7:-}"
+  v_branch="${8:-}"
+  v_cmd="${9:-}"
+
+  if [ -n "$verify_cmd" ] && [ -n "$v_cmd" ] && [ "$verify_cmd" != "$v_cmd" ]; then
+    echo "conductor-rebuild: WARN $f verify_cmd '$verify_cmd' differs from $vfile verify_cmd '$v_cmd' — reviewer must check filter coverage" >&2
+  fi
+
+  if [ "$v_role" != "VERIFIER" ] || [ "$v_class" != "PASS" ] \
+     || [ "$v_failed" != "0" ] || [ -z "$v_passed" ] || [ "$v_passed" = "0" ] \
+     || [ "$v_exit" != "0" ] || [ "$v_issue" != "$issue" ] \
+     || [ -z "$branch" ] || [ "$branch" = "(unknown-branch)" ] || [ "$v_branch" != "$branch" ]; then
+    echo "conductor-rebuild: $vfile does not satisfy canonical verify gates — unknown" >&2
+    printf '%s\t%s\t%s\n' "$issue" "unknown" "$branch"
+    return 0
+  fi
 
   # Resolve THIS artifact's real branch HEAD against its OWN worktree.
   # head_source records WHERE actual_head came from: only a "worktree" source
@@ -126,25 +198,20 @@ process_pr_draft() {
     head_source="fallback"
   fi
 
-  state="in_progress"
-  if [ "$status" = "ready_for_review" ] && [ "$has_vr" = "yes" ] \
-     && [ "$v_exit" = "0" ] && [ "$v_failed" = "0" ] \
-     && [ -n "$v_passed" ] && [ "$v_passed" != "0" ]; then
-    if [ -z "$actual_head" ]; then
-      # ready, verified clean, but we cannot prove against any HEAD → unknown.
-      state="unknown"
-    elif [ "$head_source" = "fallback" ]; then
-      # A fallback HEAD is not a trustworthy per-branch HEAD. It can never
-      # produce `verified` (that would let an artifact certify itself). Cap
-      # at `unknown` regardless of whether it happens to match verified_head_sha.
-      state="unknown"
-    elif [ "$v_head" = "$actual_head" ]; then
-      # head_source == "worktree": an INDEPENDENT live lookup agreed → verified.
-      state="verified"
-    else
-      # work landed after verify
-      state="stale_verify"
-    fi
+  state="unknown"
+  if [ -z "$actual_head" ]; then
+    state="unknown"
+  elif [ "$head_source" = "fallback" ]; then
+    # A fallback HEAD is not a trustworthy per-branch HEAD. It can never
+    # produce `verified` (that would let an artifact certify itself). Cap
+    # at `unknown` regardless of whether it happens to match head_sha.
+    state="unknown"
+  elif [ "$v_head" = "$actual_head" ]; then
+    # head_source == "worktree": an INDEPENDENT live lookup agreed → verified.
+    state="verified"
+  else
+    # work landed after verify
+    state="stale_verify"
   fi
 
   printf '%s\t%s\t%s\n' "$issue" "$state" "$branch"

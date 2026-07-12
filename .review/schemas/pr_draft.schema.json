@@ -44,6 +44,7 @@
     "deviations": { "type": "array", "items": { "type": "string" } },
     "status": { "enum": ["ready_for_review", "needs_amendment", "abandoned"] },
     "verify_result": {
+      "description": "DEPRECATED — conductor ignores this field. The canonical verification fact is ISSUE-<n>-VERIFY.json written by VERIFIER. Kept schema-allowed only for backward compatibility with existing artifacts.",
       "type": "object",
       "additionalProperties": false,
       "required": ["verified_head_sha", "passed", "failed", "exit_code"],
@@ -55,21 +56,11 @@
         "exit_code": { "type": "integer" }
       }
     },
+    "verify_artifact_path": {
+      "type": "string",
+      "description": "informational pointer only; conductor does NOT trust this — derives ISSUE-<n>-VERIFY.json deterministically"
+    },
     "worktree_path": { "type": "string", "description": "optional: absolute path to the worktree this artifact's branch lives in; used by conductor-rebuild to resolve the branch's real HEAD" },
     "base_branch": { "type": "string", "description": "optional: the integration branch this feature branched from (e.g. 'develop' or 'feature/agent-workflow-trial'); used by artifact-fresh to compute merge-base instead of assuming develop" }
-  },
-  "if": { "properties": { "status": { "const": "ready_for_review" } }, "required": ["status"] },
-  "then": {
-    "required": ["verify_result"],
-    "properties": {
-      "verify_result": {
-        "type": "object",
-        "properties": {
-          "exit_code": { "const": 0 },
-          "failed": { "const": 0 },
-          "passed": { "type": "integer", "minimum": 1 }
-        }
-      }
-    }
   }
 }
