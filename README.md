@@ -22,7 +22,7 @@ Risk tiers (Trivial / Standard / Full Cluster) pick the agent set. See `docs/age
 
 | Script | Role |
 |---|---|
-| `codex-safe.sh` | the only sanctioned way to dispatch `codex exec` — pins `--sandbox workspace-write` + `--cd`, stashes partial work on failure |
+| `codex-safe.sh` | the only sanctioned way to dispatch `codex exec` — pins `--sandbox workspace-write` + `--cd`, stashes partial work on failure, and pins omitted gpt-5.6 effort to medium |
 | `verify.sh` | false-green-proof vitest classifier + baseline-aware `--typecheck`; emits a `verify_result` provenance artifact |
 | `prepare-worktree.sh` | host-side deps+env prep; refuses unsafe shared-env across worktrees |
 | `cmux-cluster.sh` | launch a cluster against a prepared worktree |

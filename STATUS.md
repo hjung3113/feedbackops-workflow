@@ -44,6 +44,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 - Parallel clusters need **one throwaway DB each** — schema/workspace isolation is insufficient (fixed `core`/`permission` schemas + instance-global `pg_locks`). Seed with BOTH `DATABASE_URL` and `DATABASE_URL_MIGRATE` at the new DB.
 - codex `workspace-write` blocks the DB → VERIFIER verifies outside the sandbox; CONDUCTOR ignores deprecated `pr_draft.verify_result` and trusts only canonical `ISSUE-<n>-VERIFY.json` from VERIFIER.
 - All `codex exec` MUST go through `scripts/codex-safe.sh`. Bare `codex exec` is forbidden.
+- `scripts/codex-safe.sh` pins omitted gpt-5.6 reasoning effort to `medium` before dispatch and refuses high/xhigh/max.
 
 ## Remaining work / next
 

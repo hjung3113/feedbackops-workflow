@@ -26,15 +26,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Policy guard: gpt-5.6 ABOVE medium reasoning is forbidden (cost). medium and
-# below are allowed; only high/xhigh/max are banned. Enforced here so no
-# dispatch can bypass it.
-_eff="${EFFORT:-medium}"   # config default is medium
+# Policy guard: gpt-5.6 ABOVE medium reasoning is forbidden (cost). gpt-5.6 is
+# not supported on the ChatGPT account as of 2026-07-12; keep this guard as
+# defense-in-depth for API accounts and future support. If effort is omitted for
+# 5.6, pin the actual dispatched config to medium so user/global config cannot
+# silently raise it.
 case "$MODEL" in
   *5.6*|*5-6*)
-    case "$_eff" in
+    [[ -z "$EFFORT" ]] && EFFORT="medium"
+    case "$EFFORT" in
       high|xhigh|max)
-        echo "REFUSED: gpt-5.6 at '$_eff' reasoning is banned (max allowed: medium); lower --effort or change model" >&2
+        echo "REFUSED: gpt-5.6 at '$EFFORT' reasoning is banned (max allowed: medium); lower --effort or change model" >&2
         exit 2 ;;
     esac ;;
 esac
