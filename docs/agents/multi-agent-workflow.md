@@ -122,7 +122,7 @@ If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has f
 
 VERIFIER MUST confirm green by running `scripts/verify.sh <filter>` — never by eyeballing test output and never by running a bare `pnpm test`. A bare `pnpm test` is forbidden as a green signal: in a trial it silently skipped all 31 integration tests (missing `DATABASE_URL`/`WORKSPACE_ID`) and a fully-skipped suite looked like a pass — a false green.
 
-The `<filter>` arg is a **Vitest test name/path filter scoped to the backend package** (it matches test file paths/names within backend), **not** a package selector — e.g. `scripts/verify.sh create-voc` runs backend tests whose path/name matches "create-voc"; passing a package name like `backend` would be treated as a name filter and likely match nothing.
+The verify oracle currently assumes a pnpm workspace package named `backend` tested with Vitest. The `<filter>` arg is a **Vitest test name/path filter scoped to the backend package** (it matches test file paths/names within backend), **not** a package selector — e.g. `scripts/verify.sh create-voc` runs backend tests whose path/name matches "create-voc"; passing a package name like `backend` would be treated as a name filter and likely match nothing. `scripts/verify.sh --typecheck` likewise assumes the target has `pnpm --filter backend run typecheck`. Generalizing these commands is deferred until there is a second real target and fixture.
 
 `scripts/verify.sh` loads env (`.env` and `apps/backend/.env` if present), runs the scoped vitest filter via the JSON reporter, and classifies the result. It treats as a **FAIL**:
 

@@ -2,7 +2,7 @@
 
 A **multi-agent development workflow toolkit** for shipping code with cmux × Claude × Codex clusters: host-side orchestration scripts, false-green-proof verification, JSON artifact schemas, role personas, and an operating playbook.
 
-Originally built inside the FeedbackOps project; extracted here (with full git history of the workflow files) so it can evolve on its own and be reused against any target codebase.
+Originally built inside the FeedbackOps project; extracted here (with full git history of the workflow files) so it can evolve on its own and be reused against a target codebase whose backend is a pnpm workspace tested with Vitest. The verification oracle is backend-Vitest-specific today; parameterization waits for a second real target.
 
 ## Why
 

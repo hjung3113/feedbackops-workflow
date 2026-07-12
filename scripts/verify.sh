@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # verify.sh — env-load + false-green-proof vitest classifier.
+# Current target contract: pnpm workspace package `backend` tested with Vitest.
+# Do not generalize until a second real target and fixture exist.
 #
 # Modes:
 #   verify.sh --classify-json <report-file> [<vitest-exit-code>]
