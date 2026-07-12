@@ -114,6 +114,34 @@ case "$(guard 2)" in
   *) fail "guard: 2 others → REFUSE (no flag) [got: $(guard 2)]" ;;
 esac
 
+# --- Case 8: --env-profile writes both root .env and apps/backend/.env ---
+SRC_REPO="$TMP_DIR/source-repo"
+WT_REPO="$TMP_DIR/profile-wt"
+BIN="$TMP_DIR/bin"
+PROFILE="$TMP_DIR/profile.env"
+mkdir -p "$SRC_REPO" "$WT_REPO" "$BIN"
+git -C "$SRC_REPO" init -q
+git -C "$SRC_REPO" config user.email "smoke@test.local"
+git -C "$SRC_REPO" config user.name "smoke"
+printf '%s\n' '# source repo' > "$SRC_REPO/README.md"
+git -C "$SRC_REPO" add -A
+git -C "$SRC_REPO" commit -q -m "seed"
+cat > "$BIN/pnpm" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$BIN/pnpm"
+{
+  printf '%s\n' 'DATABASE_URL=postgres://fops_app:profilepass@127.0.0.1/profile_db'
+  printf '%s\n' 'WORKSPACE_ID=profile-workspace'
+} > "$PROFILE"
+
+PATH="$BIN:$PATH" bash "$PREP" "$WT_REPO" --source-env "$SRC_REPO" --env-profile "$PROFILE" >/dev/null 2>&1
+prep_ec=$?
+if [ "$prep_ec" -eq 0 ]; then pass "env-profile prepare exits 0"; else fail "env-profile prepare exits 0 (got $prep_ec)"; fi
+if cmp -s "$PROFILE" "$WT_REPO/.env"; then pass "env-profile writes root .env"; else fail "env-profile writes root .env"; fi
+if cmp -s "$PROFILE" "$WT_REPO/apps/backend/.env"; then pass "env-profile writes backend .env"; else fail "env-profile writes backend .env"; fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

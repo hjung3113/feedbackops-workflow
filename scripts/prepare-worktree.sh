@@ -197,6 +197,7 @@ if [[ -n "$ENV_PROFILE" ]]; then
     exit 1
   fi
   copy_env "$ENV_PROFILE" "$WT_PATH/.env"
+  copy_env "$ENV_PROFILE" "$WT_PATH/apps/backend/.env"
 else
   copy_env "$SOURCE_ENV/.env" "$WT_PATH/.env"
   copy_env "$SOURCE_ENV/apps/backend/.env" "$WT_PATH/apps/backend/.env"

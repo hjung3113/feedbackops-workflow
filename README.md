@@ -24,7 +24,7 @@ Risk tiers (Trivial / Standard / Full Cluster) pick the agent set. See `docs/age
 |---|---|
 | `codex-safe.sh` | the only sanctioned way to dispatch `codex exec` — pins `--sandbox workspace-write` + `--cd`, stashes partial work on failure, and pins omitted gpt-5.6 effort to medium |
 | `verify.sh` | false-green-proof vitest classifier + baseline-aware `--typecheck`; emits a `verify_result` provenance artifact |
-| `prepare-worktree.sh` | host-side deps+env prep; refuses unsafe shared-env across worktrees |
+| `prepare-worktree.sh` | host-side deps+env prep; refuses unsafe shared-env across worktrees; env profiles are written to both root and backend env files |
 | `cmux-cluster.sh` | launch a cluster against a prepared worktree |
 | `conductor-rebuild.sh` | reconstruct CONDUCTOR state from `.review/*.json` |
 | `tier-probe.sh` | disallow Trivial tier on exported-contract changes |

@@ -182,6 +182,26 @@ fi
 run_filter_case "fail-artifact-write-failure-preserves-classifier" 1 "file" "fail" 3
 run_filter_case "no-verify-issue-green-unchanged" 0 "file" "green" ""
 
+echo "--- database url parser ---"
+
+run_parse_db_case() {
+  name="$1"; url="$2"; expected="$3"
+  out="$(bash "$VERIFY" --parse-db-url "$url" 2>/dev/null)"
+  if [ "$out" = "$expected" ]; then
+    echo "ok   - $name"
+  else
+    echo "NOT OK - $name (expected '$expected', got '$out')"
+    FAILURES=$((FAILURES + 1))
+  fi
+  case "$out" in
+    *secret*|*pass*) echo "NOT OK - $name leaked password"; FAILURES=$((FAILURES + 1)) ;;
+  esac
+}
+
+run_parse_db_case "parse localhost url" "postgres://fops_app:secretpass@localhost:5432/feedbackops?sslmode=disable" "localhost	feedbackops	fops_app"
+run_parse_db_case "parse ipv4 url" "postgres://fops_app@127.0.0.1/verify_smoke" "127.0.0.1	verify_smoke	fops_app"
+run_parse_db_case "parse bracketed ipv6 url" "postgres://fops_app:secretpass@[::1]:5432/verify_ipv6" "[::1]	verify_ipv6	fops_app"
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

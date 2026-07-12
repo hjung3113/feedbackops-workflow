@@ -29,6 +29,7 @@ usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
   echo "       verify.sh --typecheck-diff <baseline-file> <current-file>" >&2
   echo "       verify.sh --typecheck" >&2
+  echo "       verify.sh --parse-db-url <database-url>   (hidden test mode)" >&2
   echo "       verify.sh <vitest-filter>   (vitest test name/path filter scoped to backend; NOT a package selector)" >&2
 }
 
@@ -166,6 +167,31 @@ classify_json() {
   return $?
 }
 
+parse_db_url() {
+  DB_HOST=""
+  DB_DATABASE=""
+  DB_ROLE=""
+  [ -z "${1:-}" ] && return 0
+
+  db_after_scheme="$(printf '%s\n' "$1" | sed 's,^[^:][^:]*://,,')"
+  case "$db_after_scheme" in
+    *@*) DB_ROLE="$(printf '%s\n' "$db_after_scheme" | sed 's/[:@].*//')" ;;
+  esac
+
+  db_authority="$db_after_scheme"
+  case "$db_authority" in
+    *@*) db_authority="${db_authority#*@}" ;;
+  esac
+  DB_HOST="$(printf '%s\n' "$db_authority" | sed 's/[/:].*//')"
+  case "$db_authority" in
+    \[*\]*) DB_HOST="$(printf '%s\n' "$db_authority" | sed 's/^\(\[[^]]*\]\).*/\1/')" ;;
+    "::1"|::1/*|::1:*) DB_HOST="::1" ;;
+  esac
+  case "$db_after_scheme" in
+    */*) DB_DATABASE="$(printf '%s\n' "$db_after_scheme" | sed 's/[?].*$//; s,.*/,,')" ;;
+  esac
+}
+
 emit_verify_artifact() {
   issue="$1"
   filter="$2"
@@ -186,29 +212,7 @@ emit_verify_artifact() {
     return 1
   }
 
-  db_host=""
-  db_database=""
-  db_role=""
-  if [ -n "${DATABASE_URL+x}" ] && [ -n "$DATABASE_URL" ]; then
-    db_after_scheme="$(printf '%s\n' "$DATABASE_URL" | sed 's,^[^:][^:]*://,,')"
-    db_role=""
-    case "$db_after_scheme" in
-      *@*) db_role="$(printf '%s\n' "$db_after_scheme" | sed 's/[:@].*//')" ;;
-    esac
-
-    db_authority="$db_after_scheme"
-    case "$db_authority" in
-      *@*) db_authority="${db_authority#*@}" ;;
-    esac
-    db_host="$(printf '%s\n' "$db_authority" | sed 's/[/:].*//')"
-    case "$db_authority" in
-      \[*\]*) db_host="$(printf '%s\n' "$db_authority" | sed 's/^\(\[[^]]*\]\).*/\1/')" ;;
-      "::1"|::1/*|::1:*) db_host="::1" ;;
-    esac
-    case "$db_after_scheme" in
-      */*) db_database="$(printf '%s\n' "$db_after_scheme" | sed 's/[?].*$//; s,.*/,,')" ;;
-    esac
-  fi
+  parse_db_url "${DATABASE_URL:-}"
 
   head_sha="$(git rev-parse HEAD 2>/dev/null || printf '')"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
@@ -222,9 +226,9 @@ emit_verify_artifact() {
   VERIFY_ARTIFACT_HEAD_SHA="$head_sha" \
   VERIFY_ARTIFACT_CWD="$cwd" \
   VERIFY_ARTIFACT_CMD="$verify_cmd" \
-  VERIFY_ARTIFACT_DB_HOST="$db_host" \
-  VERIFY_ARTIFACT_DB_DATABASE="$db_database" \
-  VERIFY_ARTIFACT_DB_ROLE="$db_role" \
+  VERIFY_ARTIFACT_DB_HOST="$DB_HOST" \
+  VERIFY_ARTIFACT_DB_DATABASE="$DB_DATABASE" \
+  VERIFY_ARTIFACT_DB_ROLE="$DB_ROLE" \
   VERIFY_ARTIFACT_EXIT_CODE="$vitest_ec" \
   VERIFY_ARTIFACT_CLASSIFIER="$classifier" \
   VERIFY_ARTIFACT_CREATED_AT="$created_at" \
@@ -317,6 +321,16 @@ main() {
     exit $?
   fi
 
+  if [ "$1" = "--parse-db-url" ]; then
+    if [ "$#" -lt 2 ]; then
+      usage
+      exit 2
+    fi
+    parse_db_url "$2"
+    printf '%s\t%s\t%s\n' "$DB_HOST" "$DB_DATABASE" "$DB_ROLE"
+    exit 0
+  fi
+
   if [ "$1" = "--typecheck" ]; then
     root="$(git rev-parse --show-toplevel)"
     cd "$root" || exit 2
@@ -360,26 +374,16 @@ main() {
     export DATABASE_URL_MIGRATE="${VERIFY_DATABASE_URL_MIGRATE:-$VERIFY_DATABASE_URL}"
   fi
 
+  parse_db_url "${DATABASE_URL:-}"
   if [ -n "${DATABASE_URL+x}" ] && [ -n "$DATABASE_URL" ]; then
-    db_after_scheme="$(printf '%s\n' "$DATABASE_URL" | sed 's,^[^:][^:]*://,,')"
-    db_user="$(printf '%s\n' "$db_after_scheme" | sed 's/[:@].*//')"
-    if [ "$db_user" = "postgres" ]; then
+    if [ "$DB_ROLE" = "postgres" ]; then
       echo "WARN: verifier running as superuser role 'postgres' — prefer a low-privilege role (e.g. fops_app) via VERIFY_DATABASE_URL" >&2
     fi
 
-    db_authority="$db_after_scheme"
-    case "$db_authority" in
-      *@*) db_authority="${db_authority#*@}" ;;
-    esac
-    db_host="$(printf '%s\n' "$db_authority" | sed 's/[/:].*//')"
-    case "$db_authority" in
-      \[*\]*) db_host="$(printf '%s\n' "$db_authority" | sed 's/^\(\[[^]]*\]\).*/\1/')" ;;
-      "::1"|::1/*|::1:*) db_host="::1" ;;
-    esac
-    case "$db_host" in
+    case "$DB_HOST" in
       ""|"localhost"|"127.0.0.1"|"::1"|"[::1]") ;;
       *)
-        echo "FAIL: refusing to verify against non-local DATABASE_URL host '$db_host' (fail closed — verifier must run against a local/ephemeral DB)" >&2
+        echo "FAIL: refusing to verify against non-local DATABASE_URL host '$DB_HOST' (fail closed — verifier must run against a local/ephemeral DB)" >&2
         exit 3
         ;;
     esac
@@ -410,6 +414,7 @@ main() {
   # to stdout and does NOT touch the JSON outputFile, so the classifier still
   # reads a faithful machine report. Proven on FeedbackOps #112: json-only →
   # 0/7 (empty messages); json+default → 7/7. Do not drop the second reporter.
+  echo "VERIFIER effective DB -> host=$DB_HOST db=$DB_DATABASE role=$DB_ROLE (injected into vitest child)" >&2
   "$@" pnpm --filter backend exec vitest run "$filter" --reporter=json --reporter=default --outputFile="$tmp_report"
   vitest_ec=$?
 
