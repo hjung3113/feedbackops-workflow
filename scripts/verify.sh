@@ -182,8 +182,8 @@ emit_verify_artifact() {
 
   artifact_path=".review/ISSUE-${issue}-VERIFY.json"
   mkdir -p .review || {
-    echo "WARN: unable to create .review directory; skipping verify artifact" >&2
-    return 0
+    echo "FAIL: unable to create .review directory; cannot write verify artifact" >&2
+    return 1
   }
 
   db_host=""
@@ -274,8 +274,20 @@ emit_verify_artifact() {
 
     fs.writeFileSync(process.env.VERIFY_ARTIFACT_PATH, JSON.stringify(artifact, null, 2) + "\n");
   ' || {
-    echo "WARN: unable to write verify artifact: $artifact_path" >&2
-    return 0
+    echo "FAIL: unable to write verify artifact: $artifact_path" >&2
+    return 1
+  }
+
+  node -e '
+    var fs = require("fs");
+    var data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (!data || typeof data !== "object") process.exit(1);
+    if (data.classifier !== "PASS" && data.classifier !== "FAIL") process.exit(1);
+    if (!data.head_sha) process.exit(1);
+    if (!data.verdict || typeof data.verdict !== "object") process.exit(1);
+  ' "$artifact_path" >/dev/null 2>&1 || {
+    echo "FAIL: wrote invalid verify artifact: $artifact_path" >&2
+    return 1
   }
 }
 
@@ -411,6 +423,15 @@ main() {
 
   if [ -n "${VERIFY_ISSUE+x}" ] && [ -n "$VERIFY_ISSUE" ]; then
     emit_verify_artifact "$VERIFY_ISSUE" "$filter" "$tmp_report" "$vitest_ec" "$classifier"
+    emit_ec=$?
+    if [ "$emit_ec" -ne 0 ]; then
+      if [ "$cls_ec" -eq 0 ]; then
+        echo "FAIL: green run but could not write a valid verify artifact — evidence is the product (fail closed)" >&2
+        exit 5
+      else
+        echo "WARN: verify artifact write failed on an already-failing run; preserving test FAIL (exit $cls_ec)" >&2
+      fi
+    fi
   fi
 
   exit "$cls_ec"

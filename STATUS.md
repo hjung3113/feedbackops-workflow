@@ -30,7 +30,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 - **Decision: status-quo** — worker stays network-denied; VERIFIER runs DB tests outside the sandbox. Revisit only when (a) codex ships loopback-only network, or (b) data shows DB-test verifier churn is a real bottleneck.
 - **Hardening shipped:**
   - `verify.sh` filter mode: local-DB guard (`exit 3` on non-local `DATABASE_URL` host); `VERIFY_DATABASE_URL` least-privilege override + superuser-role WARN; `env -i` default-deny allowlist scrub (`VERIFY_ENV_ALLOW` for extras) so host secrets don't leak into tests.
-  - Provenance: `VERIFY_ISSUE=<n>` emits `.review/ISSUE-<n>-VERIFY.json` (schema `verify.schema.json`; `db_target` carries host/db/role, never a password). Non-fatal; never flips the run's exit code.
+  - Provenance: `VERIFY_ISSUE=<n>` emits `.review/ISSUE-<n>-VERIFY.json` (schema `verify.schema.json`; `db_target` carries host/db/role, never a password). A green run that cannot write a valid artifact fails closed with exit 5; failing test runs keep their failing classifier exit.
   - `sandbox-network-deny.smoke.sh`: L1 (offline) asserts `codex-safe.sh` pins `--sandbox workspace-write` and grants no `danger-full-access`/`network_access`; L2 (opt-in `RUN_LIVE_SANDBOX_PROBE=1`) runs the in-sandbox probe and asserts loopback `BLOCKED`.
   - Repro scripts: `uds-pg-relay.mjs`, `uds-sandbox-probe.mjs`, `net-deny-probe.mjs`.
   - **Out-of-repo (operator machine):** global `~/.codex/config.toml` default lowered `danger-full-access` → `workspace-write` (defense-in-depth for bare `codex`).

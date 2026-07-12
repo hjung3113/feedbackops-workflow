@@ -114,6 +114,74 @@ run_typecheck_case "typecheck-crash-without-ts-lines" FAIL 'echo "tsconfig unrea
 run_typecheck_case "typecheck-ts-errors-diff-path" FAIL 'echo "src/x.ts(1,1): error TS2304: Cannot find name X" >&2; exit 1'
 run_typecheck_case "typecheck-clean-pass" PASS 'exit 0'
 
+echo "--- verify artifact fail-closed ---"
+
+write_pnpm_stub() {
+  bin="$1"; mode="$2"
+  cat > "$bin/pnpm" <<'STUB'
+#!/usr/bin/env bash
+out=""
+for arg in "$@"; do
+  case "$arg" in
+    --outputFile=*) out="${arg#--outputFile=}" ;;
+  esac
+done
+[ -n "$out" ] || { echo "missing --outputFile" >&2; exit 2; }
+case "${PNPM_STUB_MODE:-green}" in
+  green)
+    printf '%s\n' '{"numPassedTests":3,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true,"testResults":[]}' > "$out"
+    exit 0
+    ;;
+  fail)
+    printf '%s\n' '{"numPassedTests":2,"numFailedTests":1,"numPendingTests":0,"numFailedTestSuites":0,"success":false,"testResults":[{"status":"failed"}]}' > "$out"
+    exit 1
+    ;;
+esac
+exit 2
+STUB
+  chmod +x "$bin/pnpm"
+}
+
+run_filter_case() {
+  name="$1"; expected_ec="$2"; review_shape="$3"; mode="$4"; issue="$5"
+  repo="$TMP_DIR/filter-$name"
+  bin="$repo/bin"
+  mkdir -p "$repo" "$bin"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email "smoke@test.local"
+  git -C "$repo" config user.name "smoke"
+  printf '%s\n' '# smoke repo' > "$repo/README.md"
+  git -C "$repo" add -A
+  git -C "$repo" commit -q -m "seed"
+  write_pnpm_stub "$bin" "$mode"
+  if [ "$review_shape" = "file" ]; then
+    printf '%s\n' "not a directory" > "$repo/.review"
+  elif [ "$review_shape" = "dir" ]; then
+    mkdir -p "$repo/.review"
+  fi
+
+  ( cd "$repo" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_ISSUE="$issue" PNPM_STUB_MODE="$mode" VERIFY_ENV_ALLOW="PNPM_STUB_MODE" PATH="$bin:$PATH" bash "$VERIFY" smoke-filter ) >/dev/null 2>&1
+  actual_ec=$?
+  if [ "$actual_ec" -eq "$expected_ec" ]; then
+    echo "ok   - $name (exit $actual_ec)"
+  else
+    echo "NOT OK - $name (expected exit $expected_ec, got $actual_ec)"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+run_filter_case "green-artifact-write-failure-exits-5" 5 "file" "green" 1
+run_filter_case "green-artifact-write-success-exits-0" 0 "dir" "green" 2
+if [ -f "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" ]; then
+  node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(o.artifact_type!=="verify_result"||o.producer_role!=="VERIFIER"||o.classifier!=="PASS"||!o.verdict||o.verdict.passed!==3) process.exit(1);' "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" >/dev/null 2>&1
+  if [ "$?" -eq 0 ]; then echo "ok   - green artifact has required verifier fields"; else echo "NOT OK - green artifact has required verifier fields"; FAILURES=$((FAILURES + 1)); fi
+else
+  echo "NOT OK - green artifact exists"
+  FAILURES=$((FAILURES + 1))
+fi
+run_filter_case "fail-artifact-write-failure-preserves-classifier" 1 "file" "fail" 3
+run_filter_case "no-verify-issue-green-unchanged" 0 "file" "green" ""
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"
