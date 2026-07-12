@@ -34,7 +34,7 @@ Policy defaults: implementation is separate from review/verification, parallel C
 | `artifact-fresh.sh` / `review-archive.sh` | staleness check + archival of merged-issue artifacts |
 | `rebase-inflight.sh` | dirty-safe, conflict-aborting rebase of in-flight worktrees |
 
-Most scripts have a smoke test under `scripts/__tests__/` (8 in total; `cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, and `uds-pg-relay.mjs` lack a direct one — `codex-safe.sh` is partially covered by `sandbox-network-deny.smoke.sh`). Artifact shapes are pinned by `.review/schemas/*.schema.json`.
+The smoke suite has 15 offline bash-3.2-compatible tests under `scripts/__tests__/`, including direct coverage for `cmux-cluster.sh`, `codex-safe.sh`, `codex-watchdog.sh`, `workflow-stash.sh`, and `uds-pg-relay.mjs`. Artifact shapes are pinned by `.review/schemas/*.schema.json`.
 
 ## Usage sketch
 
