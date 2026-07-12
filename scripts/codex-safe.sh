@@ -57,8 +57,15 @@ EXTRA=()
 [[ -n "$MODEL" ]] && EXTRA+=( -m "$MODEL" )
 [[ -n "$EFFORT" ]] && EXTRA+=( -c "model_reasoning_effort=\"$EFFORT\"" )
 
-codex exec \
-  --sandbox workspace-write \
-  --cd "$CWD" \
-  "${EXTRA[@]}" \
-  "$PROMPT"
+if [[ "${#EXTRA[@]}" -gt 0 ]]; then
+  codex exec \
+    --sandbox workspace-write \
+    --cd "$CWD" \
+    "${EXTRA[@]}" \
+    "$PROMPT"
+else
+  codex exec \
+    --sandbox workspace-write \
+    --cd "$CWD" \
+    "$PROMPT"
+fi

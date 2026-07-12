@@ -74,6 +74,14 @@ All `codex exec` invocations MUST go through `scripts/codex-safe.sh`, which enfo
 
 Direct `codex exec` invocations are forbidden in this workflow.
 
+### Codex stall watchdog
+
+Dispatch CODEX through `scripts/codex-watchdog.sh --issue <N> --prompt-file <file> --cwd <worktree>` when running automated clusters. The watchdog calls `scripts/codex-safe.sh` by absolute path, so the sandbox and stash rules still come from the single sanctioned wrapper.
+
+Liveness is **process + filesystem progress**, never stdout first-token output. The watchdog waits for the codex-safe process to stay alive and for files in the worktree to advance (`find -newer`, excluding `.git` and `node_modules`). If no file progress appears within `--first-progress-timeout` or later stalls for `--stall-timeout`, it kills the process tree and retries up to `--max-retries`. A 4xx/model-refusal signature in codex-safe stderr is not a liveness signal; it is only a retry classifier and fails fast with exit 4 because retrying is futile.
+
+Each attempt writes `<worktree>/.review/ISSUE-<N>-RUN.json` with `artifact_type: "codex_run"` and status `running | exited | killed_stall | refused | exhausted` (schema `.review/schemas/run.schema.json`). This marker is a dispatch liveness record, not verification evidence.
+
 ### Sandbox network containment — why the worker can't self-verify DB tests (v0.3)
 
 `workspace-write` blocks **all** network egress, including **loopback**. A v0.3 spike proved this is total: a probe run inside the sandbox cannot `connect()` even to `127.0.0.1` (TCP) **nor** to a Unix-domain socket placed inside the writable root — both fail with `EPERM`. (Repro: host-side relay `scripts/uds-pg-relay.mjs` + in-sandbox `scripts/__tests__/uds-sandbox-probe.mjs`; the TCP-loopback case is the live layer of the network-deny smoke below.) So there is **no containment-preserving way** to give a sandboxed worker access to the local Postgres on current codex (0.133.0):

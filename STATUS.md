@@ -18,7 +18,8 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 - `conductor-rebuild.sh`: reconstructs CONDUCTOR state from `.review/*.json`; per-worktree HEAD + branch-identity check; fallback can only demote, never `verified`.
 - `artifact-fresh.sh`: base_branch-aware staleness, resolves in the artifact's OWN worktree.
 - `review-archive.sh`, `rebase-inflight.sh` (dirty-safe, conflict-aborting; post-merge hook stays warn-only).
-- Schemas: structured `blocker` (reason_code+evidence, no prose), deprecated-optional `pr_draft.verify_result` kept only for backward compatibility, new `phase_summary` + `heartbeat`.
+- `codex-watchdog.sh`: wraps `codex-safe.sh` with process+filesystem liveness, stall kill/retry, 4xx fail-fast, and `.review/ISSUE-<n>-RUN.json` markers.
+- Schemas: structured `blocker` (reason_code+evidence, no prose), deprecated-optional `pr_draft.verify_result` kept only for backward compatibility, new `phase_summary` + `heartbeat` + `codex_run`.
 - Personas + expanded playbook.
 - Reviewed: every task spec+quality reviewed; 2 codex adversarial rounds; 3 build-time bugs + 7 integration-seam holes fixed.
 
