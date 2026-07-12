@@ -28,6 +28,21 @@ The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is
 
 This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
 
+## Model Allocation
+
+| Work type | Model |
+|---|---|
+| Design | Opus + gpt-5.5 adversarial co-design |
+| Simple tasks | Haiku / Sonnet subagents |
+| Large analysis or implementation | Codex = gpt-5.5. gpt-5.6 is not supported on the ChatGPT account; if used elsewhere, keep reasoning at medium or below. |
+| Final review | Fable in a clean context, separate from the implementation session |
+
+## Non-Negotiable Rules
+
+- **Implementation is separate from review and verification.** The same agent/session must not implement and then approve or verify its own work. Re-review uses a new clean context.
+- **Do not run two workspace-write Codex jobs in the same repo at the same time.** `codex-safe.sh` stashes partial work on failure; concurrent jobs in one checkout can race on stash state. Parallel implementation requires separate prepared worktrees.
+- **Clear `NODE_OPTIONS=` before codex/node dispatch and verification.** cmux or shell preloads can leak `--require` instrumentation into codex/vitest children. `verify.sh` uses an explicit env allowlist, but operators should still dispatch with a clean `NODE_OPTIONS`.
+
 ## CONDUCTOR
 
 The **CONDUCTOR** is the 5th role: the orchestrator. Claude Opus, in a **dedicated pane OUTSIDE all clusters**, overseeing every in-flight cluster (one CONDUCTOR, not one per cluster). It dispatches work to the worker roles (ARCHITECT, CODEX, REVIEWER, VERIFIER, VISUAL) and tracks chunk state.
@@ -76,7 +91,7 @@ Direct `codex exec` invocations are forbidden in this workflow.
 
 ### Codex stall watchdog
 
-Dispatch CODEX through `scripts/codex-watchdog.sh --issue <N> --prompt-file <file> --cwd <worktree>` when running automated clusters. The watchdog calls `scripts/codex-safe.sh` by absolute path, so the sandbox and stash rules still come from the single sanctioned wrapper.
+Dispatch CODEX through `scripts/codex-watchdog.sh --issue <N> --prompt-file <file> --cwd <worktree>` when running automated clusters. The watchdog calls `scripts/codex-safe.sh` by absolute path, so the sandbox and stash rules still come from the single sanctioned wrapper. Clear `NODE_OPTIONS=` for the dispatch.
 
 Liveness is **process + filesystem progress**, never stdout first-token output. The watchdog waits for the codex-safe process to stay alive and for files in the worktree to advance (`find -newer`, excluding `.git` and `node_modules`). If no file progress appears within `--first-progress-timeout` or later stalls for `--stall-timeout`, it kills the process tree and retries up to `--max-retries`. A 4xx/model-refusal signature in codex-safe stderr is not a liveness signal; it is only a retry classifier and fails fast with exit 4 because retrying is futile.
 
@@ -121,6 +136,8 @@ If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has f
 ## VERIFIER protocol
 
 VERIFIER MUST confirm green by running `scripts/verify.sh <filter>` — never by eyeballing test output and never by running a bare `pnpm test`. A bare `pnpm test` is forbidden as a green signal: in a trial it silently skipped all 31 integration tests (missing `DATABASE_URL`/`WORKSPACE_ID`) and a fully-skipped suite looked like a pass — a false green.
+
+VERIFIER and REVIEWER must be different agents/sessions from the implementer. A worker's own "I ran tests" claim is not verification evidence; the canonical evidence is the VERIFIER-owned `ISSUE-<n>-VERIFY.json` plus the review artifact where applicable.
 
 The verify oracle currently assumes a pnpm workspace package named `backend` tested with Vitest. The `<filter>` arg is a **Vitest test name/path filter scoped to the backend package** (it matches test file paths/names within backend), **not** a package selector — e.g. `scripts/verify.sh create-voc` runs backend tests whose path/name matches "create-voc"; passing a package name like `backend` would be treated as a name filter and likely match nothing. `scripts/verify.sh --typecheck` likewise assumes the target has `pnpm --filter backend run typecheck`. Generalizing these commands is deferred until there is a second real target and fixture.
 

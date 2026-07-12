@@ -62,5 +62,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 ## Method (how this was built — continue the same)
 - Co-design + adversarially review with a long-lived `codex exec` pane before/after implementing.
 - Claude = design/review/Conductor; Codex = implementer (in sandbox). Human = Release Captain.
+- Implementation, review, and verification are separate contexts; final review uses a clean context.
+- Parallel Codex implementation uses separate prepared worktrees, never two workspace-write jobs in one checkout; clear `NODE_OPTIONS=` before dispatch/verify.
 - Doc-sync discipline: every script/schema change syncs the playbook + README/STATUS in the same commit.
 - Don't merge to `main` or push without explicit user approval.

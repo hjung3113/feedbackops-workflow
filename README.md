@@ -18,6 +18,8 @@ Running multiple AI coding agents in parallel breaks in non-obvious ways: a sile
 
 Risk tiers (Trivial / Standard / Full Cluster) pick the agent set. See `docs/agents/multi-agent-workflow.md` for the full playbook and `docs/agents/conductor-persona.md` / `visual-reviewer-persona.md` for role prompts.
 
+Policy defaults: implementation is separate from review/verification, parallel Codex work uses separate prepared worktrees, and dispatch/verify runs clear `NODE_OPTIONS=` to avoid inherited preload state.
+
 ## Core scripts
 
 | Script | Role |
