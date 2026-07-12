@@ -12,7 +12,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 `.review/` artifact directory and JSON schemas (`pr_draft`, `review`, `touch`, `blocker`); the first false-green-proof `verify.sh` classifier; v0.1 implementation plan. Reviewed + GO.
 
 ### v0.2 — host-side prep + reconstructable state (~32 commits)
-- `verify.sh`: env-load + false-green-proof vitest JSON classifier + baseline-aware `--typecheck` (fails only on NEW errors vs `.review/typecheck-baseline.txt`).
+- `verify.sh`: env-load + false-green-proof vitest JSON classifier + baseline-aware `--typecheck` (fails only on NEW errors vs `.review/typecheck-baseline.txt`; command crashes with no parseable TS errors fail closed).
 - `prepare-worktree.sh`: host-side deps+env prep; refuses shared env when ≥1 other worktree prepared unless `--env-profile`/`--allow-shared-env`.
 - `tier-probe.sh`: disallows Trivial on exported-contract / ambiguous-exported-TS changes (advisory; `verify.sh --typecheck` is the oracle).
 - `conductor-rebuild.sh`: reconstructs CONDUCTOR state from `.review/*.json`; per-worktree HEAD + branch-identity check; fallback can only demote, never `verified`.

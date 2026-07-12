@@ -80,6 +80,40 @@ run_diff_case "new error vs baseline is FAIL"        FAIL "$tc_baseline" "$tc_cu
 run_diff_case "current==baseline is PASS"            PASS "$tc_baseline" "$tc_baseline"
 run_diff_case "missing baseline + errors is FAIL"    FAIL "$tc_missing"  "$tc_current"
 
+echo "--- typecheck command fail-closed ---"
+
+run_typecheck_case() {
+  name="$1"; expected="$2"; stub_body="$3"
+  repo="$TMP_DIR/typecheck-$name"
+  bin="$repo/bin"
+  mkdir -p "$repo/.review" "$bin"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email "smoke@test.local"
+  git -C "$repo" config user.name "smoke"
+  printf '%s\n' '# smoke repo' > "$repo/README.md"
+  git -C "$repo" add -A
+  git -C "$repo" commit -q -m "seed"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf '%s\n' "$stub_body"
+  } > "$bin/pnpm"
+  chmod +x "$bin/pnpm"
+
+  ( cd "$repo" && PATH="$bin:$PATH" bash "$VERIFY" --typecheck ) >/dev/null 2>&1
+  actual_ec=$?
+  if [ "$actual_ec" -eq 0 ]; then actual="PASS"; else actual="FAIL"; fi
+  if [ "$actual" = "$expected" ]; then
+    echo "ok   - $name (expected $expected, got $actual)"
+  else
+    echo "NOT OK - $name (expected $expected, got $actual; exit $actual_ec)"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+run_typecheck_case "typecheck-crash-without-ts-lines" FAIL 'echo "tsconfig unreadable" >&2; exit 1'
+run_typecheck_case "typecheck-ts-errors-diff-path" FAIL 'echo "src/x.ts(1,1): error TS2304: Cannot find name X" >&2; exit 1'
+run_typecheck_case "typecheck-clean-pass" PASS 'exit 0'
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

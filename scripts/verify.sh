@@ -313,9 +313,18 @@ main() {
       mkdir -p "$(dirname "$baseline")"
       : > "$baseline"
     fi
+    raw="$(mktemp -t verify-typecheck-raw.XXXXXX)"
     tmp_current="$(mktemp -t verify-typecheck.XXXXXX)"
-    trap 'rm -f "$tmp_current"' EXIT
-    pnpm --filter backend run typecheck 2>&1 | grep -E "error TS[0-9]+" | sort -u > "$tmp_current" || true
+    trap 'rm -f "$raw" "$tmp_current"' EXIT
+    pnpm --filter backend run typecheck > "$raw" 2>&1
+    pnpm_ec=$?
+    grep -E "error TS[0-9]+" "$raw" | sort -u > "$tmp_current" || true
+    if [ "$pnpm_ec" -ne 0 ] && [ ! -s "$tmp_current" ]; then
+      echo "FAIL: typecheck command did not run or crashed (exit $pnpm_ec) with no parseable 'error TS' lines — fail closed" >&2
+      echo "----- typecheck output (head) -----" >&2
+      sed -n '1,40p' "$raw" >&2
+      exit 1
+    fi
     typecheck_diff "$baseline" "$tmp_current"
     exit $?
   fi
