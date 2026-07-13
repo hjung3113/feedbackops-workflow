@@ -40,6 +40,12 @@ case "${CODEX_STUB_MODE:-success}" in
     echo "404 model_not_found" >&2
     exit 1
     ;;
+  pid_noise)
+    # regression: a PID-like digit run containing "4dd" (bash prints these in
+    # job-status lines on kill) must NOT be classified as a 4xx refusal.
+    echo "codex-safe.sh: line 71: 74123 Terminated: 15  codex exec ..." >&2
+    exit 1
+    ;;
 esac
 exit 2
 EOF
@@ -102,6 +108,13 @@ ec=$?
 [ "$ec" -eq 4 ] && pass "4xx refusal exits 4" || fail "4xx refusal exits 4 (got $ec)"
 status="$(marker_status "$WT_D/.review/ISSUE-204-RUN.json")"
 [ "$status" = "refused" ] && pass "4xx marker refused" || fail "4xx marker refused"
+
+WT_E="$(make_wt wt-pid-noise)"
+run_watchdog "$WT_E" pid_noise 205 0
+ec=$?
+[ "$ec" -eq 6 ] && pass "PID digit-noise is not a refusal (exits 6)" || fail "PID digit-noise is not a refusal (expected 6, got $ec)"
+status="$(marker_status "$WT_E/.review/ISSUE-205-RUN.json")"
+[ "$status" = "exhausted" ] && pass "PID digit-noise marker exhausted" || fail "PID digit-noise marker exhausted (got $status)"
 
 validate_marker_basic "$RUN_FIXTURE" && pass "run fixture valid shape" || fail "run fixture valid shape"
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$RUN_SCHEMA" >/dev/null 2>&1 && pass "run schema parses" || fail "run schema parses"

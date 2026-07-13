@@ -137,7 +137,13 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     exit 0
   fi
 
-  if grep -qiE '4[0-9][0-9]|unsupported model|model_not_found|invalid.*(model|api key)|unauthorized' "$STDERR_LOG"; then
+  # 4xx must be a standalone 3-digit number: the old bare `4[0-9][0-9]`
+  # matched digit runs inside PIDs — a stall-killed child writes bash's job
+  # line ("line NN: 74123 Terminated: 15 ...") into the stderr log, and any
+  # PID containing 4dd misclassified the stall as a refusal (exit 4, retries
+  # skipped). PIDs allocate sequentially, so the misclassification came in
+  # bursts.
+  if grep -qiE '(^|[^0-9])4[0-9][0-9]([^0-9]|$)|unsupported model|model_not_found|invalid.*(model|api key)|unauthorized' "$STDERR_LOG"; then
     write_marker "refused" "$attempt" "$pid" "$ec" || true
     echo "FAIL-FAST: model refusal (4xx) — retry futile" >&2
     exit 4

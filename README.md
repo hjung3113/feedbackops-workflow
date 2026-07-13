@@ -26,7 +26,7 @@ Policy defaults: implementation is separate from review/verification, parallel C
 |---|---|
 | `codex-safe.sh` | the only sanctioned way to dispatch `codex exec` — pins `--sandbox workspace-write` + `--cd`, stashes partial work on failure, and pins omitted gpt-5.6 effort to medium |
 | `codex-watchdog.sh` | wraps `codex-safe.sh` with process + filesystem liveness, stall retries, 4xx fail-fast, and `ISSUE-<N>-RUN.json` markers |
-| `cmux-dispatch.sh` | **the mandated way** to dispatch codex into a visible cmux workspace — validates worktree/prompt-file/cmux binary up front, always passes `--cwd` to both cmux and the watchdog, polls for `RUN.json`/`BLOCKER.json`, has a `--dry-run` seam |
+| `cmux-dispatch.sh` | **the mandated way** to dispatch codex into a visible cmux workspace — validates worktree/prompt-file/cmux binary up front, always passes `--cwd` to both cmux and the watchdog, polls for a **fresh** `RUN.json`/`BLOCKER.json` (a stale artifact from a previous same-issue run is never accepted), has a `--dry-run` seam |
 | `verify.sh` | false-green-proof vitest classifier + baseline-aware `--typecheck`; emits a `verify_result` provenance artifact; with `VERIFY_ISSUE` set it refuses (exit 4) to fall back to the `.env` `DATABASE_URL` |
 | `prepare-verify-db.sh` | provisions the per-issue `verify_issue_<N>` DB via `psql` (admin role needs CREATEDB); prints `VERIFY_DATABASE_URL=` as its last line ONLY when every step succeeded (fail closed) |
 | `prepare-worktree.sh` | host-side deps+env prep; refuses unsafe shared-env across worktrees; env profiles are written to both root and backend env files |
@@ -59,7 +59,7 @@ VERIFY_DATABASE_URL=$VERIFY_DATABASE_URL VERIFY_ISSUE=<N> scripts/verify.sh <vit
 scripts/conductor-rebuild.sh .review
 ```
 
-**Why `cmux-dispatch.sh` and not a hand-rolled `cmux new-workspace --command "codex-watchdog.sh ..."`?** Because that failed silently in production: a dispatch forgot `--cwd <worktree>` on the cmux workspace itself, the workspace opened in cmux's default project dir, and `codex-watchdog.sh` validated its `--prompt-file` relative to *that* dir instead of the intended worktree — exit 2, no `RUN.json`, nothing but pane scrollback. `cmux-dispatch.sh` always passes `--cwd` to both cmux and the watchdog, absolutizes the prompt path first, and polls for `RUN.json`/`BLOCKER.json` so a dead-on-arrival dispatch is caught instead of silent. See `docs/agents/multi-agent-workflow.md` for the full RUN.json terminal-state contract.
+**Why `cmux-dispatch.sh` and not a hand-rolled `cmux new-workspace --command "codex-watchdog.sh ..."`?** Because that failed silently in production: a dispatch forgot `--cwd <worktree>` on the cmux workspace itself, the workspace opened in cmux's default project dir, and `codex-watchdog.sh` validated its `--prompt-file` relative to *that* dir instead of the intended worktree — exit 2, no `RUN.json`, nothing but pane scrollback. `cmux-dispatch.sh` always passes `--cwd` to both cmux and the watchdog, absolutizes the prompt path first, and polls for a **fresh** `RUN.json`/`BLOCKER.json` — ignoring stale artifacts left by a previous run of the same issue — so a dead-on-arrival dispatch is caught instead of silent. See `docs/agents/multi-agent-workflow.md` for the full RUN.json terminal-state contract.
 
 ## Status
 
