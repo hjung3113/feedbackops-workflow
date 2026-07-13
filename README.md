@@ -26,6 +26,7 @@ Policy defaults: implementation is separate from review/verification, parallel C
 |---|---|
 | `codex-safe.sh` | the only sanctioned way to dispatch `codex exec` — pins `--sandbox workspace-write` + `--cd`, stashes partial work on failure, and pins omitted gpt-5.6 effort to medium |
 | `codex-watchdog.sh` | wraps `codex-safe.sh` with process + filesystem liveness, stall retries, 4xx fail-fast, and `ISSUE-<N>-RUN.json` markers |
+| `cmux-dispatch.sh` | **the mandated way** to dispatch codex into a visible cmux workspace — validates worktree/prompt-file/cmux binary up front, always passes `--cwd` to both cmux and the watchdog, polls for `RUN.json`/`BLOCKER.json`, has a `--dry-run` seam |
 | `verify.sh` | false-green-proof vitest classifier + baseline-aware `--typecheck`; emits a `verify_result` provenance artifact |
 | `prepare-worktree.sh` | host-side deps+env prep; refuses unsafe shared-env across worktrees; env profiles are written to both root and backend env files |
 | `cmux-cluster.sh` | launch a cluster against a prepared worktree |
@@ -34,7 +35,7 @@ Policy defaults: implementation is separate from review/verification, parallel C
 | `artifact-fresh.sh` / `review-archive.sh` | staleness check + archival of merged-issue artifacts |
 | `rebase-inflight.sh` | dirty-safe, conflict-aborting rebase of in-flight worktrees |
 
-The smoke suite has 15 offline bash-3.2-compatible tests under `scripts/__tests__/`, including direct coverage for `cmux-cluster.sh`, `codex-safe.sh`, `codex-watchdog.sh`, `workflow-stash.sh`, and `uds-pg-relay.mjs`. Artifact shapes are pinned by `.review/schemas/*.schema.json`.
+The smoke suite has 16 offline bash-3.2-compatible tests under `scripts/__tests__/`, including direct coverage for `cmux-cluster.sh`, `cmux-dispatch.sh`, `codex-safe.sh`, `codex-watchdog.sh`, `workflow-stash.sh`, and `uds-pg-relay.mjs`. Artifact shapes are pinned by `.review/schemas/*.schema.json`.
 
 ## Usage sketch
 
@@ -42,8 +43,9 @@ The smoke suite has 15 offline bash-3.2-compatible tests under `scripts/__tests_
 # 1. prepare an isolated worktree on the host (deps + env)
 scripts/prepare-worktree.sh <worktree> [--env-profile <env>]
 
-# 2. dispatch the implementer into the sandbox
-scripts/codex-safe.sh --issue <N> --prompt-file .review/ISSUE-<N>-PROMPT.txt --cwd <worktree>
+# 2. dispatch the implementer into a VISIBLE cmux workspace (mandated path —
+#    do not hand-roll `cmux new-workspace --command`, see incident note below)
+scripts/cmux-dispatch.sh --issue <N> --worktree <worktree>
 
 # 3. verify OUTSIDE the sandbox (emits .review/ISSUE-<N>-VERIFY.json)
 VERIFY_ISSUE=<N> scripts/verify.sh <vitest-filter>
@@ -51,6 +53,8 @@ VERIFY_ISSUE=<N> scripts/verify.sh <vitest-filter>
 # 4. CONDUCTOR rebuilds state from artifacts; Release Captain merges on evidence
 scripts/conductor-rebuild.sh .review
 ```
+
+**Why `cmux-dispatch.sh` and not a hand-rolled `cmux new-workspace --command "codex-watchdog.sh ..."`?** Because that failed silently in production: a dispatch forgot `--cwd <worktree>` on the cmux workspace itself, the workspace opened in cmux's default project dir, and `codex-watchdog.sh` validated its `--prompt-file` relative to *that* dir instead of the intended worktree — exit 2, no `RUN.json`, nothing but pane scrollback. `cmux-dispatch.sh` always passes `--cwd` to both cmux and the watchdog, absolutizes the prompt path first, and polls for `RUN.json`/`BLOCKER.json` so a dead-on-arrival dispatch is caught instead of silent. See `docs/agents/multi-agent-workflow.md` for the full RUN.json terminal-state contract.
 
 ## Status
 

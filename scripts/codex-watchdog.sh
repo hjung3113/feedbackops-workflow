@@ -73,7 +73,23 @@ done
 [ -n "$PROMPT_FILE" ] || { echo "missing --prompt-file" >&2; usage; exit 2; }
 [ -n "$CWD" ] || { echo "missing --cwd" >&2; usage; exit 2; }
 [ -d "$CWD" ] || { echo "cwd is not a directory: $CWD" >&2; exit 2; }
-[ -f "$PROMPT_FILE" ] || { echo "prompt file not found: $PROMPT_FILE" >&2; exit 2; }
+
+# A relative --prompt-file is resolved against --cwd (the worktree), NOT the
+# calling shell's cwd. Without this, dispatching with --cwd pointed at a
+# worktree but a relative prompt path silently fails: the path doesn't exist
+# from wherever this script happened to start (e.g. cmux's default project dir).
+case "$PROMPT_FILE" in
+  /*) : ;; # already absolute
+  *) PROMPT_FILE="$CWD/$PROMPT_FILE" ;;
+esac
+
+echo "codex-watchdog: issue=$ISSUE_N prompt-file=$PROMPT_FILE cwd=$CWD"
+
+[ -f "$PROMPT_FILE" ] || {
+  echo "prompt file not found: $PROMPT_FILE" >&2
+  echo "hint: prompt file resolved relative to --cwd; pass an absolute path to override" >&2
+  exit 2
+}
 
 STAMP="$(mktemp -t codex-watchdog-stamp.XXXXXX)"
 STDERR_LOG="$(mktemp -t codex-watchdog-stderr.XXXXXX)"

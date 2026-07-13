@@ -91,11 +91,25 @@ Direct `codex exec` invocations are forbidden in this workflow.
 
 ### Codex stall watchdog
 
-Dispatch CODEX through `scripts/codex-watchdog.sh --issue <N> --prompt-file <file> --cwd <worktree>` when running automated clusters. The watchdog calls `scripts/codex-safe.sh` by absolute path, so the sandbox and stash rules still come from the single sanctioned wrapper. Clear `NODE_OPTIONS=` for the dispatch.
+Dispatch CODEX through `scripts/codex-watchdog.sh --issue <N> --prompt-file <file> --cwd <worktree>` when running automated clusters. The watchdog calls `scripts/codex-safe.sh` by absolute path, so the sandbox and stash rules still come from the single sanctioned wrapper. Clear `NODE_OPTIONS=` for the dispatch. `--prompt-file` may be relative — it is resolved against `--cwd`, not the calling shell's cwd (see incident below) — or absolute. On startup the watchdog echoes its resolved config (`issue`, `prompt-file`, `cwd`) so pane scrollback always shows what it actually tried.
 
 Liveness is **process + filesystem progress**, never stdout first-token output. The watchdog waits for the codex-safe process to stay alive and for files in the worktree to advance (`find -newer`, excluding `.git` and `node_modules`). If no file progress appears within `--first-progress-timeout` or later stalls for `--stall-timeout`, it kills the process tree and retries up to `--max-retries`. A 4xx/model-refusal signature in codex-safe stderr is not a liveness signal; it is only a retry classifier and fails fast with exit 4 because retrying is futile.
 
 Each attempt writes `<worktree>/.review/ISSUE-<N>-RUN.json` with `artifact_type: "codex_run"` and status `running | exited | killed_stall | refused | exhausted` (schema `.review/schemas/run.schema.json`). This marker is a dispatch liveness record, not verification evidence.
+
+**RUN.json terminal-state contract — read this before writing any polling logic.** `status:"running"` while the codex-safe process is alive and still attempting. Terminal states are `status:"exited"` (codex process finished; `exit_code` present — `exit_code === 0` means the *process* finished cleanly, it does **not** mean the task succeeded; task success is judged by commits + a canonical `VERIFY.json` artifact, never by exit code alone), `status:"killed_stall"` (watchdog killed it for no progress), `status:"refused"` (4xx/model-refusal, retry is futile), and `status:"exhausted"` (retries used up). There is no `"completed"` or `"failed"` string anywhere in this schema — do not poll for them. A `.review/ISSUE-<N>-BLOCKER.json` file appearing instead of/alongside `RUN.json` is a scoped abort (codex chose to stop, not crash).
+
+### `cmux-dispatch.sh` — the mandated way to dispatch into a visible cmux workspace
+
+**Incident (2026-07-13):** a dispatch ran `cmux new-workspace --command "codex-watchdog.sh --issue 147 --prompt-file .review/ISSUE-147-PROMPT.txt --cwd <worktree>"` but forgot `--cwd <worktree>` **on the cmux workspace itself**. The workspace opened in cmux's default project dir; the watchdog validated the relative `--prompt-file` against *that* dir instead of the intended worktree and hit `exit 2` before writing any artifact. Nothing recorded the failure except pane scrollback — no `RUN.json`, no `BLOCKER.json`. Separately, the CONDUCTOR's poller assumed terminal values like `"completed"`/`"failed"`, which don't exist in this schema (see the contract above), so it never noticed the dispatch was dead.
+
+Do not hand-roll `cmux new-workspace`/`cmux workspace create --command "codex-watchdog.sh ..."`. Use `scripts/cmux-dispatch.sh --issue <N> --worktree <path> [--prompt-file <p>] [--name <workspace-name>] [--poll-timeout <secs>] [--dry-run]` instead:
+
+- Defaults: `--prompt-file` = `<worktree>/.review/ISSUE-<N>-PROMPT.txt`, `--name` = `codex-<N>`, `--poll-timeout` = `300`.
+- Validates the worktree exists and is an actual git worktree, the prompt file exists, and (unless `--dry-run`) that `cmux` is on `PATH` — all before touching cmux, with a clear error naming what's wrong.
+- Absolutizes both the worktree and prompt-file paths, then builds `NODE_OPTIONS= <abs codex-watchdog.sh> --issue <N> --prompt-file <abs-prompt> --cwd <abs-worktree>` and launches it via `cmux workspace create --name <name> --cwd <abs-worktree> --command <that command>` — so `--cwd` is always set on the cmux workspace, closing the exact gap in the incident.
+- `--dry-run` prints the exact `cmux workspace create ...` invocation and exits 0 without calling cmux — the test seam.
+- On a real run it polls every 5s up to `--poll-timeout` for `<worktree>/.review/ISSUE-<N>-RUN.json` or `-BLOCKER.json`. Either file appearing means the dispatch is alive (or scoped-aborted) and it exits 0. Timeout with neither file means the watchdog never started — it exits non-zero with a diagnostic pointing at the workspace pane.
 
 ### Sandbox network containment — why the worker can't self-verify DB tests (v0.3)
 

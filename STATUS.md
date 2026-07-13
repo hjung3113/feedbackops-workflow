@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-05-24._
+_Last updated: 2026-07-13._
 
 ## Provenance
 
@@ -36,6 +36,13 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
   - Repro scripts: `uds-pg-relay.mjs`, `uds-sandbox-probe.mjs`, `net-deny-probe.mjs`.
   - **Out-of-repo (operator machine):** global `~/.codex/config.toml` default lowered `danger-full-access` → `workspace-write` (defense-in-depth for bare `codex`).
 
+### v0.4 — `cmux-dispatch.sh` hardening (2026-07-13 incident fix)
+- **Incident:** a hand-rolled `cmux new-workspace --command "codex-watchdog.sh ..."` dispatch forgot `--cwd <worktree>` on the cmux workspace itself; the workspace opened in cmux's default project dir and `codex-watchdog.sh` validated its relative `--prompt-file` against that dir instead of the intended worktree — silent `exit 2`, no `RUN.json`. Separately, CONDUCTOR polling assumed terminal `status` values of `"completed"`/`"failed"` that don't exist in the schema (actual terminal state is `status:"exited"` + `exit_code`), so the poll never caught it.
+- `codex-watchdog.sh`: a relative `--prompt-file` now resolves against `--cwd` (not the calling shell's cwd) before the existence check; startup echoes the resolved `issue`/`prompt-file`/`cwd` so pane scrollback always shows what it tried; missing-file error names the resolved path + hints at the `--cwd`-relative resolution.
+- New `scripts/cmux-dispatch.sh` — the mandated dispatch path. Validates worktree/prompt-file/`cmux` binary up front, absolutizes both paths, always passes `--cwd` to both `cmux workspace create` and the watchdog, then polls for `ISSUE-<N>-RUN.json`/`-BLOCKER.json` up to `--poll-timeout` so a dead-on-arrival dispatch is caught instead of silent. `--dry-run` prints the exact invocation without touching cmux (test seam).
+- Smoke: `cmux-dispatch.smoke.sh` (11 cases: missing worktree, non-git worktree, missing prompt file, dry-run happy path asserting `--cwd`/absolute-prompt/`NODE_OPTIONS=`, dry-run never calls `cmux`, watchdog relative-prompt-file resolution).
+- Docs: `docs/agents/multi-agent-workflow.md` now documents the RUN.json terminal-state contract explicitly (no `"completed"`/`"failed"` strings exist) and the incident; README points at `cmux-dispatch.sh` as the mandated usage-sketch step.
+
 ## Trials (see `docs/agents/workflow-trial-log.md`)
 - **T1 #33** — failure/escalation discipline (tier escalation via blocker artifact).
 - **T2 #31** — happy path (narrow audit-log assertion).
@@ -45,6 +52,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 - Parallel clusters need **one throwaway DB each** — schema/workspace isolation is insufficient (fixed `core`/`permission` schemas + instance-global `pg_locks`). Seed with BOTH `DATABASE_URL` and `DATABASE_URL_MIGRATE` at the new DB.
 - codex `workspace-write` blocks the DB → VERIFIER verifies outside the sandbox; CONDUCTOR ignores deprecated `pr_draft.verify_result` and trusts only canonical `ISSUE-<n>-VERIFY.json` from VERIFIER.
 - All `codex exec` MUST go through `scripts/codex-safe.sh`. Bare `codex exec` is forbidden.
+- Dispatching codex into a visible cmux workspace MUST go through `scripts/cmux-dispatch.sh`, never a hand-rolled `cmux new-workspace --command`. RUN.json terminal state is `status:"exited"` + `exit_code` (no `"completed"`/`"failed"` strings) — poll for that, not those strings.
 - `scripts/codex-safe.sh` pins omitted gpt-5.6 reasoning effort to `medium` before dispatch and refuses high/xhigh/max.
 
 ## Remaining work / next
@@ -54,7 +62,7 @@ Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (his
 2. **Usage ergonomics — DONE (2026-05-24).** `scripts/install-into.sh <target-repo> [--mode symlink|copy] [--force]` wires a target to the toolkit (`<target>/.agent-workflow/{scripts,schemas}` + ensures `.review/`), refuses to install into the toolkit itself, idempotent. Smoke: `install-into.smoke.sh` (15 cases).
 3. **VERIFIER ephemeral-DB automation — DONE (2026-05-24).** `scripts/prepare-verify-db.sh --issue <N> [--target <repo>] [--base-url <admin-url>] [--migrate-cmd] [--seed-cmd] [--drop]` provisions a per-issue `verify_issue_<N>` DB: numeric-issue guard, local-host fail-closed (`exit 3`), superuser-role WARN / `VERIFY_DB_ROLE` low-priv override, idempotent create, redacted logging, prints `VERIFY_DATABASE_URL=<url>` as the last line for capture. Smoke: `prepare-verify-db.smoke.sh` (11 cases, no live Postgres needed).
 4. **v0.4 — loopback revisit (blocked upstream).** Watch codex issue #6737 (allow binding to local addresses). _Checked 2026-05-24: still OPEN, unimplemented, no linked PR — status-quo holds._ If it ships a loopback-only allowance, re-evaluate in-sandbox self-verify (would remove the VERIFIER-outside-sandbox split).
-5. **Smoke runner + CI + coverage gaps — DONE (2026-05-24; refreshed 2026-07-12).** `scripts/__tests__/run-all.sh` (TAP summary, `--list`, self-skips live layers). Schema fixtures `review`/`touch`/`verify`/`run`. Direct smokes cover `codex-safe.sh`, `codex-watchdog.sh`, `workflow-stash.sh`, `cmux-cluster.sh`, and `uds-pg-relay.mjs`. CI: `.github/workflows/smoke.yml` runs `run-all.sh` on push/PR (Node 22, ubuntu). **15/15 smokes pass locally.**
+5. **Smoke runner + CI + coverage gaps — DONE (2026-05-24; refreshed 2026-07-13).** `scripts/__tests__/run-all.sh` (TAP summary, `--list`, self-skips live layers). Schema fixtures `review`/`touch`/`verify`/`run`. Direct smokes cover `codex-safe.sh`, `codex-watchdog.sh`, `cmux-dispatch.sh`, `workflow-stash.sh`, `cmux-cluster.sh`, and `uds-pg-relay.mjs`. CI: `.github/workflows/smoke.yml` runs `run-all.sh` on push/PR (Node 22, ubuntu). **16/16 smokes pass locally** (with `NODE_OPTIONS` unset — an inherited `cmux-claude-node-options` preload otherwise breaks unrelated `node -e` calls in several smokes; pre-existing environment gotcha, not a workflow bug).
 6. **`.env.example`** documenting the env contract — **DONE (2026-05-24)** (`DATABASE_URL`, `DATABASE_URL_MIGRATE`, `WORKSPACE_ID`, `VERIFY_DATABASE_URL`, `VERIFY_ENV_ALLOW`, `VERIFY_ISSUE`).
 7. **Reviewer follow-up from v0.3 — DONE (2026-05-24).** Validated against FeedbackOps (via `install-into.sh` symlink, scripts run from `.agent-workflow/`): under the `env -i` scrub, `list-actors` (PASS 5) and `analytics-area` (PASS 19) DB-backed suites pass in addition to `create-voc` (PASS 31). `role-grants` fails — but fails identically WITH and WITHOUT the scrub, i.e. a pre-existing failure on local `develop`, not starved by the scrub. Conclusion: the scrub does not starve otherwise-passing suites. (Flag: `role-grants` integration failure on local develop is a separate, unrelated issue.)
 8. **verify.sh target parameterization — WAIT.** The oracle is intentionally backend-Vitest-specific (`pnpm --filter backend ...`) until a second real target and fixtures justify a parameterized contract.
