@@ -374,6 +374,14 @@ main() {
   if [ -n "${VERIFY_DATABASE_URL+x}" ] && [ -n "$VERIFY_DATABASE_URL" ]; then
     export DATABASE_URL="$VERIFY_DATABASE_URL"
     export DATABASE_URL_MIGRATE="${VERIFY_DATABASE_URL_MIGRATE:-$VERIFY_DATABASE_URL}"
+  elif [ -n "${VERIFY_ISSUE:-}" ]; then
+    # Fail closed: in per-issue verification mode an unset/empty
+    # VERIFY_DATABASE_URL must NEVER silently inherit the app .env's
+    # DATABASE_URL (2026-07-13 incident: an upstream `eval $(... | tail -1)`
+    # of empty stdout left it unset and the suite ran against the shared dev
+    # DB, producing a garbage FAIL artifact with db_target "feedbackops").
+    echo "FAIL: VERIFY_ISSUE=$VERIFY_ISSUE is set but VERIFY_DATABASE_URL is unset/empty — refusing to fall back to .env DATABASE_URL (fail closed; run prepare-verify-db.sh and export its VERIFY_DATABASE_URL)" >&2
+    exit 4
   fi
 
   parse_db_url "${DATABASE_URL:-}"

@@ -86,6 +86,83 @@ case "$OUT" in
   *) fail "--drop without base-url gives guidance" ;;
 esac
 
+# Case 6: createdb client must NOT be used (its "-d <url>" is an invalid
+# option on modern pg clients — 2026-07-13 incident); all DDL goes via psql.
+if [ -s "$TMP_DIR/fake.log" ]; then
+  fail "createdb client is never invoked (got: $(cat "$TMP_DIR/fake.log"))"
+else
+  pass "createdb client is never invoked"
+fi
+
+# Case 7: failed CREATE DATABASE → non-zero exit, CREATEDB hint, and NO
+# VERIFY_DATABASE_URL line on stdout (fail closed; that line feeds
+# `eval $(... | tail -1)` pipelines downstream).
+FAIL_BIN="$TMP_DIR/bin-create-fail"
+mkdir -p "$FAIL_BIN"
+cat > "$FAIL_BIN/psql" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    "CREATE DATABASE"*) echo "ERROR: permission denied to create database" >&2; exit 1 ;;
+  esac
+done
+exit 0
+SH
+chmod +x "$FAIL_BIN/psql"
+PATH="$FAIL_BIN:/usr/bin:/bin" env -u PGADMIN_URL bash "$PREP" --issue 457 --base-url postgres://u:p@localhost/postgres > "$TMP_DIR/out.stdout" 2> "$TMP_DIR/out.stderr"
+ec=$?
+if [ "$ec" -ne 0 ]; then pass "failed CREATE DATABASE exits non-zero"; else fail "failed CREATE DATABASE exits non-zero"; fi
+case "$(cat "$TMP_DIR/out.stderr")" in
+  *CREATEDB*) pass "failed create mentions CREATEDB privilege" ;;
+  *) fail "failed create mentions CREATEDB privilege" ;;
+esac
+if grep -q "^VERIFY_DATABASE_URL=" "$TMP_DIR/out.stdout"; then
+  fail "failed create must not print VERIFY_DATABASE_URL on stdout"
+else
+  pass "failed create must not print VERIFY_DATABASE_URL on stdout"
+fi
+
+# Case 8: failed migrate cmd → non-zero exit and NO VERIFY_DATABASE_URL line.
+OK_BIN="$TMP_DIR/bin-all-ok"
+mkdir -p "$OK_BIN"
+cat > "$OK_BIN/psql" <<'SH'
+#!/usr/bin/env bash
+for arg in "$@"; do
+  case "$arg" in
+    "SELECT 1 FROM pg_database"*) echo "1"; exit 0 ;;
+  esac
+done
+exit 0
+SH
+chmod +x "$OK_BIN/psql"
+PATH="$OK_BIN:/usr/bin:/bin" env -u PGADMIN_URL bash "$PREP" --issue 458 --base-url postgres://u:p@localhost/postgres --migrate-cmd "exit 9" > "$TMP_DIR/out.stdout" 2> "$TMP_DIR/out.stderr"
+ec=$?
+if [ "$ec" -ne 0 ]; then pass "failed migrate cmd exits non-zero"; else fail "failed migrate cmd exits non-zero"; fi
+if grep -q "^VERIFY_DATABASE_URL=" "$TMP_DIR/out.stdout"; then
+  fail "failed migrate must not print VERIFY_DATABASE_URL on stdout"
+else
+  pass "failed migrate must not print VERIFY_DATABASE_URL on stdout"
+fi
+
+# Case 9: base-url connection failure during the existence probe → non-zero
+# exit and NO VERIFY_DATABASE_URL line (previously `|| true` swallowed it).
+DEAD_BIN="$TMP_DIR/bin-conn-fail"
+mkdir -p "$DEAD_BIN"
+cat > "$DEAD_BIN/psql" <<'SH'
+#!/usr/bin/env bash
+echo "psql: connection refused" >&2
+exit 2
+SH
+chmod +x "$DEAD_BIN/psql"
+PATH="$DEAD_BIN:/usr/bin:/bin" env -u PGADMIN_URL bash "$PREP" --issue 459 --base-url postgres://u:p@localhost/postgres > "$TMP_DIR/out.stdout" 2> "$TMP_DIR/out.stderr"
+ec=$?
+if [ "$ec" -ne 0 ]; then pass "base-url connection failure exits non-zero"; else fail "base-url connection failure exits non-zero"; fi
+if grep -q "^VERIFY_DATABASE_URL=" "$TMP_DIR/out.stdout"; then
+  fail "connection failure must not print VERIFY_DATABASE_URL on stdout"
+else
+  pass "connection failure must not print VERIFY_DATABASE_URL on stdout"
+fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

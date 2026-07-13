@@ -27,7 +27,8 @@ Policy defaults: implementation is separate from review/verification, parallel C
 | `codex-safe.sh` | the only sanctioned way to dispatch `codex exec` — pins `--sandbox workspace-write` + `--cd`, stashes partial work on failure, and pins omitted gpt-5.6 effort to medium |
 | `codex-watchdog.sh` | wraps `codex-safe.sh` with process + filesystem liveness, stall retries, 4xx fail-fast, and `ISSUE-<N>-RUN.json` markers |
 | `cmux-dispatch.sh` | **the mandated way** to dispatch codex into a visible cmux workspace — validates worktree/prompt-file/cmux binary up front, always passes `--cwd` to both cmux and the watchdog, polls for `RUN.json`/`BLOCKER.json`, has a `--dry-run` seam |
-| `verify.sh` | false-green-proof vitest classifier + baseline-aware `--typecheck`; emits a `verify_result` provenance artifact |
+| `verify.sh` | false-green-proof vitest classifier + baseline-aware `--typecheck`; emits a `verify_result` provenance artifact; with `VERIFY_ISSUE` set it refuses (exit 4) to fall back to the `.env` `DATABASE_URL` |
+| `prepare-verify-db.sh` | provisions the per-issue `verify_issue_<N>` DB via `psql` (admin role needs CREATEDB); prints `VERIFY_DATABASE_URL=` as its last line ONLY when every step succeeded (fail closed) |
 | `prepare-worktree.sh` | host-side deps+env prep; refuses unsafe shared-env across worktrees; env profiles are written to both root and backend env files |
 | `cmux-cluster.sh` | launch a cluster against a prepared worktree |
 | `conductor-rebuild.sh` | reconstruct CONDUCTOR state from `.review/*.json` |
@@ -47,8 +48,12 @@ scripts/prepare-worktree.sh <worktree> [--env-profile <env>]
 #    do not hand-roll `cmux new-workspace --command`, see incident note below)
 scripts/cmux-dispatch.sh --issue <N> --worktree <worktree>
 
-# 3. verify OUTSIDE the sandbox (emits .review/ISSUE-<N>-VERIFY.json)
-VERIFY_ISSUE=<N> scripts/verify.sh <vitest-filter>
+# 3. provision the per-issue verify DB (admin URL role needs CREATEDB), then
+#    verify OUTSIDE the sandbox (emits .review/ISSUE-<N>-VERIFY.json).
+#    VERIFY_DATABASE_URL is REQUIRED with VERIFY_ISSUE — verify.sh refuses
+#    (exit 4) to fall back to the worktree .env's DATABASE_URL.
+eval $(scripts/prepare-verify-db.sh --issue <N> --base-url <admin-pg-url> | tail -1)
+VERIFY_DATABASE_URL=$VERIFY_DATABASE_URL VERIFY_ISSUE=<N> scripts/verify.sh <vitest-filter>
 
 # 4. CONDUCTOR rebuilds state from artifacts; Release Captain merges on evidence
 scripts/conductor-rebuild.sh .review

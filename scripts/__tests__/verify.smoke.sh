@@ -182,6 +182,40 @@ fi
 run_filter_case "fail-artifact-write-failure-preserves-classifier" 1 "file" "fail" 3
 run_filter_case "no-verify-issue-green-unchanged" 0 "file" "green" ""
 
+echo "--- VERIFY_ISSUE without VERIFY_DATABASE_URL fails closed ---"
+
+# 2026-07-13 incident: VERIFY_DATABASE_URL was accidentally unset (upstream
+# eval of empty stdout) and verify.sh silently fell back to the worktree
+# .env's DATABASE_URL (the shared dev DB), producing a garbage artifact.
+# Must now refuse with a distinct exit code, never inheriting .env's URL.
+no_url_repo="$TMP_DIR/filter-no-verify-db-url"
+mkdir -p "$no_url_repo"
+printf '%s\n' 'DATABASE_URL=postgres://fops_app:pw@localhost:5434/feedbackops' > "$no_url_repo/.env"
+no_url_err="$TMP_DIR/no-verify-db-url.stderr"
+( cd "$no_url_repo" && env -u VERIFY_DATABASE_URL VERIFY_ISSUE=77 bash "$VERIFY" smoke-filter ) >/dev/null 2>"$no_url_err"
+ec=$?
+if [ "$ec" -eq 4 ]; then
+  echo "ok   - VERIFY_ISSUE without VERIFY_DATABASE_URL exits 4"
+else
+  echo "NOT OK - VERIFY_ISSUE without VERIFY_DATABASE_URL exits 4 (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+if grep -q "refusing to fall back to .env DATABASE_URL" "$no_url_err"; then
+  echo "ok   - refusal message names the .env fallback"
+else
+  echo "NOT OK - refusal message names the .env fallback (got: $(cat "$no_url_err"))"
+  FAILURES=$((FAILURES + 1))
+fi
+
+( cd "$no_url_repo" && VERIFY_DATABASE_URL="" VERIFY_ISSUE=77 bash "$VERIFY" smoke-filter ) >/dev/null 2>&1
+ec=$?
+if [ "$ec" -eq 4 ]; then
+  echo "ok   - empty (not just unset) VERIFY_DATABASE_URL also exits 4"
+else
+  echo "NOT OK - empty (not just unset) VERIFY_DATABASE_URL also exits 4 (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
 echo "--- database url parser ---"
 
 run_parse_db_case() {

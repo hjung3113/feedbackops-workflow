@@ -158,7 +158,7 @@ case "$ISSUE" in
 esac
 
 if [ -z "$BASE_URL" ]; then
-  die "--base-url is required unless PGADMIN_URL is set. Example: PGADMIN_URL=postgres://fops_migrate:REDACTED@localhost:5434/postgres"
+  die "--base-url is required unless PGADMIN_URL is set. The admin URL's role MUST have the CREATEDB privilege (on a stock docker-compose.dev.yml box that is 'postgres' on port 5434, e.g. PGADMIN_URL=postgres://postgres:REDACTED@localhost:5434/postgres)"
 fi
 
 DB_NAME="verify_issue_$ISSUE"
@@ -176,43 +176,58 @@ fi
 
 local_host_or_exit "$BASE_URL"
 
+# NOTE on psql vs createdb/dropdb: the createdb/dropdb clients do NOT accept
+# `-d <url>` (their -d-shaped option is `--maintenance-db`); passing -d fails
+# with "invalid option -- d". psql accepts a connection URI directly, so all
+# DB-level DDL here goes through psql. (2026-07-13 incident: the old
+# `createdb -d` invocation failed, the script kept going, and still printed
+# the final VERIFY_DATABASE_URL line pointing at a DB that was never created,
+# poisoning downstream `eval $(... | tail -1)` pipelines.)
+
 if [ "$DROP" -eq 1 ]; then
-  require_cmd dropdb
+  require_cmd psql
   echo "=== prepare-verify-db: drop $DB_NAME ==="
-  dropdb -d "$BASE_URL" --if-exists "$DB_NAME"
+  psql -v ON_ERROR_STOP=1 -Atqc "DROP DATABASE IF EXISTS \"$DB_NAME\"" "$BASE_URL" >/dev/null \
+    || die "failed to drop database $DB_NAME (see psql error above)"
   echo "dropped verify DB if present: $DB_NAME"
   exit 0
 fi
 
 require_cmd psql
-require_cmd createdb
 
 echo "=== prepare-verify-db: $DB_NAME ==="
 echo "  base-url: $(redact_url "$BASE_URL")"
 echo "  verify DB: $DB_NAME"
 echo "  owner: $OWNER"
 
-exists="$(psql -Atqc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" "$BASE_URL" 2>/dev/null || true)"
+# Fail closed on every mandatory step below: the final VERIFY_DATABASE_URL
+# line is consumed by `eval $(... | tail -1)` pipelines, so it must NEVER be
+# printed unless the DB verifiably exists and requested steps succeeded.
+exists="$(psql -Atqc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" "$BASE_URL" 2>/dev/null)" \
+  || die "cannot query base-url for existing databases (connection/auth failure): $(redact_url "$BASE_URL")"
 case "$exists" in
   *1*)
     echo "  database already exists: $DB_NAME"
     ;;
   *)
     echo "  creating database: $DB_NAME"
-    createdb -d "$BASE_URL" -O "$OWNER" "$DB_NAME"
+    psql -v ON_ERROR_STOP=1 -Atqc "CREATE DATABASE \"$DB_NAME\" OWNER \"$OWNER\"" "$BASE_URL" >/dev/null \
+      || die "failed to create database $DB_NAME — the base-url role needs the CREATEDB privilege (check: psql <base-url> -Atc \"SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user\"); no VERIFY_DATABASE_URL emitted"
     ;;
 esac
 
 if [ -n "$MIGRATE_CMD" ]; then
   echo "  running migrations"
-  run_in_target "$MIGRATE_CMD" "$TARGET" "$MIGRATE_URL" "$MIGRATE_URL"
+  run_in_target "$MIGRATE_CMD" "$TARGET" "$MIGRATE_URL" "$MIGRATE_URL" \
+    || die "migrate command failed (exit $?); no VERIFY_DATABASE_URL emitted"
 else
   echo "  migrations not run; run manually with DATABASE_URL_MIGRATE and DATABASE_URL pointed at $DB_NAME"
 fi
 
 if [ -n "$SEED_CMD" ]; then
   echo "  running seed"
-  run_in_target "$SEED_CMD" "$TARGET" "$VERIFY_URL" "$MIGRATE_URL"
+  run_in_target "$SEED_CMD" "$TARGET" "$VERIFY_URL" "$MIGRATE_URL" \
+    || die "seed command failed (exit $?); no VERIFY_DATABASE_URL emitted"
 else
   echo "  seed not run; run manually with DATABASE_URL and DATABASE_URL_MIGRATE pointed at $DB_NAME"
 fi
