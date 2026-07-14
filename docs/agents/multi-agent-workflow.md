@@ -28,14 +28,25 @@ The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is
 
 This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
 
-## Model Allocation
+## Model Allocation — role × model map, dynamic by tier
 
-| Work type | Model |
-|---|---|
-| Design | Opus + gpt-5.5 adversarial co-design |
-| Simple tasks | Haiku / Sonnet subagents |
-| Large analysis or implementation | Codex = gpt-5.5. gpt-5.6 is not supported on the ChatGPT account; if used elsewhere, keep reasoning at medium or below. |
-| Final review | Fable in a clean context, separate from the implementation session |
+OpenAI 5.6 is available as suffixed variants only (`gpt-5.6-sol`, `gpt-5.6-terra`; bare `gpt-5.6` 400s on the ChatGPT account, verified 2026-07-15). Fast mode stays OFF for all workflow dispatches (`fast_default_opt_out = true` in `~/.codex/config.toml`).
+
+| Role | Claude side | OpenAI side (codex) |
+|---|---|---|
+| CONDUCTOR | session model (Fable/Opus) | — |
+| ARCHITECT / adversarial co-design | Opus or Fable | `gpt-5.6-terra` medium, read-only |
+| CODEX implementation | — | `gpt-5.6-sol` medium (fast off) |
+| REVIEWER (code, clean context) | Fable/Opus alternative | one tier above implementer: `gpt-5.6-terra` medium (fast off) |
+| VERIFIER | pane script; Sonnet subagent for log triage | — |
+| VISUAL-REVIEWER | Opus | — |
+| Scoping / utility subagents | Haiku / Sonnet | — |
+
+Dynamic selection by risk tier: **Trivial** → impl `gpt-5.5` low (no REVIEWER on this tier). **Standard** → impl `gpt-5.6-sol` medium, review `gpt-5.6-terra` medium. **Full Cluster** → impl `gpt-5.6-sol` medium, review `gpt-5.6-terra` medium + Fable/Opus clean-context final pass for shared-contract chunks.
+
+Invariants: review model ≥ one tier above implementation model, never same-or-lower. Fallback chain on 400: `sol → terra → omit -m` (config default), noted in the run artifact. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
+
+Workload scaling (v1): review depth scales with the actual diff — ≤~50 changed lines with no exported-contract touch → single clean-context review round; >~400 lines OR >8 files OR any `packages/shared` touch → plan 2 review rounds (gap-audit + fix-verification) with re-verify after each fix commit; everything between uses the default single round + re-review-on-findings loop.
 
 ## Non-Negotiable Rules
 
