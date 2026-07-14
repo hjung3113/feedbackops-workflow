@@ -28,11 +28,12 @@ done
 
 # Policy guard: gpt-5.6 ABOVE medium reasoning is forbidden (cost). As of
 # 2026-07-15 the 5.6 family IS available on the ChatGPT account via suffixed
-# variants (gpt-5.6-sol, gpt-5.6-terra); bare "gpt-5.6" still 400s. Standard
-# allocation: implementation = gpt-5.6-sol medium, review = gpt-5.6-terra
-# medium (docs/agents/multi-agent-workflow.md "Model Allocation"). If effort is
-# omitted for 5.6, pin the dispatched config to medium so user/global config
-# cannot silently raise it.
+# variants; bare "gpt-5.6" still 400s. Ladder: sol (top, reasoning-heavy) >
+# terra (everyday impl) > luna (light). Standard allocation: design/review =
+# gpt-5.6-sol medium, implementation = gpt-5.6-terra medium, mechanical =
+# gpt-5.6-luna low (docs/agents/multi-agent-workflow.md "Model Allocation").
+# If effort is omitted for 5.6, pin the dispatched config to medium so
+# user/global config cannot silently raise it.
 case "$MODEL" in
   *5.6*|*5-6*)
     [[ -z "$EFFORT" ]] && EFFORT="medium"

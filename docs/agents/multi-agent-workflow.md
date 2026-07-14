@@ -30,21 +30,21 @@ This exists because of trial **#33**: narrowing one exported TS type in a "singl
 
 ## Model Allocation — role × model map, dynamic by tier
 
-OpenAI 5.6 is available as suffixed variants only (`gpt-5.6-sol`, `gpt-5.6-terra`; bare `gpt-5.6` 400s on the ChatGPT account, verified 2026-07-15). Fast mode stays OFF for all workflow dispatches (`fast_default_opt_out = true` in `~/.codex/config.toml`).
+OpenAI 5.6 is available as suffixed variants only (bare `gpt-5.6` 400s on the ChatGPT account, verified 2026-07-15). Capability ladder mirrors Claude's: **`gpt-5.6-sol` (top, heavy reasoning ≈ Opus/Fable) > `gpt-5.6-terra` (everyday implementation ≈ Sonnet) > `gpt-5.6-luna` (light/mechanical ≈ Haiku)** — all three probe OK. Fast mode stays OFF for all workflow dispatches (`fast_default_opt_out = true` in `~/.codex/config.toml`).
 
 | Role | Claude side | OpenAI side (codex) |
 |---|---|---|
 | CONDUCTOR | session model (Fable/Opus) | — |
-| ARCHITECT / adversarial co-design | Opus or Fable | `gpt-5.6-terra` medium, read-only |
-| CODEX implementation | — | `gpt-5.6-sol` medium (fast off) |
-| REVIEWER (code, clean context) | Fable/Opus alternative | one tier above implementer: `gpt-5.6-terra` medium (fast off) |
+| ARCHITECT / adversarial co-design | Opus or Fable | `gpt-5.6-sol` medium, read-only (thinking-heavy) |
+| CODEX implementation | — | `gpt-5.6-terra` medium (fast off) |
+| REVIEWER (code, clean context) | Fable/Opus alternative | one tier above implementer: `gpt-5.6-sol` medium (fast off) |
 | VERIFIER | pane script; Sonnet subagent for log triage | — |
 | VISUAL-REVIEWER | Opus | — |
-| Scoping / utility subagents | Haiku / Sonnet | — |
+| Scoping / utility subagents | Haiku / Sonnet | `gpt-5.6-luna` low for mechanical edits |
 
-Dynamic selection by risk tier: **Trivial** → impl `gpt-5.5` low (no REVIEWER on this tier). **Standard** → impl `gpt-5.6-sol` medium, review `gpt-5.6-terra` medium. **Full Cluster** → impl `gpt-5.6-sol` medium, review `gpt-5.6-terra` medium + Fable/Opus clean-context final pass for shared-contract chunks.
+Dynamic selection by risk tier: **Trivial** → impl `gpt-5.6-luna` low (no REVIEWER on this tier). **Standard** → impl `gpt-5.6-terra` medium, review `gpt-5.6-sol` medium. **Full Cluster** → design `gpt-5.6-sol`; impl `gpt-5.6-terra` medium; review `gpt-5.6-sol` medium + Fable/Opus clean-context final pass for shared-contract chunks.
 
-Invariants: review model ≥ one tier above implementation model, never same-or-lower. Fallback chain on 400: `sol → terra → omit -m` (config default), noted in the run artifact. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
+Invariants: review model ≥ one tier above implementation model, never same-or-lower. Fallback chain on 400: one step up the ladder (`luna → terra → sol → omit -m` config default), noted in the run artifact. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
 
 Workload scaling (v1): review depth scales with the actual diff — ≤~50 changed lines with no exported-contract touch → single clean-context review round; >~400 lines OR >8 files OR any `packages/shared` touch → plan 2 review rounds (gap-audit + fix-verification) with re-verify after each fix commit; everything between uses the default single round + re-review-on-findings loop.
 
