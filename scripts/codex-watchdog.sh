@@ -11,13 +11,15 @@ CODEX_SAFE="$SCRIPT_DIR/codex-safe.sh"
 ISSUE_N=""
 PROMPT_FILE=""
 CWD=""
+MODEL=""
+EFFORT=""
 FIRST_PROGRESS_TIMEOUT=240
 STALL_TIMEOUT=180
 MAX_RETRIES=2
 POLL_INTERVAL="${CODEX_WATCHDOG_POLL_INTERVAL:-15}"
 
 usage() {
-  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
+  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
 }
 
 now() { date +%s; }
@@ -62,6 +64,8 @@ while [ $# -gt 0 ]; do
     --issue) ISSUE_N="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --cwd) CWD="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
+    --effort) EFFORT="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
@@ -101,7 +105,18 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   : > "$STDERR_LOG"
   write_marker "running" "$attempt" "" "" || true
   touch "$STAMP"
-  NODE_OPTIONS= "$CODEX_SAFE" --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD" 2>"$STDERR_LOG" &
+  # Model/effort are forwarded, not defaulted here: codex-safe.sh owns the
+  # policy cap (5.6 above medium is refused). Omitting them falls back to the
+  # user's codex config default, which is NOT the workflow's role allocation —
+  # pin them at dispatch.
+  if [ -n "$MODEL" ] || [ -n "$EFFORT" ]; then
+    set -- --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD"
+    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
+    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    NODE_OPTIONS= "$CODEX_SAFE" "$@" 2>"$STDERR_LOG" &
+  else
+    NODE_OPTIONS= "$CODEX_SAFE" --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD" 2>"$STDERR_LOG" &
+  fi
   pid=$!
   write_marker "running" "$attempt" "$pid" "" || true
   touch "$STAMP"

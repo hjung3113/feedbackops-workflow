@@ -45,8 +45,11 @@ The smoke suite has 16 offline bash-3.2-compatible tests under `scripts/__tests_
 scripts/prepare-worktree.sh <worktree> [--env-profile <env>]
 
 # 2. dispatch the implementer into a VISIBLE cmux workspace (mandated path —
-#    do not hand-roll `cmux new-workspace --command`, see incident note below)
-scripts/cmux-dispatch.sh --issue <N> --worktree <worktree>
+#    do not hand-roll `cmux new-workspace --command`, see incident note below).
+#    ALWAYS pin --model/--effort: omitting them inherits the codex config
+#    default, not the workflow's per-role model allocation.
+scripts/cmux-dispatch.sh --issue <N> --worktree <worktree> \
+  --model gpt-5.6-terra --effort medium
 
 # 3. provision the per-issue verify DB (admin URL role needs CREATEDB), then
 #    verify OUTSIDE the sandbox (emits .review/ISSUE-<N>-VERIFY.json).
