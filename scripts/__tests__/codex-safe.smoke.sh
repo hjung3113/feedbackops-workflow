@@ -90,6 +90,65 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+# --- git worktree writable_roots (incident 2026-07-16) -----------------------
+# workspace-write makes only --cd (and /tmp) writable. A git WORKTREE keeps its
+# real gitdir in the MAIN repo's .git/worktrees/<name>, outside that root, so
+# every `git commit` died with
+#   fatal: Unable to create '.../.git/worktrees/<n>/index.lock': Operation not permitted
+# Codex wrote whole chunks and committed nothing, seven runs straight, while
+# exiting 0. The wrapper must grant the git common dir as a writable root.
+GIT_MAIN="$TMP_DIR/gitmain"
+mkdir -p "$GIT_MAIN"
+(
+  cd "$GIT_MAIN" || exit 1
+  git init -q .
+  git config user.email t@t
+  git config user.name t
+  echo seed > seed.txt
+  git add -A
+  git commit -qm seed
+  git worktree add -q "$TMP_DIR/gitwt" -b probe
+) >/dev/null 2>&1
+
+if [ -d "$TMP_DIR/gitwt" ]; then
+  args_file="$TMP_DIR/worktree.args"
+  CODEX_STUB_ARGS="$args_file" PATH="$BIN:$PATH" bash "$CODEX_SAFE" \
+    --issue 33 --prompt "hello" --cwd "$TMP_DIR/gitwt" >/dev/null 2>&1
+  if grep -q 'writable_roots' "$args_file" 2>/dev/null && grep -q "$GIT_MAIN/.git" "$args_file" 2>/dev/null; then
+    echo "ok   - worktree cwd grants git common dir as writable root"
+  else
+    echo "NOT OK - worktree cwd must pass writable_roots containing $GIT_MAIN/.git"
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  # A NON-worktree checkout keeps its gitdir inside --cd, so it needs nothing
+  # extra; a redundant writable root would widen the sandbox for free.
+  args_file="$TMP_DIR/plain.args"
+  CODEX_STUB_ARGS="$args_file" PATH="$BIN:$PATH" bash "$CODEX_SAFE" \
+    --issue 33 --prompt "hello" --cwd "$GIT_MAIN" >/dev/null 2>&1
+  if grep -q 'writable_roots' "$args_file" 2>/dev/null; then
+    echo "NOT OK - plain repo cwd must not widen the sandbox with writable_roots"
+    FAILURES=$((FAILURES + 1))
+  else
+    echo "ok   - plain repo cwd passes no extra writable root"
+  fi
+
+  # A non-git cwd must still dispatch.
+  args_file="$TMP_DIR/nongit.args"
+  CODEX_STUB_ARGS="$args_file" PATH="$BIN:$PATH" bash "$CODEX_SAFE" \
+    --issue 33 --prompt "hello" --cwd "$WT" >/dev/null 2>&1
+  nongit_ec=$?
+  if [ "$nongit_ec" -eq 0 ] && [ -f "$args_file" ]; then
+    echo "ok   - non-git cwd still dispatches"
+  else
+    echo "NOT OK - non-git cwd should still dispatch (exit $nongit_ec)"
+    FAILURES=$((FAILURES + 1))
+  fi
+else
+  echo "NOT OK - could not build git worktree fixture"
+  FAILURES=$((FAILURES + 1))
+fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"
