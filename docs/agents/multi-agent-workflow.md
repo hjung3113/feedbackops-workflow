@@ -44,7 +44,13 @@ OpenAI 5.6 is available as suffixed variants only (bare `gpt-5.6` 400s on the Ch
 
 Dynamic selection by risk tier: **Trivial** → impl `gpt-5.6-luna` low (no REVIEWER on this tier). **Standard** → impl `gpt-5.6-terra` medium, review `gpt-5.6-sol` medium. **Full Cluster** → design `gpt-5.6-sol`; impl `gpt-5.6-terra` medium; review `gpt-5.6-sol` medium + Fable/Opus clean-context final pass for shared-contract chunks.
 
-Invariants: review model ≥ one tier above implementation model, never same-or-lower. Fallback chain on 400: one step up the ladder (`luna → terra → sol → omit -m` config default), noted in the run artifact. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
+Invariants: review model ≥ one tier above implementation model, never same-or-lower. **Pin the model explicitly on every dispatch** (`--model <X> --effort medium`, forwarded by `cmux-dispatch.sh` to `codex-safe.sh`) — omitting it silently runs the config default instead of the tier you selected. Fallback chain on 400: one step up the ladder (`luna → terra → sol → omit -m` config default), noted in the run artifact. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
+
+Before a bulk parallel dispatch, preflight-probe the pinned model once so a 400 surfaces on one cheap call instead of on every worker:
+
+```
+NODE_OPTIONS= codex exec --skip-git-repo-check -m <X> -c model_reasoning_effort=low "reply exactly OK"
+```
 
 Workload scaling (v1): review depth scales with the actual diff — ≤~50 changed lines with no exported-contract touch → single clean-context review round; >~400 lines OR >8 files OR any `packages/shared` touch → plan 2 review rounds (gap-audit + fix-verification) with re-verify after each fix commit; everything between uses the default single round + re-review-on-findings loop.
 
