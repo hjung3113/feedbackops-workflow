@@ -1,10 +1,10 @@
 # Status
 
-_Last updated: 2026-07-13._
+_Current as of the newest entry under "Shipped" — `git log -1` beats this file if they disagree._
 
 ## Provenance
 
-Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (history-preserving, path-scoped): 45 commits, the exact workflow file set only — no product code. This repo is now the canonical home for the workflow; FeedbackOps keeps its own copy in open PRs (see below) pending a merge decision.
+Extracted from the FeedbackOps repo on **2026-05-24** via `git filter-repo` (history-preserving, path-scoped): 45 commits, the exact workflow file set only — no product code. This repo is the canonical home for the workflow. FeedbackOps is **product-only**: its workflow PRs (#83/#84) were closed and their branches deleted on 2026-05-24, and it must never carry a copy — not a checked-in script, not a symlink (its `.gitignore` blocks `scripts/codex-safe.sh` for exactly this reason).
 
 ## Shipped
 

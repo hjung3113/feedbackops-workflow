@@ -7,11 +7,10 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 ## What's here
 
 - `scripts/` — the workflow tooling. Host-side orchestration (`prepare-worktree.sh`, `cmux-cluster.sh`, `rebase-inflight.sh`), the codex dispatch wrapper (`codex-safe.sh`), its stall watchdog (`codex-watchdog.sh`), the mandated cmux-workspace dispatch entry point (`cmux-dispatch.sh`), the verification oracle (`verify.sh`), state reconstruction (`conductor-rebuild.sh`), staleness/archival (`artifact-fresh.sh`, `review-archive.sh`), tier routing (`tier-probe.sh`), and stash safety (`workflow-stash.sh`). Plus the v0.3 sandbox-network spike (`uds-pg-relay.mjs`).
-- `scripts/__tests__/*.smoke.sh` — the regression suite (8 smoke tests). Most scripts have one; `cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, and `uds-pg-relay.mjs` have no direct smoke yet (`codex-safe.sh` is partially covered by `sandbox-network-deny.smoke.sh`).
-- `.review/schemas/` — JSON Schemas (draft-07) for every workflow artifact: `pr_draft`, `review`, `touch`, `blocker`, `heartbeat`, `phase_summary`, and `verify` (artifact_type `verify_result`). Valid/invalid fixtures exist under `schemas/fixtures/` for `blocker`, `heartbeat`, `phase_summary`, and `pr_draft` only — `review`, `touch`, and `verify` have schemas but no fixtures yet.
-- `docs/agents/` — the playbook (`multi-agent-workflow.md`), role personas (`conductor-persona.md`, `visual-reviewer-persona.md`), the trial log (`workflow-trial-log.md`), and a prior session handoff.
-- `docs/superpowers/plans/` — the v0.1 and v0.2 implementation plans.
-- `STATUS.md` — current progress, the key findings, and remaining work. Read it first.
+- `scripts/__tests__/*.smoke.sh` — the regression suite, run via `run-all.sh`. **Do not state a count or a coverage gap here** — an inventory typed by hand rots the moment a file lands, and this list has been wrong before. List it: `ls scripts/__tests__/*.smoke.sh`.
+- `.review/schemas/` — JSON Schemas (draft-07) for every workflow artifact (`pr_draft`, `review`, `touch`, `blocker`, `heartbeat`, `phase_summary`, `verify`), with valid/invalid fixtures under `schemas/fixtures/`. Same rule: `ls .review/schemas/fixtures/` beats any list written here.
+- `docs/agents/` — the playbook (`multi-agent-workflow.md`) and role personas (`conductor-persona.md`, `visual-reviewer-persona.md`). Dated history lives in `workflow-trial-log.md` and nowhere else.
+- `STATUS.md` — current state and shipped versions. Read it first, but `git log` wins any disagreement.
 
 ## Operating Rules
 
