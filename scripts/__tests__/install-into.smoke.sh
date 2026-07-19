@@ -51,6 +51,10 @@ assert_true "symlink mode creates scripts link" test -L "$target_symlink/.agent-
 assert_true "scripts link points at toolkit scripts" test "$(readlink "$target_symlink/.agent-workflow/scripts")" = "$TOOLKIT_ROOT/scripts"
 assert_true "symlink mode creates schemas link" test -L "$target_symlink/.agent-workflow/schemas"
 assert_true "schemas link points at toolkit schemas" test "$(readlink "$target_symlink/.agent-workflow/schemas")" = "$TOOLKIT_ROOT/.review/schemas"
+assert_true "symlink mode creates docs link" test -L "$target_symlink/.agent-workflow/docs/agents"
+assert_true "docs link points at toolkit docs" test "$(readlink "$target_symlink/.agent-workflow/docs/agents")" = "$TOOLKIT_ROOT/docs/agents"
+assert_true "symlink mode creates project skill link" test -L "$target_symlink/.claude/skills/agent-workflow"
+assert_true "skill link points at toolkit skill" test "$(readlink "$target_symlink/.claude/skills/agent-workflow")" = "$TOOLKIT_ROOT/.claude/skills/agent-workflow"
 assert_true "install creates target .review" test -d "$target_symlink/.review"
 
 target_copy="$TMP_DIR/target-copy"
@@ -61,8 +65,21 @@ assert_true "copy mode creates real scripts dir" test -d "$target_copy/.agent-wo
 assert_true "copy mode scripts is not a symlink" test ! -L "$target_copy/.agent-workflow/scripts"
 assert_true "copy mode creates real schemas dir" test -d "$target_copy/.agent-workflow/schemas"
 assert_true "copy mode schemas is not a symlink" test ! -L "$target_copy/.agent-workflow/schemas"
+assert_true "copy mode creates real docs dir" test -d "$target_copy/.agent-workflow/docs/agents"
+assert_true "copy mode docs is not a symlink" test ! -L "$target_copy/.agent-workflow/docs/agents"
+assert_true "copy mode creates real project skill" test -d "$target_copy/.claude/skills/agent-workflow"
+assert_true "copy mode skill is not a symlink" test ! -L "$target_copy/.claude/skills/agent-workflow"
 assert_true "copy mode includes install script" test -e "$target_copy/.agent-workflow/scripts/install-into.sh"
 assert_true "copy mode includes schema files" test -e "$target_copy/.agent-workflow/schemas/blocker.schema.json"
+assert_true "copy mode includes playbook" test -e "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
+assert_true "copy mode includes skill entrypoint" test -e "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+assert_true "skill has no machine-specific toolkit path" sh -c "! grep -F '/Desktop/2026/feedbackops-workflow' '$target_copy/.claude/skills/agent-workflow/SKILL.md' >/dev/null"
+
+printf '%s\n' 'local target customization' > "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+assert_exit "reinstall without force exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy
+assert_true "reinstall without force preserves target skill" grep -F -q 'local target customization' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+assert_exit "force reinstall exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy --force
+assert_true "force reinstall restores canonical skill" grep -F -q 'name: agent-workflow' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 
 assert_exit "refuses toolkit root" FAIL bash "$INSTALL" "$TOOLKIT_ROOT"
 assert_exit "errors on missing target path" FAIL bash "$INSTALL" "$TMP_DIR/does-not-exist"

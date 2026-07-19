@@ -6,10 +6,11 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 
 ## What's here
 
-- `scripts/` — the workflow tooling. Host-side orchestration (`prepare-worktree.sh`, `cmux-cluster.sh`, `rebase-inflight.sh`), the codex dispatch wrapper (`codex-safe.sh`), its stall watchdog (`codex-watchdog.sh`), the mandated cmux-workspace dispatch entry point (`cmux-dispatch.sh`), the verification oracle (`verify.sh`), state reconstruction (`conductor-rebuild.sh`), staleness/archival (`artifact-fresh.sh`, `review-archive.sh`), tier routing (`tier-probe.sh`), and stash safety (`workflow-stash.sh`). Plus the v0.3 sandbox-network spike (`uds-pg-relay.mjs`).
+- `scripts/` — the workflow tooling. Host-side orchestration (`prepare-worktree.sh`, `cmux-cluster.sh`, `rebase-inflight.sh`), the codex dispatch wrapper (`codex-safe.sh`), its stall watchdog (`codex-watchdog.sh`), the mandated cmux-workspace dispatch entry point (`cmux-dispatch.sh`), pre-review AC coverage (`ac-check.sh`), the verification oracle (`verify.sh`), state reconstruction (`conductor-rebuild.sh`), staleness/archival (`artifact-fresh.sh`, `review-archive.sh`), tier routing (`tier-probe.sh`), and stash safety (`workflow-stash.sh`). Plus the v0.3 sandbox-network spike (`uds-pg-relay.mjs`).
 - `scripts/__tests__/*.smoke.sh` — the regression suite, run via `run-all.sh`. **Do not state a count or a coverage gap here** — an inventory typed by hand rots the moment a file lands, and this list has been wrong before. List it: `ls scripts/__tests__/*.smoke.sh`.
-- `.review/schemas/` — JSON Schemas (draft-07) for every workflow artifact (`pr_draft`, `review`, `touch`, `blocker`, `heartbeat`, `phase_summary`, `verify`), with valid/invalid fixtures under `schemas/fixtures/`. Same rule: `ls .review/schemas/fixtures/` beats any list written here.
+- `.review/schemas/` — JSON Schemas (draft-07) for every workflow artifact (`pr_draft`, `review`, `touch`, `blocker`, `heartbeat`, `phase_summary`, `run`, `verify`), with valid/invalid fixtures under `schemas/fixtures/`. Same rule: `ls .review/schemas/fixtures/` beats any list written here.
 - `docs/agents/` — the playbook (`multi-agent-workflow.md`) and role personas (`conductor-persona.md`, `visual-reviewer-persona.md`). Dated history lives in `workflow-trial-log.md` and nowhere else.
+- `.claude/skills/agent-workflow/` — the project-local Claude skill entrypoint. Keep `SKILL.md` thin; route detailed policy to the playbook and load target-adoption guidance from `references/` only when needed. `scripts/install-into.sh` installs this skill and the playbook into targets.
 - `STATUS.md` — current state and shipped versions. Read it first, but `git log` wins any disagreement.
 
 ## Operating Rules
@@ -26,7 +27,7 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 - **bash-3.2 compatible.** Scripts must run on macOS's stock bash 3.2: no `declare -A`, no `${var,,}`, no `mapfile`. Match the style already in `scripts/`.
 - **Smoke tests are the gate.** Most scripts have a `scripts/__tests__/<name>.smoke.sh`. Run the relevant smoke after any change and add cases for new behavior. If you change a script that has no smoke yet (`cmux-cluster.sh`, `codex-safe.sh`, `workflow-stash.sh`, `uds-pg-relay.mjs`), add coverage or state why it's impractical. A change to a smoke-covered script without a passing smoke is not done.
 - **Doc-sync discipline.** Every script/schema change syncs the playbook (`docs/agents/multi-agent-workflow.md`) and any affected README/STATUS **in the same commit**. A DEVIATIONS note alone is insufficient for a contract change.
-- **Codex dispatch only via `scripts/codex-safe.sh`.** It pins `--sandbox workspace-write` and `--cd <worktree>`. Direct `codex exec` is forbidden. The sandbox blocks all network (incl. loopback) — see the Sandbox Rule in the playbook; never weaken this without recording the decision.
+- **Write-capable task dispatch only via `scripts/codex-safe.sh`.** It pins `--sandbox workspace-write` and `--cd <worktree>`. Direct `codex exec` is forbidden for implementation/review tasks; the playbook's cheap model-availability preflight is the narrow non-task exception. The sandbox blocks all network (incl. loopback) — see the Sandbox Rule in the playbook; never weaken this without recording the decision.
 - **Dispatching into a visible cmux workspace only via `scripts/cmux-dispatch.sh`.** Never hand-roll `cmux new-workspace`/`cmux workspace create --command "codex-watchdog.sh ..."` — a missing `--cwd` on the cmux workspace plus a relative `--prompt-file` silently exits 2 with no artifact (2026-07-13 incident). RUN.json's terminal state is `status:"exited"` + `exit_code`, never `"completed"`/`"failed"`.
 - **Schemas are contracts.** When changing an artifact shape, update the schema + its fixtures together, and validate (`ajv-cli` or `node -e JSON.parse`).
 
@@ -40,7 +41,7 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 ## Verification
 
 - Run the affected `scripts/__tests__/*.smoke.sh`. They are offline and bash-3.2 safe.
-- `scripts/verify.sh` is the **vitest verification oracle** for a *target* project (it loads env, runs a scoped vitest filter via the JSON reporter, and is false-green-proof). It is exercised here only by `verify.smoke.sh` (`--classify-json` mode); running its filter mode needs a target project with a backend package + local DB.
+- `scripts/verify.sh` is the **vitest verification oracle** for a compatible target project (it loads env, runs a scoped Vitest filter via the JSON reporter, and is false-green-proof). `verify.smoke.sh` covers classification, typecheck, and stubbed filter/artifact paths without a live DB; a real filter run still needs a target with the expected backend package and local DB.
 - The network-deny regression guard is `scripts/__tests__/sandbox-network-deny.smoke.sh` (Layer 1 offline always; Layer 2 live in-sandbox probe with `RUN_LIVE_SANDBOX_PROBE=1` + `codex` on PATH).
 
 ## Source Of Truth

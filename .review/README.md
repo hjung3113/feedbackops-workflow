@@ -4,10 +4,12 @@ Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 
 ## Files
 
-- `ISSUE-N-PR-DRAFT.json` — CODEX → REVIEWER handoff (commit SHA, files, verify). A `status: "ready_for_review"` draft MUST carry `verify_result` (`verified_head_sha` + `passed`/`failed`/`exit_code`; schema requires `exit_code: 0`, `failed: 0`, `passed >= 1` when ready) — machine-checkable evidence, not prose. Also carries optional `worktree_path` (absolute path to the branch's worktree, for conductor-rebuild to resolve real HEAD) and `base_branch` (the integration branch it forked from, for artifact-fresh merge-base instead of assuming develop).
+- `ISSUE-N-PR-DRAFT.json` — CODEX → REVIEWER implementation handoff (commit SHA, files, claimed tests, risks). Its optional `verify_result` field is deprecated and ignored; CODEX cannot verify its own work. `worktree_path` lets conductor-rebuild resolve the live HEAD and `base_branch` identifies the integration base for freshness checks.
 - `ISSUE-N-BLOCKER.json` — CODEX abort report (no commit, why stopped). Cause is structured, not prose: `reason_code` (enum) + `blocking_fact` (concrete observed fact naming the ACTUAL files/symbols hit — never copied from the dispatch prompt) + `attempted_commands` (exact commands run before aborting) + `needed_decision` (the specific human/ARCHITECT call needed to unblock). `recommended_actions` has been REMOVED — free prose was the affordance that caused prompt-template leakage; with `additionalProperties:false`, any artifact still carrying it is now REJECTED.
 - `ISSUE-N-REVIEW.json` — REVIEWER findings + patch_instructions for ARCHITECT
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)
+- `ISSUE-N-RUN.json` — watchdog process/liveness marker (`running | exited | killed_stall | refused | exhausted`). `exited/0` is not task completion evidence.
+- `ISSUE-N-VERIFY.json` — canonical VERIFIER evidence for the current branch/head. This, not PR-DRAFT prose, drives verified state.
 - `ISSUE-N-PARTIAL.diff` — stashed partial work on abort (v0.1: optional)
 - `PHASE-N-SUMMARY.json` — CONDUCTOR roll-up of a phase's worker clusters. A DERIVED artifact (a cache of lower-level artifacts), never source of truth. Carries `derived_from[]` (each with `content_sha256` of the on-disk artifact + `head_sha`) and `chunks[]` (per-issue `state` + `evidence_artifact` + `evidence_head_sha`).
 - `HEARTBEAT-<pane>.json` — per-pane liveness proof (pane, branch, head_sha, task, blocked, dirty, updated_at). Proves LIVENESS, not correctness.
@@ -62,6 +64,13 @@ Superseded files MUST be ignored by readers. Cleanup: on PR merge, run
 
 ```bash
 pnpm dlx ajv-cli validate -s .review/schemas/pr_draft.schema.json -d .review/ISSUE-33-PR-DRAFT.json
+```
+
+List schemas and fixtures from disk rather than relying on a hand-maintained inventory:
+
+```bash
+ls .review/schemas/*.schema.json
+ls .review/schemas/fixtures/
 ```
 
 Note: `phase_summary` and `heartbeat` carry date-time string fields (`generated_at`, `updated_at`, `last_verify_at`). They are validated as plain `type: "string"` (no JSON Schema `format: "date-time"` keyword) because the `ajv-formats` plugin is not installable via `pnpm dlx` in this environment. If `ajv-formats` becomes available, re-add `"format": "date-time"` to those fields and validate with `-c ajv-formats`.

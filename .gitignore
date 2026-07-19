@@ -8,6 +8,10 @@ node_modules/
 .review/ISSUE-*.json
 .review/CLUSTER-*.json
 .review/PHASE-*.json
+.review/HEARTBEAT-*.json
+.review/DEBATE-*.json
+.review/DOC-AUDIT.json
+.review/*-REVIEW.md
 .review/*-VERIFY.json
 .review/*-PROMPT.txt
 .review/archive/
@@ -18,7 +22,6 @@ node_modules/
 .review/uds-probe-result.txt
 
 # tooling caches
-.codegraph/
 .playwright-mcp/
 
 # os / logs

@@ -1,5 +1,7 @@
 # Multi-Agent Workflow — Trial Log
 
+> Historical record: this file preserves what each dated trial actually used. Some fields and commands shown below were later superseded—for example `recommended_actions` was removed from blocker artifacts and CODEX-owned `pr_draft.verify_result` is now deprecated. For current contracts, use `.review/schemas/`, `.review/README.md`, and `docs/agents/multi-agent-workflow.md`.
+
 ## Trial 1 — Issue #33 (HttpError.detail discriminated union) — 2026-05-23
 
 **Tier:** Trivial (CODEX + VERIFIER). ARCHITECT + Release Captain = human/Claude.

@@ -1,6 +1,8 @@
-# Multi-Agent Workflow — Operating Playbook v0.1
+# Multi-Agent Workflow — Operating Playbook
 
-This file holds the *operating* rules for the multi-agent workflow (cmux 4-pane × Claude × Codex). For higher-level design discussion see `docs/agents/multi-agent-workflow-draft.md` and `docs/agents/workflow-*.html`.
+This file is the detailed operating authority for the cmux × Claude × Codex workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
+
+The coordination model is reusable, but some shipped adapters are still target-shaped: `prepare-worktree.sh` assumes pnpm and `apps/backend/.env`, `tier-probe.sh` targets exported TypeScript contracts, and `verify.sh` assumes a pnpm `backend` package tested by Vitest. Read `.claude/skills/agent-workflow/references/adoption.md` before applying the toolkit to a repository with a different shape.
 
 ## Risk Tier Routing
 
@@ -30,7 +32,7 @@ This exists because of trial **#33**: narrowing one exported TS type in a "singl
 
 ## Model Allocation — role × model map, dynamic by tier
 
-OpenAI 5.6 is available as suffixed variants only (bare `gpt-5.6` 400s on the ChatGPT account, verified 2026-07-15). Capability ladder mirrors Claude's: **`gpt-5.6-sol` (top, heavy reasoning ≈ Opus/Fable) > `gpt-5.6-terra` (everyday implementation ≈ Sonnet) > `gpt-5.6-luna` (light/mechanical ≈ Haiku)** — all three probe OK. Fast mode stays OFF for all workflow dispatches (`fast_default_opt_out = true` in `~/.codex/config.toml`).
+The current operator profile exposes suffixed OpenAI 5.6 aliases: **`gpt-5.6-sol` (top, heavy reasoning) > `gpt-5.6-terra` (everyday implementation) > `gpt-5.6-luna` (light/mechanical)**. These are environment capabilities, not portable toolkit dependencies. On a new machine/account, preflight the intended aliases and substitute an explicitly pinned ladder with the same capability ordering. The operator currently keeps fast mode off; that preference lives in machine config and is not installed by this repository.
 
 | Role | Claude side | OpenAI side (codex) |
 |---|---|---|
@@ -44,7 +46,7 @@ OpenAI 5.6 is available as suffixed variants only (bare `gpt-5.6` 400s on the Ch
 
 Dynamic selection by risk tier: **Trivial** → impl `gpt-5.6-luna` low (no REVIEWER on this tier). **Standard** → impl `gpt-5.6-terra` medium, review `gpt-5.6-sol` medium. **Full Cluster** → design `gpt-5.6-sol`; impl `gpt-5.6-terra` medium; review `gpt-5.6-sol` medium + Fable/Opus clean-context final pass for shared-contract chunks.
 
-Invariants: review model ≥ one tier above implementation model, never same-or-lower. **Pin the model explicitly on every dispatch** (`--model <X> --effort medium`, forwarded by `cmux-dispatch.sh` to `codex-safe.sh`) — omitting it silently runs the config default instead of the tier you selected. Fallback chain on 400: one step up the ladder (`luna → terra → sol → omit -m` config default), noted in the run artifact. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
+Invariants: review model ≥ one tier above implementation model, never same-or-lower. **Pin the model explicitly on every dispatch** (`--model <X> --effort medium`, forwarded by `cmux-dispatch.sh` to `codex-safe.sh`) — omitting it silently runs the config default instead of the tier you selected. On a model refusal, move only to another preflight-validated explicit model that preserves the role ordering; never fall back by omitting `--model`. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
 
 Before a bulk parallel dispatch, preflight-probe the pinned model once so a 400 surfaces on one cheap call instead of on every worker:
 
@@ -75,7 +77,7 @@ Full operating prompt: **`docs/agents/conductor-persona.md`**.
 
 The tier table's `(+ VISUAL if UI)` is the **VISUAL-REVIEWER** — a sub-role run **under the REVIEWER umbrella** (its own pane when the UI surface is complex). It runs only on the **Full Cluster** tier when the change actually touches UI: **layout / copy placement / interaction states / design tokens / shells / reusable UI**. SKIP it for pure API-hook wiring or other non-visual logic.
 
-- **Two tools, two jobs.** **playwright** (`mcp__plugin_playwright_playwright__*`) is the **live driver** — it navigates the running app, screenshots, and asserts interaction states in a real browser (authoritative). `impeccable` is an **OPTIONAL plugin** for static design-vocabulary / anti-pattern critique (`/impeccable critique`, `/impeccable audit`); if it isn't enabled the role degrades to playwright + heuristics.
+- **Two tools, two jobs.** The environment's available **Playwright browser automation surface** is the live driver—discover its current tool identifier instead of pinning one here. It navigates the running app, screenshots, and asserts interaction states in a real browser (authoritative). `impeccable` is an optional plugin for static design-vocabulary/anti-pattern critique; if it is unavailable the role degrades to Playwright + heuristics.
 - **A visual pass ALONE cannot close a chunk.** It MUST pair with an **INTERACTION SCRIPT** covering **create / edit / error / empty / permission** states. REVIEWER (incl. VISUAL-REVIEWER) owns the checklist + live smoke; **VERIFIER owns the durable Playwright specs.** The verdict feeds the existing `review` artifact — it does not invent a new type.
 - **Enabling impeccable is OPTIONAL and LOCAL:** add `"impeccable@impeccable": true` to gitignored `.claude/settings.local.json` (confirm the exact `name@marketplace` ref first) — **never** the committed project `.claude/settings.json`, which would break teammates without the plugin.
 
@@ -98,14 +100,14 @@ Every issue has one **Release Captain**. The Captain owns merge readiness with o
 
 ## Codex Sandbox Rule
 
-All `codex exec` invocations MUST go through `scripts/codex-safe.sh`, which enforces:
+All write-capable task dispatches MUST go through `scripts/codex-safe.sh`, which enforces:
 
 - `--sandbox workspace-write` (no read/write outside the working root)
 - `--cd <worktree>` on the codex call (locks codex's writable root to one worktree). The wrapper's own CLI flag is `--cwd`; it maps that to codex's `-C/--cd`.
 - `sandbox_workspace_write.writable_roots=["<git common dir>"]` when `--cwd` is a git **worktree** (see below)
 - abort-time `workflow-stash.sh` (preserve partial diff on non-zero exit)
 
-Direct `codex exec` invocations are forbidden in this workflow.
+Direct `codex exec` is forbidden for implementation and review tasks. The cheap model-availability preflight in "Model Allocation" is the only direct non-task exception; it uses `--skip-git-repo-check`, requests an exact harmless reply, and must not carry project work.
 
 #### Why a worktree needs the git common dir as a writable root
 
@@ -162,9 +164,7 @@ Do not hand-roll `cmux new-workspace`/`cmux workspace create --command "codex-wa
 
 **Decision: status-quo.** The worker stays network-denied; the **VERIFIER runs DB tests outside the sandbox** (see VERIFIER protocol). Revisit only when (a) codex ships loopback-only network (#6737), or (b) data shows DB-test verifier churn is a real throughput bottleneck.
 
-Hardening shipped alongside this decision:
-- Global `~/.codex/config.toml` default lowered `danger-full-access` → `workspace-write` (defense-in-depth for bare `codex`; the wrapper already forces `--sandbox workspace-write` explicitly).
-- `scripts/__tests__/sandbox-network-deny.smoke.sh` guards against regression: Layer 1 (offline) asserts `codex-safe.sh` still pins `--sandbox workspace-write` and grants no `danger-full-access`/`network_access`; Layer 2 (opt-in, `RUN_LIVE_SANDBOX_PROBE=1`) runs `scripts/__tests__/net-deny-probe.mjs` inside the sandbox and asserts loopback is `BLOCKED`.
+Hardening shipped alongside this decision: `scripts/__tests__/sandbox-network-deny.smoke.sh` guards against regression. Layer 1 (offline) asserts `codex-safe.sh` still pins `--sandbox workspace-write` and grants no `danger-full-access`/`network_access`; Layer 2 (opt-in, `RUN_LIVE_SANDBOX_PROBE=1`) runs `scripts/__tests__/net-deny-probe.mjs` inside the sandbox and asserts loopback is `BLOCKED`. Machine-global Codex defaults are operator configuration and are not installed or assumed by this repository.
 
 ## Worktree Prep
 
@@ -187,6 +187,16 @@ Every `.review/ISSUE-*.json` carries `lifecycle: draft | active | superseded | f
 ## Workflow Tax Brake
 
 If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has failed and must be re-evaluated. The workflow exists to ship faster, not slower.
+
+### Pre-review AC-ID gate
+
+When a task uses a machine-readable acceptance manifest, run the deterministic coverage check before review:
+
+```bash
+scripts/ac-check.sh --manifest <manifest.json> --tests <discovered-tests.txt>
+```
+
+The manifest shape is `{"acs":[{"id":"AC-1"}]}`. The tests file contains the actually discovered test names or paths. Duplicate AC ids and ids absent from the discovered-test text fail the gate; malformed inputs are usage errors. This check proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
 
 ## VERIFIER protocol
 

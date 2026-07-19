@@ -66,13 +66,20 @@ fi
 
 AGENT_DIR="$TARGET_ROOT/.agent-workflow"
 REVIEW_DIR="$TARGET_ROOT/.review"
+CLAUDE_SKILLS_DIR="$TARGET_ROOT/.claude/skills"
 SCRIPTS_SRC="$TOOLKIT_ROOT/scripts"
 SCHEMAS_SRC="$TOOLKIT_ROOT/.review/schemas"
+DOCS_SRC="$TOOLKIT_ROOT/docs/agents"
+SKILL_SRC="$TOOLKIT_ROOT/.claude/skills/agent-workflow"
 SCRIPTS_DEST="$AGENT_DIR/scripts"
 SCHEMAS_DEST="$AGENT_DIR/schemas"
+DOCS_DEST="$AGENT_DIR/docs/agents"
+SKILL_DEST="$CLAUDE_SKILLS_DIR/agent-workflow"
 
 mkdir -p "$AGENT_DIR"
+mkdir -p "$AGENT_DIR/docs"
 mkdir -p "$REVIEW_DIR"
+mkdir -p "$CLAUDE_SKILLS_DIR"
 
 install_link() {
   src="$1"
@@ -111,15 +118,21 @@ install_copy() {
 if [[ "$MODE" == "symlink" ]]; then
   install_link "$SCRIPTS_SRC" "$SCRIPTS_DEST"
   install_link "$SCHEMAS_SRC" "$SCHEMAS_DEST"
+  install_link "$DOCS_SRC" "$DOCS_DEST"
+  install_link "$SKILL_SRC" "$SKILL_DEST"
 else
   install_copy "$SCRIPTS_SRC" "$SCRIPTS_DEST"
   install_copy "$SCHEMAS_SRC" "$SCHEMAS_DEST"
+  install_copy "$DOCS_SRC" "$DOCS_DEST"
+  install_copy "$SKILL_SRC" "$SKILL_DEST"
 fi
 
 cat <<EOF
 
 Next steps:
-  - Run verification via: $TARGET_ROOT/.agent-workflow/scripts/verify.sh
-  - Dispatch Codex via:   $TARGET_ROOT/.agent-workflow/scripts/codex-safe.sh
+  - Invoke the project skill: /agent-workflow
+  - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
+  - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/cmux-dispatch.sh
+  - Verify target fit before using the bundled backend/Vitest verify.sh adapter.
   - Copy toolkit env defaults into the target when needed: $TOOLKIT_ROOT/.env.example
 EOF
