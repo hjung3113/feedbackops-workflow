@@ -233,6 +233,18 @@ scripts/ac-check.sh \
 
 The gate first validates the complete artifact against the canonical schema and runs `artifact-fresh.sh`; partial, superseded, wrong-writer, or base-stale state is rejected. `--manifest-revision` must then equal the artifact's top-level `revision`; a mismatch is stale and fails before AC mapping. AC ids come from `acceptance.criteria[].id`. The tests file contains actually discovered test names or paths. Duplicate or undiscovered ids fail the gate; ID matching is boundary-aware, so `AC-10` cannot satisfy `AC-1`. This proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
 
+### CONDUCTOR completion calculation gate
+
+Before REVIEWER consumes a worker handoff, CONDUCTOR runs:
+
+```bash
+scripts/completion-check.sh \
+  --round-state <ISSUE-N-ROUND-STATE.json> \
+  --manifest-revision <revision>
+```
+
+The command validates the canonical ROUND-STATE and freshness, calculates `base_sha..HEAD` in its declared live worktree, and compares that independent diff against `contract.touch_allowlist`. It directly executes the target profile's `contract.test_discovery_command` in that worktree, compares `acceptance.criteria[].id` against its output, and compares its non-empty record count exactly against canonical `acceptance.expected_test_count`. It does not consume RUN.json, PR-DRAFT claims, diffstat prose, a supplied discovery file, or a worker's reported test count. Exit 1 emits a machine-readable JSON `mismatches` list and hard-stops review; exit 2 emits a stable machine-readable error code for invalid input, an uncheckable state, or failed discovery and also fails closed. The target profile owns the command and must emit one record per discovered test; the reusable core does not hard-code Vitest. This gate establishes completion-contract coverage only; independent review and verification remain required for behavioral correctness.
+
 ### Test-matrix row contract
 
 The authoritative acceptance contract is also the test-matrix template: every test-matrix row is a canonical `acceptance.criteria[]` entry; its `id` is the sole AC-ID authority, and its `statement` contains an explicit precondition and observable checkpoint. Do not use cited authoritative detail as a substitute for required inline content: the canonical `statement` is the complete row authority. An expected status alone is not a checkpoint: the precondition must make the target behavior reachable, and the checkpoint must observe the state or output that proves it occurred.

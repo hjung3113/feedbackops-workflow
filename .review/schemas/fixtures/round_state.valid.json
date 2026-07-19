@@ -14,9 +14,11 @@
   "contract": {
     "objective": "change the shared contract without leaving compile-time consumers behind",
     "touch_allowlist": ["packages/shared/**", "apps/backend/**"],
-    "verify_filter": "shared-contract"
+    "verify_filter": "shared-contract",
+    "test_discovery_command": "pnpm --filter backend exec vitest --list"
   },
   "acceptance": {
+    "expected_test_count": 2,
     "criteria": [
       { "id": "AC-1", "statement": "all compile-time consumers are enumerated" },
       { "id": "AC-2", "statement": "the scoped verifier passes" }

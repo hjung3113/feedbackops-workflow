@@ -70,6 +70,7 @@ assert_true "copy mode docs is not a symlink" test ! -L "$target_copy/.agent-wor
 assert_true "copy mode creates real project skill" test -d "$target_copy/.claude/skills/agent-workflow"
 assert_true "copy mode skill is not a symlink" test ! -L "$target_copy/.claude/skills/agent-workflow"
 assert_true "copy mode includes install script" test -e "$target_copy/.agent-workflow/scripts/install-into.sh"
+assert_true "copy mode includes completion gate" test -e "$target_copy/.agent-workflow/scripts/completion-check.sh"
 assert_true "copy mode includes schema files" test -e "$target_copy/.agent-workflow/schemas/blocker.schema.json"
 assert_true "copy mode includes ROUND-STATE schema" test -e "$target_copy/.agent-workflow/schemas/round_state.schema.json"
 assert_true "copy mode includes dependency-free schema validator" test -e "$target_copy/.agent-workflow/scripts/lib/json-schema-subset.cjs"
