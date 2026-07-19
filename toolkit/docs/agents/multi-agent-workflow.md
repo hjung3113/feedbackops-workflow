@@ -12,7 +12,7 @@ The workflow product home is the physical parent of the running command's `scrip
 
 Existing pre-separation absolute symlink installations fail closed with an actionable `--migrate-legacy` command. Migration preflights all managed destinations, removes only recognized legacy link nodes, and preserves files, directories, copy snapshots, and unrecognized links. `--force` is the separate explicit full-replacement interface and cannot be combined with migration.
 
-The source repository's `.github/tests/release-contract.smoke.sh` is the release-only boundary gate. It verifies that canonical product authority remains beneath `toolkit/`, legacy path exceptions stay exact and classified as historical or compatibility evidence, local Markdown links resolve in source and copy-installed contexts, and maintainer files do not leak into targets. This gate is repository infrastructure and is not part of an installed toolkit. The legacy symlink recognizer above is a documented compatibility contract, not a product-home fallback.
+Product containment, classified legacy-path evidence, and maintainer-file non-leakage are release concerns owned by infrastructure outside this distributable product and are not installed into targets. Product-local Markdown links must resolve from both source and installed paths. The legacy symlink recognizer above is a documented compatibility contract, not a product-home fallback.
 
 When a target run reveals a toolkit problem, follow the downstream feedback loop in the adoption
 guide and `docs/agents/issue-reporting.md`: preserve a sanitized reproduction, classify the failing

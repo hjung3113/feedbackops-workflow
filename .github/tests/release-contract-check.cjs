@@ -41,6 +41,7 @@ function validateLegacyReferences(root, files) {
   const metadataPaths = new Set([
     '.github/tests/release-contract-check.cjs',
     '.github/tests/release-contract-exceptions.json',
+    '.github/tests/release-contract.smoke.sh',
   ]);
   const config = JSON.parse(fs.readFileSync(exceptionsPath, 'utf8'));
   const exceptions = [];
@@ -55,7 +56,7 @@ function validateLegacyReferences(root, files) {
         fail(`unknown exception token ${entry.token || '<missing>'}`);
         continue;
       }
-      if (!entry.reason || !Number.isInteger(entry.expectedCount) || entry.expectedCount < 1) {
+      if (!entry.reason || !entry.context || !Number.isInteger(entry.expectedCount) || entry.expectedCount < 1) {
         fail(`invalid ${kind} entry for ${entry.path || '<missing>'}`);
         continue;
       }
@@ -63,26 +64,35 @@ function validateLegacyReferences(root, files) {
     }
   }
 
-  const expected = new Map(
-    exceptions.map((entry) => [`${entry.token}\0${entry.path}`, entry]),
-  );
+  const expected = new Map();
+  for (const entry of exceptions) {
+    const key = `${entry.token}\0${entry.path}\0${entry.context}`;
+    if (expected.has(key)) fail(`duplicate ${entry.kind} exception for ${entry.token} in ${entry.path}`);
+    expected.set(key, entry);
+  }
   const actual = new Map();
 
   for (const relative of files) {
     if (metadataPaths.has(relative)) continue;
     const text = readText(path.join(root, relative));
     if (text === null) continue;
-    for (const [token, literal] of Object.entries(TOKENS)) {
-      const count = countLiteral(text, literal);
-      if (count > 0) actual.set(`${token}\0${relative}`, count);
+    for (const rawLine of text.split('\n')) {
+      const context = rawLine.trim();
+      for (const [token, literal] of Object.entries(TOKENS)) {
+        const count = countLiteral(rawLine, literal);
+        if (count > 0) {
+          const key = `${token}\0${relative}\0${context}`;
+          actual.set(key, (actual.get(key) || 0) + count);
+        }
+      }
     }
   }
 
   for (const [key, count] of actual) {
     const entry = expected.get(key);
-    const [token, relative] = key.split('\0');
+    const [token, relative, context] = key.split('\0');
     if (!entry) {
-      fail(`unapproved ${token} reference in ${relative} (${count})`);
+      fail(`unapproved ${token} reference in ${relative}: ${context}`);
     } else if (entry.expectedCount !== count) {
       fail(`${entry.kind} count mismatch for ${token} in ${relative}: expected ${entry.expectedCount}, got ${count}`);
     }
@@ -90,6 +100,29 @@ function validateLegacyReferences(root, files) {
   for (const [key, entry] of expected) {
     if (!actual.has(key)) {
       fail(`stale ${entry.kind} exception for ${entry.token} in ${entry.path}`);
+    }
+  }
+}
+
+function validateCurrentRootReferences(root, files) {
+  const currentRootFiles = files.filter((relative) =>
+    ['README.md', 'AGENTS.md', 'CLAUDE.md'].includes(relative) ||
+    relative.startsWith('.github/workflows/') ||
+    relative.startsWith('.githooks/'),
+  );
+  const forbidden = [
+    /(^|[\s`"'(])scripts\/[a-z0-9_.\/-]+/gim,
+    /(^|[\s`"'(])\.review\/schemas\/[a-z0-9_.\/-]+/gim,
+    /(^|[\s`"'(])\.claude\/skills\/agent-workflow(?:\/|\b)/gim,
+    /(^|[\s`"'(])docs\/agents\/(?:multi-agent-workflow|conductor-persona|visual-reviewer-persona|artifact-lifecycle|issue-reporting|workflow-trial-log)\.md/gim,
+  ];
+  for (const relative of currentRootFiles) {
+    const text = readText(path.join(root, relative));
+    if (text === null) continue;
+    for (const expression of forbidden) {
+      expression.lastIndex = 0;
+      const match = expression.exec(text);
+      if (match) fail(`legacy root product path in current ${relative}: ${match[0].trim()}`);
     }
   }
 }
@@ -119,43 +152,102 @@ function markdownTargets(text) {
   return targets;
 }
 
-function validateMarkdownLinks(root, relativeFiles) {
+function markdownAnchors(text) {
+  const anchors = new Set();
+  const duplicates = new Map();
+  for (const line of withoutFencedCode(text).split('\n')) {
+    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (!heading) continue;
+    const base = heading[1]
+      .replace(/!?\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/[`*_~]/g, '')
+      .toLowerCase()
+      .trim()
+      .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+      .replace(/\s+/g, '-');
+    if (!base) continue;
+    const seen = duplicates.get(base) || 0;
+    anchors.add(seen === 0 ? base : `${base}-${seen}`);
+    duplicates.set(base, seen + 1);
+  }
+  return anchors;
+}
+
+function within(candidate, boundary) {
+  return candidate === boundary || candidate.startsWith(`${boundary}${path.sep}`);
+}
+
+function validateMarkdownLinks(root, relativeFiles, allowedContexts) {
+  const anchorCache = new Map();
   for (const relative of relativeFiles) {
     const absolute = path.join(root, relative);
     const text = readText(absolute);
     if (text === null) continue;
     for (const original of markdownTargets(text)) {
-      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(original)) continue;
+      if (/^file:/i.test(original) || /^[a-z]:[\\/]/i.test(original)) {
+        fail(`machine-absolute Markdown link in ${relative}: ${original}`);
+        continue;
+      }
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(original)) continue;
       let target;
+      let fragment = '';
       try {
+        const hashIndex = original.indexOf('#');
+        if (hashIndex >= 0) fragment = decodeURIComponent(original.slice(hashIndex + 1));
         target = decodeURIComponent(original.split(/[?#]/, 1)[0]);
       } catch (_error) {
         fail(`invalid URL encoding in ${relative}: ${original}`);
         continue;
       }
-      if (!target) continue;
+      if (!target && !fragment) continue;
       if (path.isAbsolute(target)) {
         fail(`machine-absolute Markdown link in ${relative}: ${original}`);
         continue;
       }
-      const resolved = path.resolve(path.dirname(absolute), target);
-      if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+      const resolved = target ? path.resolve(path.dirname(absolute), target) : absolute;
+      const logicalContext = allowedContexts.find((context) => within(resolved, context.logical));
+      if (!logicalContext) {
         fail(`Markdown link escapes its documented context in ${relative}: ${original}`);
         continue;
       }
-      if (!fs.existsSync(resolved)) fail(`missing Markdown link in ${relative}: ${original}`);
+      if (!fs.existsSync(resolved)) {
+        fail(`missing Markdown link in ${relative}: ${original}`);
+        continue;
+      }
+      const realResolved = fs.realpathSync(resolved);
+      if (!allowedContexts.some((context) => within(realResolved, context.real))) {
+        fail(`Markdown link resolves outside its documented context in ${relative}: ${original}`);
+        continue;
+      }
+      if (fragment && fs.statSync(realResolved).isFile() && path.extname(realResolved).toLowerCase() === '.md') {
+        if (!anchorCache.has(realResolved)) {
+          anchorCache.set(realResolved, markdownAnchors(fs.readFileSync(realResolved, 'utf8')));
+        }
+        if (!anchorCache.get(realResolved).has(fragment.toLowerCase())) {
+          fail(`missing Markdown anchor in ${relative}: ${original}`);
+        }
+      }
     }
   }
 }
 
-function walkMarkdown(root, relative) {
+function walkMarkdown(root, relative, allowedRealRoots, visited) {
   const absolute = path.join(root, relative);
   if (!fs.existsSync(absolute)) return [];
+  const real = fs.realpathSync(absolute);
+  if (!allowedRealRoots.some((allowed) => within(real, allowed))) {
+    fail(`installed documentation escapes product roots: ${relative}`);
+    return [];
+  }
+  if (visited.has(real)) return [];
+  visited.add(real);
   const found = [];
   for (const entry of fs.readdirSync(absolute, { withFileTypes: true })) {
     const child = path.join(relative, entry.name);
-    if (entry.isDirectory()) found.push(...walkMarkdown(root, child));
-    else if (entry.isFile() && entry.name.endsWith('.md')) found.push(child);
+    const childAbsolute = path.join(root, child);
+    const childStat = fs.statSync(childAbsolute);
+    if (childStat.isDirectory()) found.push(...walkMarkdown(root, child, allowedRealRoots, visited));
+    else if (childStat.isFile() && entry.name.endsWith('.md')) found.push(child);
   }
   return found.sort();
 }
@@ -170,20 +262,30 @@ const root = fs.realpathSync(inputRoot);
 if (mode === 'source') {
   const files = trackedFiles(root);
   validateLegacyReferences(root, files);
-  const currentDocs = files.filter((relative) =>
-    relative.endsWith('.md') && (
-      ['README.md', 'AGENTS.md', 'CLAUDE.md'].includes(relative) ||
-      relative.startsWith('docs/agents/') ||
-      relative.startsWith('toolkit/')
-    ),
-  );
-  validateMarkdownLinks(root, currentDocs);
+  validateCurrentRootReferences(root, files);
+  const rootDocs = files.filter((relative) => relative.endsWith('.md') && (
+    ['README.md', 'AGENTS.md', 'CLAUDE.md'].includes(relative) || relative.startsWith('docs/agents/')
+  ));
+  const productDocs = files.filter((relative) => relative.endsWith('.md') && relative.startsWith('toolkit/'));
+  validateMarkdownLinks(root, rootDocs, [{ logical: root, real: root }]);
+  const productRoot = path.join(root, 'toolkit');
+  validateMarkdownLinks(root, productDocs, [{ logical: productRoot, real: fs.realpathSync(productRoot) }]);
 } else {
-  const installedDocs = [
-    ...walkMarkdown(root, '.agent-workflow/docs'),
-    ...walkMarkdown(root, '.claude/skills/agent-workflow'),
+  const requiredLogicalRoots = [
+    path.join(root, '.agent-workflow/docs/agents'),
+    path.join(root, '.claude/skills/agent-workflow'),
   ];
-  validateMarkdownLinks(root, installedDocs);
+  const logicalRoots = requiredLogicalRoots.filter((candidate) => fs.existsSync(candidate));
+  if (logicalRoots.length !== requiredLogicalRoots.length) {
+    fail('installed context is missing product docs or the canonical skill');
+  }
+  const contexts = logicalRoots.map((logical) => ({ logical, real: fs.realpathSync(logical) }));
+  const allowedRealRoots = contexts.map((context) => context.real);
+  const installedDocs = logicalRoots.flatMap((logical) =>
+    walkMarkdown(root, path.relative(root, logical), allowedRealRoots, new Set()),
+  );
+  if (installedDocs.length === 0) fail('installed context contains no Markdown authorities');
+  validateMarkdownLinks(root, installedDocs, contexts);
 }
 
 if (!process.exitCode) process.stdout.write(`release-contract: ${mode} checks pass\n`);

@@ -59,6 +59,27 @@ assert_rejects() {
   fi
 }
 
+assert_fails() {
+  name="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then not_ok "$name"; else ok "$name"; fi
+}
+
+ci_has_active_run() {
+  workflow="$1"
+  expected="$2"
+  awk -v expected="$expected" '
+    {
+      line = $0
+      if (sub(/^[[:space:]]*-[[:space:]]*run:[[:space:]]*/, "", line)) {
+        sub(/[[:space:]]+$/, "", line)
+        if (line == expected) found = 1
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$workflow"
+}
+
 assert_exists "product scoped instructions" "$PRODUCT_ROOT/AGENTS.md"
 assert_exists "product README" "$PRODUCT_ROOT/README.md"
 assert_exists "product STATUS" "$PRODUCT_ROOT/STATUS.md"
@@ -110,8 +131,22 @@ else
   ok "product documents do not depend on maintainer tracker"
 fi
 
-assert_contains "CI runs release contract" 'bash .github/tests/release-contract.smoke.sh' "$REPOSITORY_ROOT/.github/workflows/smoke.yml"
-assert_contains "CI runs product smoke suite with clean NODE_OPTIONS" 'NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh' "$REPOSITORY_ROOT/.github/workflows/smoke.yml"
+if grep -R -E '\.github/|\.githooks/|docs/agents/(issue-tracker|domain|triage-labels)\.md' \
+  "$PRODUCT_ROOT/README.md" "$PRODUCT_ROOT/AGENTS.md" "$PRODUCT_ROOT/STATUS.md" \
+  "$PRODUCT_ROOT/docs" "$PRODUCT_ROOT/.claude/skills/agent-workflow" >/dev/null 2>&1; then
+  not_ok "product documents do not depend on repository infrastructure"
+else
+  ok "product documents do not depend on repository infrastructure"
+fi
+
+assert_command "CI actively runs release contract" ci_has_active_run \
+  "$REPOSITORY_ROOT/.github/workflows/smoke.yml" 'bash .github/tests/release-contract.smoke.sh'
+assert_command "CI actively runs product smoke suite with clean NODE_OPTIONS" ci_has_active_run \
+  "$REPOSITORY_ROOT/.github/workflows/smoke.yml" 'NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh'
+commented_workflow="$TMP_DIR/commented-smoke.yml"
+printf '%s\n' '# - run: bash .github/tests/release-contract.smoke.sh' > "$commented_workflow"
+assert_fails "commented CI command does not satisfy routing" ci_has_active_run \
+  "$commented_workflow" 'bash .github/tests/release-contract.smoke.sh'
 assert_contains "hook routes to product rebase helper" 'toolkit/scripts/rebase-inflight.sh' "$REPOSITORY_ROOT/.githooks/post-merge"
 assert_contains "maintainer instructions route to product scripts" 'toolkit/scripts/' "$REPOSITORY_ROOT/AGENTS.md"
 assert_contains "root README routes to product README" 'toolkit/README.md' "$REPOSITORY_ROOT/README.md"
@@ -133,6 +168,10 @@ printf '%s\n' '{"historicalReferences":[],"compatibilityReferences":[]}' \
 git -C "$contract_fixture" add README.md toolkit/current.md .github/tests/release-contract-exceptions.json
 assert_command "minimal current-reference fixture passes" \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# fixture' 'bash scripts/install-into.sh ../target' > "$contract_fixture/README.md"
+assert_rejects "bare root product command fails" 'legacy root product path' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# fixture' '[toolkit](toolkit/)' > "$contract_fixture/README.md"
 
 printf '%s\n' '# current product docs' '.review/schemas/current.schema.json' \
   > "$contract_fixture/toolkit/current.md"
@@ -147,6 +186,7 @@ printf '%s\n' \
   '  "historicalReferences": [{' \
   '    "path": "docs/plans/history.md",' \
   '    "token": "legacy-review-schemas",' \
+  '    "context": ".review/schemas/historical.schema.json",' \
   '    "expectedCount": 1,' \
   '    "reason": "immutable fixture evidence"' \
   '  }],' \
@@ -166,9 +206,25 @@ printf '%s\n' '# current product docs' '```md' '[example](missing.md)' '```' \
   > "$contract_fixture/toolkit/current.md"
 assert_command "fenced Markdown example is ignored" \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# outside product root' > "$TMP_DIR/outside.md"
+ln -s "$TMP_DIR/outside.md" "$contract_fixture/toolkit/outside.md"
+git -C "$contract_fixture" add toolkit/outside.md
+printf '%s\n' '# current product docs' '[escape](outside.md)' > "$contract_fixture/toolkit/current.md"
+assert_rejects "source symlink escape fails" 'resolves outside its documented context' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '[bad anchor](#not-present)' > "$contract_fixture/toolkit/current.md"
+assert_rejects "missing Markdown anchor fails" 'missing Markdown anchor' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '[file URI](file:///tmp/example.md)' > "$contract_fixture/toolkit/current.md"
+assert_rejects "file URI Markdown link fails" 'machine-absolute Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '[drive path](C:\\workspace\\example.md)' > "$contract_fixture/toolkit/current.md"
+assert_rejects "Windows drive Markdown link fails" 'machine-absolute Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 
 copy_target="$TMP_DIR/copy target"
 mkdir -p "$copy_target"
+printf '%s\n' '# target-owned README' > "$copy_target/README.md"
 assert_command "release copy installation succeeds" \
   bash "$PRODUCT_ROOT/scripts/install-into.sh" "$copy_target" --mode copy
 assert_command "installed Markdown links are valid in copy context" \
@@ -179,7 +235,7 @@ assert_command "copy docs are not symlinked to source" test ! -L "$copy_target/.
 assert_command "copy skill is not symlinked to source" test ! -L "$copy_target/.claude/skills/agent-workflow"
 printf '%s\n' '[source-only](../../../README.md)' \
   > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
-assert_rejects "installed source-only Markdown link fails" 'missing Markdown link' \
+assert_rejects "installed target-owned Markdown link fails" 'escapes its documented context' \
   node "$SCRIPT_DIR/release-contract-check.cjs" installed "$copy_target"
 assert_absent "copy excludes Matt skills" "$copy_target/.agents"
 assert_absent "copy excludes Matt lockfile" "$copy_target/skills-lock.json"
@@ -191,6 +247,28 @@ assert_absent "copy excludes maintainer plans" "$copy_target/docs/plans"
 assert_absent "copy excludes repository evidence" "$copy_target/.review/source"
 assert_absent "copy excludes repository CI" "$copy_target/.github"
 assert_absent "copy excludes repository hooks" "$copy_target/.githooks"
+
+symlink_target="$TMP_DIR/symlink target"
+mkdir -p "$symlink_target"
+assert_command "release symlink installation succeeds" \
+  bash "$PRODUCT_ROOT/scripts/install-into.sh" "$symlink_target"
+assert_command "installed Markdown links are valid in symlink context" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" installed "$symlink_target"
+
+broken_product="$TMP_DIR/broken product"
+broken_target="$TMP_DIR/broken symlink target"
+mkdir -p "$broken_product/docs/agents" "$broken_product/skill" \
+  "$broken_target/.agent-workflow/docs" "$broken_target/.claude/skills"
+printf '%s\n' '[broken](missing.md)' > "$broken_product/docs/agents/broken.md"
+printf '%s\n' '# skill' > "$broken_product/skill/SKILL.md"
+ln -s "$broken_product/docs/agents" "$broken_target/.agent-workflow/docs/agents"
+ln -s "$broken_product/skill" "$broken_target/.claude/skills/agent-workflow"
+assert_rejects "broken symlink-installed Markdown link fails" 'missing Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" installed "$broken_target"
+empty_installed="$TMP_DIR/empty installed target"
+mkdir -p "$empty_installed"
+assert_rejects "missing installed authorities fail" 'missing product docs or the canonical skill' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" installed "$empty_installed"
 
 if bash "$PRODUCT_ROOT/scripts/__tests__/run-all.sh" --list | grep -F -x -q 'install-into.smoke.sh'; then
   ok "full product suite includes installer contract"
