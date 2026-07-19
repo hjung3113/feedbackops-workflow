@@ -25,6 +25,8 @@ From the toolkit repository:
 scripts/install-into.sh <target-repo> [--mode symlink|copy] [--force]
 ```
 
+The installer derives `PRODUCT_ROOT` from its own physical `scripts/` location. Git metadata is optional: when present, the enclosing repository is used only for repository-specific safety checks and is not the product identity. Product commands derive the same home from their script location and resolve schemas from its sibling `schemas/` directory. The current source checkout's `.review/schemas` path is a transition adapter until the product authorities move under `toolkit/`; installed commands do not need repository metadata.
+
 This installs:
 
 ```text

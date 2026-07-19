@@ -9,13 +9,24 @@ set -u
 
 PROG="ac-check"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
-ROUND_STATE_SCHEMA="$SCRIPT_DIR/../.review/schemas/round_state.schema.json"
-[ -f "$ROUND_STATE_SCHEMA" ] || ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 FRESH_CHECK="$SCRIPT_DIR/artifact-fresh.sh"
 round_state=""
 expected_revision=""
 tests=""
+
+if [ ! -r "$PRODUCT_HOME_LIB" ]; then
+  echo "$PROG: ERROR — product-home resolver is missing: $PRODUCT_HOME_LIB" >&2
+  exit 2
+fi
+. "$PRODUCT_HOME_LIB"
+PRODUCT_ROOT="$(agent_workflow_product_root "$SCRIPT_DIR")"
+SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
+  echo "$PROG: ERROR — product schemas are missing beneath: $PRODUCT_ROOT" >&2
+  exit 2
+}
+ROUND_STATE_SCHEMA="$SCHEMA_DIR/round_state.schema.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

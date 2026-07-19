@@ -10,9 +10,8 @@ set -u
 
 PROG="completion-check"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
-ROUND_STATE_SCHEMA="$SCRIPT_DIR/../.review/schemas/round_state.schema.json"
-[ -f "$ROUND_STATE_SCHEMA" ] || ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 FRESH_CHECK="$SCRIPT_DIR/artifact-fresh.sh"
 round_state=""
 expected_revision=""
@@ -22,6 +21,18 @@ emit_error() {
   printf '{"status":"error","mismatches":[{"code":"%s"}]}' "$code"
   printf '\n'
 }
+
+if [ ! -r "$PRODUCT_HOME_LIB" ]; then
+  emit_error "unreadable_input"
+  exit 2
+fi
+. "$PRODUCT_HOME_LIB"
+PRODUCT_ROOT="$(agent_workflow_product_root "$SCRIPT_DIR")"
+SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
+  emit_error "unreadable_input"
+  exit 2
+}
+ROUND_STATE_SCHEMA="$SCHEMA_DIR/round_state.schema.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in

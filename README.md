@@ -43,6 +43,8 @@ scripts/install-into.sh ../my-project
 
 기본값은 현재 머신의 toolkit 업데이트를 즉시 따라가는 symlink 모드입니다. 이 절대경로 symlink는 머신 로컬용이므로 커밋해 다른 머신에 배포하지 마세요. 타겟 저장소와 함께 버전 관리할 스냅샷은 `--mode copy`로 설치한 뒤 검토·커밋하세요.
 
+Installer는 자신의 `scripts/` 위치에서 물리적인 product home을 찾습니다. Git 저장소 루트는 self-install 같은 저장소 안전 검사를 위한 선택적 컨텍스트일 뿐이며, Git 메타데이터가 없는 export와 공백이 포함된 경로도 설치할 수 있습니다. Product command는 같은 home의 `schemas/`를 사용합니다. 현재 루트 checkout의 `.review/schemas` 조회는 `toolkit/` 이동 전까지만 유지되는 호환 어댑터입니다.
+
 기존 설치를 갱신할 때 installer는 사용자 파일을 덮어쓰지 않고 `skip existing` 합니다. toolkit 정본으로 교체할 범위를 확인한 뒤 `--force`를 사용하세요.
 
 이 저장소의 `.agents/skills/`에 있는 일반 개발 스킬은 툴킷 자체를 개발하기 위한 도구입니다. 제품인 `agent-workflow`는 툴킷 저장소에 암묵적으로 적용되지 않습니다. 자기 적용(dogfooding)이 필요한 테스트에서만 `/agent-workflow <task> --self-test`로 명시적으로 허용하세요. 타겟 저장소 설치와 실행에는 이 옵션이 필요하지 않습니다.
@@ -50,9 +52,9 @@ scripts/install-into.sh ../my-project
 ```text
 my-project/
 ├── .agent-workflow/
-│   ├── scripts   -> feedbackops-workflow/scripts
-│   ├── schemas   -> feedbackops-workflow/.review/schemas
-│   └── docs      -> feedbackops-workflow/docs/agents
+│   ├── scripts   -> <product-home>/scripts
+│   ├── schemas   -> <resolved-product-schemas>
+│   └── docs      -> <product-home>/docs/agents
 ├── .claude/skills/agent-workflow
 └── .review/
 ```

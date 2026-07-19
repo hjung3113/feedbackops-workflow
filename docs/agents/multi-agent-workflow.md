@@ -4,6 +4,12 @@ This file is the detailed operating authority for the cmux × Claude × Codex wo
 
 The coordination model is reusable, but some shipped adapters are still target-shaped: `prepare-worktree.sh` assumes pnpm and `apps/backend/.env`, `tier-probe.sh` targets exported TypeScript contracts, and `verify.sh` assumes a pnpm `backend` package tested by Vitest. Read `.claude/skills/agent-workflow/references/adoption.md` before applying the toolkit to a repository with a different shape.
 
+## Product home and repository context
+
+The workflow product home is the physical parent of the running command's `scripts/` directory. Scripts and schemas are sibling product resources in installed or exported layouts; `ac-check.sh` and `completion-check.sh` resolve the canonical schema through this interface. The root source checkout's `.review/schemas` location is a temporary compatibility adapter until the authorities move under `toolkit/`.
+
+`install-into.sh` resolves `PRODUCT_ROOT` from its own location. An enclosing Git root, when discoverable, is optional `REPOSITORY_ROOT` context used only for repository-specific safety checks. Missing Git metadata does not make an exported product invalid. Target runtime evidence remains target-owned under `<target>/.review`; it is not a product schema directory.
+
 When a target run reveals a toolkit problem, follow the downstream feedback loop in the adoption
 guide and `docs/agents/issue-tracker.md`: preserve a sanitized reproduction, classify the failing
 boundary without overclaiming, search existing issues, and—only with external-write

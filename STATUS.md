@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.7
+## Current release: v0.8
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -17,6 +17,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
+- a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
 
@@ -67,6 +68,13 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - It verifies canonical AC-ID discovery and `acceptance.expected_test_count` without trusting worker prose, RUN.json, or PR-DRAFT claims, and returns machine-readable mismatch/error codes that block review.
 - Test discovery remains a target-profile input; the coordination core does not assume Vitest.
 
+### v0.8 — relocatable product-home interface
+
+- `install-into.sh` distinguishes location-derived `PRODUCT_ROOT` from optional Git `REPOSITORY_ROOT` safety context, so a metadata-free export remains installable.
+- `ac-check.sh` and `completion-check.sh` share one product-home schema resolver across source, symlink, and copy layouts.
+- Installation smoke executes both gates from real temporary Git targets and covers a metadata-free export in a path containing spaces.
+- Physical authority migration into `toolkit/`, legacy-install migration, and release enforcement remain ordered follow-ups in #29–#31.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -93,6 +101,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
+- **P0 toolkit separation:** #27 is the parent; #28 establishes the relocatable interface, followed in order by #29 authority migration, #30 legacy-install migration, and #31 release enforcement.
 - **P1 procedure/templates:** issues #9–#11 — circuit breaker, atomic chunks, and Standard-tier generation; #4–#6 are shipped in the reusable playbook/template contract.
 - **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.

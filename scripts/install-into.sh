@@ -45,8 +45,16 @@ done
 [[ "$MODE" != "symlink" && "$MODE" != "copy" ]] && { echo "invalid --mode: $MODE" >&2; usage; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-TOOLKIT_ROOT="$(cd "$SCRIPT_DIR/.." && git rev-parse --show-toplevel)"
-TOOLKIT_ROOT="$(cd "$TOOLKIT_ROOT" && pwd -P)"
+PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
+if [[ ! -r "$PRODUCT_HOME_LIB" ]]; then
+  echo "product-home resolver is missing: $PRODUCT_HOME_LIB" >&2
+  exit 2
+fi
+. "$PRODUCT_HOME_LIB"
+PRODUCT_ROOT="$(agent_workflow_product_root "$SCRIPT_DIR")"
+REPOSITORY_ROOT=""
+repository_candidate="$(git -C "$PRODUCT_ROOT" rev-parse --show-toplevel 2>/dev/null)" && \
+  REPOSITORY_ROOT="$(cd "$repository_candidate" && pwd -P)"
 
 if [[ ! -d "$TARGET_REPO" ]]; then
   echo "target does not exist or is not a directory: $TARGET_REPO" >&2
@@ -55,8 +63,9 @@ fi
 
 TARGET_ROOT="$(cd "$TARGET_REPO" && pwd -P)"
 
-if [[ "$TARGET_ROOT" == "$TOOLKIT_ROOT" ]]; then
-  echo "refusing to install into the toolkit repo itself: $TARGET_ROOT" >&2
+if [[ "$TARGET_ROOT" == "$PRODUCT_ROOT" ]] || \
+   [[ -n "$REPOSITORY_ROOT" && "$TARGET_ROOT" == "$REPOSITORY_ROOT" ]]; then
+  echo "refusing to install into the toolkit source itself: $TARGET_ROOT" >&2
   exit 2
 fi
 
@@ -67,10 +76,13 @@ fi
 AGENT_DIR="$TARGET_ROOT/.agent-workflow"
 REVIEW_DIR="$TARGET_ROOT/.review"
 CLAUDE_SKILLS_DIR="$TARGET_ROOT/.claude/skills"
-SCRIPTS_SRC="$TOOLKIT_ROOT/scripts"
-SCHEMAS_SRC="$TOOLKIT_ROOT/.review/schemas"
-DOCS_SRC="$TOOLKIT_ROOT/docs/agents"
-SKILL_SRC="$TOOLKIT_ROOT/.claude/skills/agent-workflow"
+SCRIPTS_SRC="$PRODUCT_ROOT/scripts"
+SCHEMAS_SRC="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
+  echo "product schemas are missing beneath: $PRODUCT_ROOT" >&2
+  exit 2
+}
+DOCS_SRC="$PRODUCT_ROOT/docs/agents"
+SKILL_SRC="$PRODUCT_ROOT/.claude/skills/agent-workflow"
 SCRIPTS_DEST="$AGENT_DIR/scripts"
 SCHEMAS_DEST="$AGENT_DIR/schemas"
 DOCS_DEST="$AGENT_DIR/docs/agents"
@@ -134,5 +146,5 @@ Next steps:
   - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
   - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/cmux-dispatch.sh
   - Verify target fit before using the bundled backend/Vitest verify.sh adapter.
-  - Copy toolkit env defaults into the target when needed: $TOOLKIT_ROOT/.env.example
+  - Copy toolkit env defaults into the target when needed: $PRODUCT_ROOT/.env.example
 EOF
