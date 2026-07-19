@@ -43,6 +43,8 @@ scripts/install-into.sh ../my-project
 
 기존 설치를 갱신할 때 installer는 사용자 파일을 덮어쓰지 않고 `skip existing` 합니다. toolkit 정본으로 교체할 범위를 확인한 뒤 `--force`를 사용하세요.
 
+이 저장소의 `.agents/skills/`에 있는 일반 개발 스킬은 툴킷 자체를 개발하기 위한 도구입니다. 제품인 `agent-workflow`는 툴킷 저장소에 암묵적으로 적용되지 않습니다. 자기 적용(dogfooding)이 필요한 테스트에서만 `/agent-workflow <task> --self-test`로 명시적으로 허용하세요. 타겟 저장소 설치와 실행에는 이 옵션이 필요하지 않습니다.
+
 ```text
 my-project/
 ├── .agent-workflow/

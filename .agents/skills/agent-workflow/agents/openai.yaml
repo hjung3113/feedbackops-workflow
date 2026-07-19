@@ -1,0 +1,5 @@
+interface:
+  display_name: "Agent Workflow"
+  short_description: "Run the opt-in multi-agent workflow"
+policy:
+  allow_implicit_invocation: false

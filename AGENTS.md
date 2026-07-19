@@ -16,6 +16,7 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 ## Operating Rules
 
 - Think before editing. State assumptions when a request can be read more than one way.
+- **The product workflow is opt-in here.** Matt Pocock skills under `.agents/skills/` are development tools for this repository. The `agent-workflow` skill is the product being built and must not orchestrate this repository implicitly; intentional dogfooding requires an explicit `/agent-workflow ... --self-test` invocation.
 - Prefer the smallest change that satisfies the request. No speculative flexibility.
 - Touch only files the task requires. Mention unrelated issues instead of fixing them.
 - Match existing patterns before inventing structure.
