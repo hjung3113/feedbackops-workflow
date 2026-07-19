@@ -54,7 +54,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 - `ISSUE-N-ROUND-STATE.json` replaces fragmented amendment prose with one CONDUCTOR-owned contract artifact.
 - The acceptance manifest is the artifact's `acceptance.criteria[]` view; its revision is the ROUND-STATE top-level `revision`.
-- `ac-check.sh` rejects stale `--manifest-revision` values before checking duplicate or undiscovered AC ids.
+- `ac-check.sh` validates the canonical schema and base freshness, then rejects stale `--manifest-revision` values before checking duplicate or boundary-aware undiscovered AC ids.
 
 ## Compatibility boundary
 

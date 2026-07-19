@@ -14,11 +14,11 @@ The schema is the module interface. Narrative prompt generation, round-state mut
 
 ## Source evidence
 
-The contract is derived from the FeedbackOps issue #187 worktree artifacts:
+The contract is derived from the imported FeedbackOps issue #187 artifacts:
 
-- `../wt-185/.review/WORKFLOW-DIAG-FABLE.md` — canonical ROUND-STATE replaces amendments and contains current contract, locked decisions, prior findings, commit range, and live-probe results.
-- `../wt-185/.review/WORKFLOW-DIAG2-FABLE.md` — the acceptance manifest is the ROUND-STATE AC view; `manifest_revision` is the ROUND-STATE revision; CONDUCTOR is the sole AC writer.
-- `../wt-185/.review/WORKFLOW-DIAG2-SOL.md` — rejected alternative with a separate manifest and hash, retained as design-decision context.
+- `.review/source/feedbackops-187/WORKFLOW-DIAG-FABLE.md` — canonical ROUND-STATE replaces amendments and contains current contract, locked decisions, prior findings, commit range, and live-probe results.
+- `.review/source/feedbackops-187/WORKFLOW-DIAG2-FABLE.md` — the acceptance manifest is the ROUND-STATE AC view; `manifest_revision` is the ROUND-STATE revision; CONDUCTOR is the sole AC writer.
+- `.review/source/feedbackops-187/WORKFLOW-DIAG2-SOL.md` — rejected alternative with a separate manifest and hash, retained as design-decision context.
 
 ## Vertical slices
 

@@ -71,6 +71,8 @@ assert_true "copy mode creates real project skill" test -d "$target_copy/.claude
 assert_true "copy mode skill is not a symlink" test ! -L "$target_copy/.claude/skills/agent-workflow"
 assert_true "copy mode includes install script" test -e "$target_copy/.agent-workflow/scripts/install-into.sh"
 assert_true "copy mode includes schema files" test -e "$target_copy/.agent-workflow/schemas/blocker.schema.json"
+assert_true "copy mode includes ROUND-STATE schema" test -e "$target_copy/.agent-workflow/schemas/round_state.schema.json"
+assert_true "copy mode includes dependency-free schema validator" test -e "$target_copy/.agent-workflow/scripts/lib/json-schema-subset.cjs"
 assert_true "copy mode includes playbook" test -e "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "copy mode includes skill entrypoint" test -e "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 assert_true "skill has no machine-specific toolkit path" sh -c "! grep -F '/Desktop/2026/feedbackops-workflow' '$target_copy/.claude/skills/agent-workflow/SKILL.md' >/dev/null"

@@ -8,6 +8,11 @@
 set -u
 
 PROG="ac-check"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+ROUND_STATE_SCHEMA="$SCRIPT_DIR/../.review/schemas/round_state.schema.json"
+[ -f "$ROUND_STATE_SCHEMA" ] || ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
+FRESH_CHECK="$SCRIPT_DIR/artifact-fresh.sh"
 round_state=""
 expected_revision=""
 tests=""
@@ -65,6 +70,18 @@ if [ ! -f "$tests" ] || [ ! -r "$tests" ]; then
   echo "$PROG: ERROR — tests file not found or unreadable: $tests" >&2
   exit 2
 fi
+if [ ! -f "$SCHEMA_VALIDATOR" ] || [ ! -r "$SCHEMA_VALIDATOR" ]; then
+  echo "$PROG: ERROR — schema validator is missing: $SCHEMA_VALIDATOR" >&2
+  exit 2
+fi
+if [ ! -f "$ROUND_STATE_SCHEMA" ] || [ ! -r "$ROUND_STATE_SCHEMA" ]; then
+  echo "$PROG: ERROR — ROUND-STATE schema is missing: $ROUND_STATE_SCHEMA" >&2
+  exit 2
+fi
+if [ ! -x "$FRESH_CHECK" ]; then
+  echo "$PROG: ERROR — artifact freshness checker is missing: $FRESH_CHECK" >&2
+  exit 2
+fi
 
 ids_file="$(mktemp "${TMPDIR:-/tmp}/ac-check.XXXXXX")" || {
   echo "$PROG: ERROR — could not create temporary file" >&2
@@ -72,10 +89,12 @@ ids_file="$(mktemp "${TMPDIR:-/tmp}/ac-check.XXXXXX")" || {
 }
 trap 'rm -f "$ids_file"' EXIT
 
-# Validate the acceptance section and emit its revision followed by one id per line.
+# Validate against the canonical schema and emit its revision followed by one id per line.
 node -e '
   const fs = require("fs");
   const file = process.argv[1];
+  const schema = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  const { validate } = require(process.argv[3]);
   let value;
   try {
     value = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -83,35 +102,16 @@ node -e '
     console.error("parse error: " + error.message);
     process.exit(1);
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    console.error("ROUND-STATE must be an object");
-    process.exit(1);
-  }
-  if (value.schema_version !== "1" || value.artifact_type !== "round_state") {
-    console.error("input must be a schema_version 1 round_state artifact");
-    process.exit(1);
-  }
-  if (value.producer_role !== "CONDUCTOR") {
-    console.error("ROUND-STATE producer_role must be CONDUCTOR");
+  const errors = validate(schema, value);
+  if (errors.length > 0) {
+    console.error("schema validation failed: " + JSON.stringify(errors));
     process.exit(1);
   }
   if (value.lifecycle !== "active" && value.lifecycle !== "final") {
-    console.error("ROUND-STATE lifecycle must be active or final");
-    process.exit(1);
-  }
-  if (!value.acceptance || typeof value.acceptance !== "object" || Array.isArray(value.acceptance)) {
-    console.error("ROUND-STATE must contain an acceptance object");
-    process.exit(1);
-  }
-  if (!Number.isInteger(value.revision) || value.revision < 1) {
-    console.error("ROUND-STATE revision must be a positive integer");
+    console.error("ROUND-STATE lifecycle must be active or final for a gate");
     process.exit(1);
   }
   const acceptance = value.acceptance;
-  if (!Array.isArray(acceptance.criteria) || acceptance.criteria.length === 0) {
-    console.error("acceptance.criteria must be a non-empty array");
-    process.exit(1);
-  }
   process.stdout.write(String(value.revision) + "\n");
   for (const ac of acceptance.criteria) {
     if (!ac || Array.isArray(ac) || typeof ac.id !== "string" || ac.id.length === 0 || /[\r\n]/.test(ac.id)) {
@@ -120,10 +120,20 @@ node -e '
     }
     process.stdout.write(ac.id + "\n");
   }
-' "$round_state" > "$ids_file"
+' "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" > "$ids_file"
 node_status=$?
 if [ "$node_status" -ne 0 ]; then
   echo "$PROG: ERROR — invalid ROUND-STATE acceptance section: $round_state" >&2
+  exit 2
+fi
+
+bash "$FRESH_CHECK" "$round_state" >/dev/null
+fresh_status=$?
+if [ "$fresh_status" -eq 1 ]; then
+  printf 'STALE ROUND-STATE freshness check failed\n'
+  exit 1
+elif [ "$fresh_status" -ne 0 ]; then
+  echo "$PROG: ERROR — ROUND-STATE freshness check failed" >&2
   exit 2
 fi
 
@@ -151,17 +161,25 @@ while IFS= read -r id || [ -n "$id" ]; do
   fi
 
   printf '%s\n' "$id" >> "$seen_file"
-  grep -F -q -- "$id" "$tests"
+  node -e '
+    const fs = require("fs");
+    const id = process.argv[1];
+    const file = process.argv[2];
+    let text;
+    try { text = fs.readFileSync(file, "utf8"); }
+    catch (error) { console.error(error.message); process.exit(2); }
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp("(^|[^A-Za-z0-9_.-])" + escaped + "([^A-Za-z0-9_.-]|$)", "m");
+    process.exit(pattern.test(text) ? 0 : 1);
+  ' "$id" "$tests"
   match_status=$?
-  if [ "$match_status" -eq 0 ]; then
-    continue
-  elif [ "$match_status" -gt 1 ]; then
+  if [ "$match_status" -eq 1 ]; then
+    printf 'MISSING %s\n' "$id"
+    violations=1
+  elif [ "$match_status" -ne 0 ]; then
     echo "$PROG: ERROR — could not read tests file: $tests" >&2
     exit 2
   fi
-
-  printf 'MISSING %s\n' "$id"
-  violations=1
 done < "$ids_file"
 
 if [ "$violations" -eq 0 ]; then

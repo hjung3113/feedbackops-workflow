@@ -90,7 +90,7 @@ scripts/ac-check.sh \
   --tests ../wt-123/.review/ISSUE-123-DISCOVERED-TESTS.txt
 ```
 
-acceptance manifest는 별도 파일이 아니라 CONDUCTOR가 작성하는 ROUND-STATE의 `acceptance.criteria[]` 뷰입니다. 디스패치는 ROUND-STATE의 `revision`을 `--manifest-revision`으로 고정하며, stale revision·중복 AC-ID·테스트에서 발견되지 않는 ID가 있으면 리뷰로 넘어가지 않습니다.
+acceptance manifest는 별도 파일이 아니라 CONDUCTOR가 작성하는 ROUND-STATE의 `acceptance.criteria[]` 뷰입니다. 디스패치는 ROUND-STATE의 `revision`을 `--manifest-revision`으로 고정합니다. gate는 전체 스키마와 base freshness를 먼저 검증하고, stale revision·중복 AC-ID·테스트에서 발견되지 않는 ID가 있으면 리뷰로 넘어가지 않습니다.
 
 ### 6. 호스트 VERIFIER 실행
 

@@ -7,6 +7,10 @@
   "tier": { "name": "full_cluster", "rationale": "changes a shared exported contract" },
   "revision": 4,
   "updated_at": "2026-07-20T12:00:00Z",
+  "base_branch": "develop",
+  "base_sha": "1111111111111111111111111111111111111111",
+  "head_sha": "2222222222222222222222222222222222222222",
+  "worktree_path": "/tmp/wt-188",
   "contract": {
     "objective": "change the shared contract without leaving compile-time consumers behind",
     "touch_allowlist": ["packages/shared/**", "apps/backend/**"],
@@ -23,8 +27,6 @@
   ],
   "prior_findings": [],
   "commit_scope": {
-    "base_sha": "1111111111111111111111111111111111111111",
-    "head_sha": "2222222222222222222222222222222222222222",
     "commits": [
       { "sha": "2222222222222222222222222222222222222222", "subject": "feat: update shared contract" }
     ]

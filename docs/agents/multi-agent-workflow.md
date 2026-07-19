@@ -188,7 +188,7 @@ Every `.review/ISSUE-*.json` carries `lifecycle: draft | active | superseded | f
 
 CONDUCTOR maintains one `.review/ISSUE-<n>-ROUND-STATE.json` as the normative contract state from dispatch 0. It replaces amendment prose; reviewers never reconstruct an effective contract by merging prompt fragments. The artifact contains the current contract, acceptance criteria, decisions, prior findings, commit scope, live-probe results, and artifact pointers. Its schema is `.review/schemas/round_state.schema.json`.
 
-CONDUCTOR is the sole writer. `revision` increments whenever the normative contract or acceptance criteria change, with the reason recorded in `decisions`. CODEX, REVIEWER, and VERIFIER consume but do not edit it. The acceptance manifest is not a separate file: it is the `acceptance.criteria[]` view at the ROUND-STATE `revision`. A task narrative carries only current intent/delta, failing AC ids, and evidence pointers; it must not restate normative criteria or allowlists.
+CONDUCTOR is the sole writer. `revision` increments whenever the normative contract or acceptance criteria change, with the reason recorded in `decisions`. CODEX, REVIEWER, and VERIFIER consume but do not edit it. The acceptance manifest is not a separate file: it is the `acceptance.criteria[]` view at the ROUND-STATE `revision`. A task narrative is at most 2 KB and carries only current intent/delta, failing AC ids, and evidence pointers; it must not restate normative criteria or allowlists.
 
 ## Workflow Tax Brake
 
@@ -205,7 +205,7 @@ scripts/ac-check.sh \
   --tests <discovered-tests.txt>
 ```
 
-`--manifest-revision` must equal the artifact's top-level `revision`; a mismatch is stale and fails before AC mapping. AC ids come from `acceptance.criteria[].id`. The tests file contains actually discovered test names or paths. Duplicate or undiscovered ids fail the gate; malformed inputs are usage errors. This proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
+The gate first validates the complete artifact against the canonical schema and runs `artifact-fresh.sh`; partial, superseded, wrong-writer, or base-stale state is rejected. `--manifest-revision` must then equal the artifact's top-level `revision`; a mismatch is stale and fails before AC mapping. AC ids come from `acceptance.criteria[].id`. The tests file contains actually discovered test names or paths. Duplicate or undiscovered ids fail the gate; ID matching is boundary-aware, so `AC-10` cannot satisfy `AC-1`. This proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
 
 ## VERIFIER protocol
 
