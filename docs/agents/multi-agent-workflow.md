@@ -42,6 +42,14 @@ Record each discovery and typecheck command in canonical ROUND-STATE `live_probe
 
 This pass does not claim completeness for dynamic registries or convention-coupled consumers. Record concrete residual risks for adversarial review. Issue #10 will define triggered watch-item handling; until it lands, do not claim that mechanism exists or turn residuals into ambient scope claims.
 
+### ARCH feasibility evidence
+
+Before ARCHITECT locks a decision for a Full Cluster change involving migrations, authorization, persistence constraints, or another repository-dependent capability, attach a feasibility appendix to the authoritative contract. It must cover the actual grants/privileges, the migration principal's capabilities, the immediately preceding migration and journal conventions, and the relevant uniqueness constraints; an inapplicable item needs an explicit reason, not an assumption.
+
+For every live or repository observation, record the exact command and a concise observed result in the existing canonical ROUND-STATE `live_probes[]`; the appendix interprets that evidence, while `live_probes[]` remains the durable command/result record. A missing safe read path or an infeasible capability is a blocker or ARCH decision, never a speculative implementation instruction; this front-loads fact finding so verification confirms the design rather than discovering that it cannot run.
+
+Use one appendix row per concern: `concern | exact command | concise result | decision impact`. The four required concerns are `grants/privileges`, `migration principal capability`, `prior migration/journal convention`, and `relevant uniqueness constraint`; the exact command/result pair is copied into `live_probes[]`, not a new artifact field.
+
 ## Model Allocation — role × model map, dynamic by tier
 
 The current operator profile exposes suffixed OpenAI 5.6 aliases: **`gpt-5.6-sol` (top, heavy reasoning) > `gpt-5.6-terra` (everyday implementation) > `gpt-5.6-luna` (light/mechanical)**. These are environment capabilities, not portable toolkit dependencies. On a new machine/account, preflight the intended aliases and substitute an explicitly pinned ladder with the same capability ordering. The operator currently keeps fast mode off; that preference lives in machine config and is not installed by this repository.
@@ -218,6 +226,14 @@ scripts/ac-check.sh \
 ```
 
 The gate first validates the complete artifact against the canonical schema and runs `artifact-fresh.sh`; partial, superseded, wrong-writer, or base-stale state is rejected. `--manifest-revision` must then equal the artifact's top-level `revision`; a mismatch is stale and fails before AC mapping. AC ids come from `acceptance.criteria[].id`. The tests file contains actually discovered test names or paths. Duplicate or undiscovered ids fail the gate; ID matching is boundary-aware, so `AC-10` cannot satisfy `AC-1`. This proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
+
+### Test-matrix row contract
+
+The authoritative acceptance contract is also the test-matrix template: every test-matrix row is a canonical `acceptance.criteria[]` entry; its `id` is the sole AC-ID authority, and its `statement` contains an explicit precondition and observable checkpoint. Do not use cited authoritative detail as a substitute for required inline content: the canonical `statement` is the complete row authority. An expected status alone is not a checkpoint: the precondition must make the target behavior reachable, and the checkpoint must observe the state or output that proves it occurred.
+
+When a row exercises a privacy boundary, its canonical `statement` also requires a **positive field allowlist assertion**—that the returned object contains only the permitted fields, not merely assertions that named sensitive fields are absent. Clarify privacy applicability explicitly only when it would otherwise be ambiguous; non-privacy rows need no non-applicability ceremony. `ac-check.sh` deliberately enforces only AC-ID discovery coverage; REVIEWER audits the precondition, checkpoint, and applicable allowlist for non-vacuousness, and this template never thins the independent verifier or final review.
+
+Use this compact inline statement shape: `precondition | observable checkpoint | positive field allowlist (when privacy-relevant)`. It is a contract template inside the existing `statement`, not an analyzer input or a new schema field.
 
 ## VERIFIER protocol
 

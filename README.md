@@ -95,6 +95,10 @@ scripts/ac-check.sh \
 
 acceptance manifest는 별도 파일이 아니라 CONDUCTOR가 작성하는 ROUND-STATE의 `acceptance.criteria[]` 뷰입니다. 디스패치는 ROUND-STATE의 `revision`을 `--manifest-revision`으로 고정합니다. gate는 전체 스키마와 base freshness를 먼저 검증하고, stale revision·중복 AC-ID·테스트에서 발견되지 않는 ID가 있으면 리뷰로 넘어가지 않습니다.
 
+Full Cluster의 migration·권한·저장 제약 결정은 ARCH 확정 전에 feasibility appendix를 남깁니다. 실제 grant/privilege, migration principal capability, 직전 migration/journal 관례, 관련 uniqueness constraint를 확인한 정확한 명령과 간결한 결과는 기존 ROUND-STATE `live_probes[]`에 기록하며, 관측 불가나 불가능한 capability는 구현 추측이 아니라 blocker/결정으로 처리합니다.
+
+모든 테스트 matrix 행은 canonical ROUND-STATE `acceptance.criteria[]` 항목이며 AC-ID의 유일한 정본은 `id`입니다. 각 `statement`에는 명시적 precondition과 관측 가능한 checkpoint를 inline으로 적고, privacy 경계 행에만 positive field allowlist assertion을 추가합니다; 외부 인용은 이 필수 inline 내용의 정본을 대체할 수 없으며, privacy 적용 여부가 모호할 때만 이를 명시합니다.
+
 ### 6. 호스트 VERIFIER 실행
 
 ```bash

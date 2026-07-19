@@ -14,6 +14,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - pre-review AC-ID existence checking;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
+- a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
@@ -84,7 +85,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
-- **P1 procedure/templates:** issues #4–#6 and #9–#11 — ARCH feasibility, richer AC rows, completion calculation, circuit breaker, atomic chunks, and Standard-tier generation.
+- **P1 procedure/templates:** issues #6 and #9–#11 — completion calculation, circuit breaker, atomic chunks, and Standard-tier generation; #4 and #5 are shipped in the reusable playbook/template contract.
 - **P2 toolkit/procedure:** #13, #14, #17, #19 — verifier output/freshness, integrated-head closure, re-review capsule, and plain-checkout Git handling.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
