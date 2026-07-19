@@ -179,6 +179,8 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 
 다만 현재 모든 스크립트가 일반화된 것은 아닙니다. dispatch·watchdog·artifact lifecycle은 대부분 재사용 가능하지만, worktree 준비·risk probe·verification·DB 생성은 pnpm, TypeScript, Vitest, PostgreSQL 계약을 가진 target adapter입니다. 새 저장소에 적용할 때는 [적용 가이드](.claude/skills/agent-workflow/references/adoption.md)의 compatibility interview를 먼저 실행하세요.
 
+타겟 프로젝트에서 툴킷 문제를 발견하면 로컬 우회만 남기지 마세요. 최소 재현, 툴킷 revision과 설치 모드, 기대/실제 결과, 비밀값을 제거한 증거, 임시 대응을 정리하고 기존 이슈를 검색한 뒤, 외부 쓰기 승인을 받아 이 저장소 GitHub Issue로 등록합니다. 타겟의 handoff나 완료 보고에는 upstream 이슈 URL을 남깁니다. 상세 절차는 [적용 가이드](.claude/skills/agent-workflow/references/adoption.md)와 [이슈 트래커 규칙](docs/agents/issue-tracker.md)을 따릅니다.
+
 ## 안전 경계
 
 - `codex-safe.sh` 우회 디스패치 금지

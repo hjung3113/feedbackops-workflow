@@ -4,6 +4,12 @@ This file is the detailed operating authority for the cmux × Claude × Codex wo
 
 The coordination model is reusable, but some shipped adapters are still target-shaped: `prepare-worktree.sh` assumes pnpm and `apps/backend/.env`, `tier-probe.sh` targets exported TypeScript contracts, and `verify.sh` assumes a pnpm `backend` package tested by Vitest. Read `.claude/skills/agent-workflow/references/adoption.md` before applying the toolkit to a repository with a different shape.
 
+When a target run reveals a toolkit problem, follow the downstream feedback loop in the adoption
+guide and `docs/agents/issue-tracker.md`: preserve a sanitized reproduction, classify the failing
+boundary without overclaiming, search existing issues, and—only with external-write
+authorization—file it in the toolkit repository. Link that upstream issue from the target handoff
+or completion report so temporary target-owned workarounds remain traceable.
+
 ## Risk Tier Routing
 
 Every issue is one of three tiers. The tier picks the agent set.

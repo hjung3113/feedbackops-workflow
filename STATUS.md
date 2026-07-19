@@ -52,6 +52,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - `ac-check.sh` rejects duplicate or undiscovered manifest AC ids before review.
 - The integrated wrapper changes passed clean-context review and a full smoke run at `main@5500d6a`.
 - The versioned Claude skill is now a thin router; `install-into.sh` deploys scripts, schemas, playbook docs, and the project-local skill.
+- Target adoption now has an explicit feedback loop: sanitize and classify a reproducible toolkit problem, search existing reports, obtain external-write authorization, file it in this repository, and link the upstream issue from the target handoff/completion report.
 
 ### v0.6 — canonical contract state
 

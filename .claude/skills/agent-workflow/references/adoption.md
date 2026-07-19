@@ -77,3 +77,21 @@ service_isolation_strategy
 ```
 
 Until that profile contract exists, use target-native setup and verification where the bundled adapters do not fit, and state the limitation in the completion report.
+
+## Feed problems back to the toolkit
+
+Do not let a target-only workaround become the only record of a reusable failure. When adoption
+or a later run exposes a problem:
+
+1. Preserve a minimal, sanitized reproduction in the target repository and identify the installed
+   toolkit revision plus symlink/copy mode.
+2. Decide whether the evidence points to the coordination core, a bundled target adapter, or an
+   adoption/documentation gap. Leave the classification open when the boundary is not yet proven.
+3. Search the toolkit repository's open and closed GitHub issues for an existing report.
+4. After obtaining authorization for the external write, file or update the toolkit issue using
+   the inbound-report contract in `docs/agents/issue-tracker.md`.
+5. Put the toolkit issue URL and the target-owned temporary workaround in the target's handoff or
+   completion report. Remove or revise the workaround only after the upstream change is adopted.
+
+Never attach secrets, customer data, raw environment files, or unredacted workflow artifacts.
+The toolkit issue should contain the smallest evidence needed to reproduce and route the problem.
