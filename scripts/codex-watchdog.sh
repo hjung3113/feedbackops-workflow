@@ -60,6 +60,16 @@ kill_tree() {
   kill -KILL "$pid" 2>/dev/null || true
 }
 
+probe_model() {
+  if [ -n "${CODEX_WATCHDOG_PROBE_CMD:-}" ]; then
+    sh -c "$CODEX_WATCHDOG_PROBE_CMD" </dev/null
+  elif [ -n "$MODEL" ]; then
+    codex exec --skip-git-repo-check -m "$MODEL" -c model_reasoning_effort=low "reply exactly OK" </dev/null
+  else
+    codex exec --skip-git-repo-check -c model_reasoning_effort=low "reply exactly OK" </dev/null
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --issue) ISSUE_N="$2"; shift 2 ;;
@@ -154,20 +164,21 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     exit 0
   fi
 
-  # 4xx must be a standalone 3-digit number: the old bare `4[0-9][0-9]`
-  # matched digit runs inside PIDs — a stall-killed child writes bash's job
-  # line ("line NN: 74123 Terminated: 15 ...") into the stderr log, and any
-  # PID containing 4dd misclassified the stall as a refusal (exit 4, retries
-  # skipped). PIDs allocate sequentially, so the misclassification came in
-  # bursts.
-  if grep -qiE '(^|[^0-9])4[0-9][0-9]([^0-9]|$)|unsupported model|model_not_found|invalid.*(model|api key)|unauthorized' "$STDERR_LOG"; then
-    write_marker "refused" "$attempt" "$pid" "$ec" || true
-    echo "FAIL-FAST: model refusal (4xx) — retry futile" >&2
-    exit 4
+  attempt_stderr="$CWD/.review/ISSUE-${ISSUE_N}-attempt${attempt}-stderr.log"
+  mkdir -p "$CWD/.review" || exit 1
+  mv "$STDERR_LOG" "$attempt_stderr"
+  echo "codex-watchdog: attempt $attempt stderr preserved at $attempt_stderr" >&2
+
+  if [ "$killed_for_stall" -eq 1 ]; then
+    continue
   fi
 
-  if [ "$killed_for_stall" -eq 0 ]; then
-    write_marker "killed_stall" "$attempt" "$pid" "$ec" || true
+  if probe_model >/dev/null 2>&1; then
+    echo "codex-watchdog: attempt $attempt failed; probe succeeded, retrying" >&2
+  else
+    write_marker "refused" "$attempt" "$pid" "$ec" || true
+    echo "FAIL-FAST: probe failed; model/auth-level problem, retry futile" >&2
+    exit 4
   fi
 done
 

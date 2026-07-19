@@ -18,7 +18,7 @@
 #                             succeeded. Task success is judged by commits +
 #                             a VERIFY artifact, never by exit_code alone.
 #   - status:"killed_stall"  watchdog killed it for no file/process progress.
-#   - status:"refused"       4xx/model-refusal signature; retry is futile.
+#   - status:"refused"       failed model/auth probe; retry is futile.
 #   - status:"exhausted"     retries used up with no success.
 #   A `.review/ISSUE-<N>-BLOCKER.json` file appearing instead of/alongside
 #   RUN.json is a scoped abort — codex chose to stop, not crash.
