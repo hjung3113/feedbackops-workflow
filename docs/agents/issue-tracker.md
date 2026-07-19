@@ -44,3 +44,47 @@ repository rather than turning the target-specific workaround into an undocument
 Opening, commenting on, or closing the upstream issue remains an external write and requires
 user authorization. A target failure is evidence for triage, not automatic proof that the
 portable coordination core is defective.
+
+### Inbound report template
+
+Use this body when creating the issue; remove instructional placeholders and omit sections that
+cannot be shared safely.
+
+```markdown
+## Classification
+
+<!-- coordination-core | target-adapter | adoption/docs | unknown -->
+
+## Target context
+
+- Target repository shape:
+- Toolkit revision or snapshot date:
+- Install mode: symlink | copy
+- Relevant tool versions:
+- Target-owned adapter/configuration:
+
+## Reproduction
+
+1.
+2.
+3.
+
+Smallest reproducing command or workflow step:
+
+## Expected behavior
+
+## Actual behavior
+
+- Exit code:
+- Sanitized evidence:
+- Frequency/impact:
+
+## Temporary workaround
+
+## Target tracking
+
+<!-- Link the target issue or handoff only when it is accessible and safe to share. -->
+```
+
+Before submission, verify that the body and attachments contain no credentials, customer data,
+raw environment files, private repository URLs, or unredacted workflow artifacts.

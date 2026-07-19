@@ -196,6 +196,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 - [CONDUCTOR 페르소나](docs/agents/conductor-persona.md)
 - [VISUAL-REVIEWER 페르소나](docs/agents/visual-reviewer-persona.md)
 - [산출물 계약과 lifecycle](.review/README.md)
+- [GitHub Issue 운영 및 타겟 문제 신고 양식](docs/agents/issue-tracker.md)
 - [실전 trial 기록](docs/agents/workflow-trial-log.md)
 - [현재 상태와 roadmap](STATUS.md)
 - [새 저장소 적용 가이드](.claude/skills/agent-workflow/references/adoption.md)
