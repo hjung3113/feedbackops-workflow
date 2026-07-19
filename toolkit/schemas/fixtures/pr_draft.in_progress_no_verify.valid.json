@@ -9,7 +9,7 @@
   "head_sha": "9e4db11a2b3c4d5e6f708192a3b4c5d6e7f80910",
   "summary": "Needs amendment, no verification yet; conditional must not fire.",
   "files_touched": [
-    { "path": ".review/schemas/pr_draft.schema.json", "change": "edit" }
+    { "path": ".agent-workflow/schemas/pr_draft.schema.json", "change": "edit" }
   ],
   "verify_cmd": "pnpm dlx ajv-cli validate -s ... -d ...",
   "status": "needs_amendment"

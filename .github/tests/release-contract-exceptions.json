@@ -1,0 +1,72 @@
+{
+  "historicalReferences": [
+    {
+      "path": "docs/plans/2026-07-20-round-state-contract.md",
+      "token": "legacy-review-schemas",
+      "expectedCount": 1,
+      "reason": "Completed plan records the schema location that existed when the contract was designed."
+    },
+    {
+      "path": "docs/plans/2026-07-20-round-state-contract.md",
+      "token": "legacy-review-readme",
+      "expectedCount": 1,
+      "reason": "Completed plan records the documentation location that existed when the contract was designed."
+    }
+  ],
+  "compatibilityReferences": [
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-review-schemas",
+      "expectedCount": 5,
+      "reason": "The release gate proves absence and exercises exact historical/current-reference sensitivity fixtures."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-scripts",
+      "expectedCount": 1,
+      "reason": "The release gate proves that the former root script authority is absent."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-docs",
+      "expectedCount": 4,
+      "reason": "The release gate distinguishes maintainer documents from the former root product playbook."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-skill",
+      "expectedCount": 1,
+      "reason": "The release gate proves that the former root Claude product skill is absent."
+    },
+    {
+      "path": "toolkit/scripts/install-into.sh",
+      "token": "legacy-review-schemas",
+      "expectedCount": 1,
+      "reason": "The documented --migrate-legacy contract recognizes the former schema-link suffix."
+    },
+    {
+      "path": "toolkit/scripts/__tests__/cmux-cluster.smoke.sh",
+      "token": "legacy-review-schemas",
+      "expectedCount": 1,
+      "reason": "The smoke test proves that the old installed layout is rejected."
+    },
+    {
+      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
+      "token": "legacy-review-schemas",
+      "expectedCount": 4,
+      "reason": "The installer smoke builds and verifies old-layout migration fixtures."
+    },
+    {
+      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
+      "token": "legacy-repository-scripts",
+      "expectedCount": 1,
+      "reason": "The installer smoke verifies partial migration from this repository's former root layout."
+    },
+    {
+      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
+      "token": "legacy-repository-docs",
+      "expectedCount": 1,
+      "reason": "The installer smoke verifies partial migration from this repository's former root layout."
+    }
+  ]
+}

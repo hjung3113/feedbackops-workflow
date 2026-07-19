@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# Release gate for the repository/product authority and installation boundary.
+# bash-3.2-compatible. Run from the source repository only.
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+PRODUCT_ROOT="$REPOSITORY_ROOT/toolkit"
+FAILURES=0
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+ok() { echo "ok   - $1"; }
+not_ok() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
+
+assert_exists() {
+  name="$1"
+  path="$2"
+  if [ -e "$path" ]; then ok "$name"; else not_ok "$name"; fi
+}
+
+assert_absent() {
+  name="$1"
+  path="$2"
+  if [ ! -e "$path" ]; then ok "$name"; else not_ok "$name"; fi
+}
+
+assert_contains() {
+  name="$1"
+  needle="$2"
+  path="$3"
+  if grep -F -q -- "$needle" "$path"; then ok "$name"; else not_ok "$name"; fi
+}
+
+assert_command() {
+  name="$1"
+  shift
+  if "$@"; then ok "$name"; else not_ok "$name"; fi
+}
+
+assert_equals() {
+  name="$1"
+  expected="$2"
+  actual="$3"
+  if [ "$expected" = "$actual" ]; then ok "$name"; else not_ok "$name"; fi
+}
+
+assert_rejects() {
+  name="$1"
+  needle="$2"
+  shift 2
+  output="$TMP_DIR/rejected-output.txt"
+  "$@" >"$output" 2>&1
+  command_status=$?
+  if [ "$command_status" -ne 0 ] && grep -F -q -- "$needle" "$output"; then
+    ok "$name"
+  else
+    not_ok "$name"
+  fi
+}
+
+assert_exists "product scoped instructions" "$PRODUCT_ROOT/AGENTS.md"
+assert_exists "product README" "$PRODUCT_ROOT/README.md"
+assert_exists "product STATUS" "$PRODUCT_ROOT/STATUS.md"
+assert_exists "product env example" "$PRODUCT_ROOT/.env.example"
+assert_exists "product scripts" "$PRODUCT_ROOT/scripts/ac-check.sh"
+assert_exists "product smoke suite" "$PRODUCT_ROOT/scripts/__tests__/run-all.sh"
+assert_exists "product schemas" "$PRODUCT_ROOT/schemas/round_state.schema.json"
+assert_exists "product schema fixtures" "$PRODUCT_ROOT/schemas/fixtures/round_state.valid.json"
+assert_exists "product playbook" "$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
+assert_exists "product conductor persona" "$PRODUCT_ROOT/docs/agents/conductor-persona.md"
+assert_exists "product visual reviewer persona" "$PRODUCT_ROOT/docs/agents/visual-reviewer-persona.md"
+assert_exists "product historical trial log" "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
+assert_exists "product issue reporting" "$PRODUCT_ROOT/docs/agents/issue-reporting.md"
+assert_exists "canonical product skill" "$PRODUCT_ROOT/.claude/skills/agent-workflow/SKILL.md"
+assert_exists "product adoption guide" "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
+
+assert_exists "root maintainer instructions" "$REPOSITORY_ROOT/AGENTS.md"
+assert_exists "root Claude pointer" "$REPOSITORY_ROOT/CLAUDE.md"
+assert_exists "root repository map" "$REPOSITORY_ROOT/README.md"
+assert_exists "root Matt skills lock" "$REPOSITORY_ROOT/skills-lock.json"
+assert_exists "root imported review skill" "$REPOSITORY_ROOT/.agents/skills/code-review/SKILL.md"
+assert_exists "root maintainer issue tracker" "$REPOSITORY_ROOT/docs/agents/issue-tracker.md"
+assert_exists "root maintainer domain config" "$REPOSITORY_ROOT/docs/agents/domain.md"
+assert_exists "root maintainer triage config" "$REPOSITORY_ROOT/docs/agents/triage-labels.md"
+assert_exists "root plans" "$REPOSITORY_ROOT/docs/plans"
+assert_exists "root CI" "$REPOSITORY_ROOT/.github/workflows/smoke.yml"
+assert_exists "release contract checker" "$SCRIPT_DIR/release-contract-check.cjs"
+assert_exists "release contract exceptions" "$SCRIPT_DIR/release-contract-exceptions.json"
+assert_exists "root hook" "$REPOSITORY_ROOT/.githooks/post-merge"
+assert_exists "root runtime evidence" "$REPOSITORY_ROOT/.review"
+
+assert_absent "no Matt-directory product skill" "$REPOSITORY_ROOT/.agents/skills/agent-workflow"
+assert_absent "no root Claude product skill" "$REPOSITORY_ROOT/.claude/skills/agent-workflow"
+assert_absent "no root product scripts" "$REPOSITORY_ROOT/scripts"
+assert_absent "no root product schemas" "$REPOSITORY_ROOT/.review/schemas"
+assert_absent "no root product STATUS" "$REPOSITORY_ROOT/STATUS.md"
+assert_absent "no root product env example" "$REPOSITORY_ROOT/.env.example"
+assert_absent "no root product playbook" "$REPOSITORY_ROOT/docs/agents/multi-agent-workflow.md"
+
+canonical_skill_count="$(git -C "$REPOSITORY_ROOT" ls-files | grep -E '/agent-workflow/SKILL\.md$' | wc -l | tr -d ' ')"
+assert_equals "exactly one canonical product skill" "1" "$canonical_skill_count"
+non_product_schemas="$(git -C "$REPOSITORY_ROOT" ls-files '*.schema.json' | grep -v '^toolkit/schemas/' || true)"
+assert_equals "all product schemas are contained" "" "$non_product_schemas"
+
+if grep -R -F 'docs/agents/issue-tracker.md' \
+  "$PRODUCT_ROOT/docs" "$PRODUCT_ROOT/.claude/skills/agent-workflow" >/dev/null 2>&1; then
+  not_ok "product documents do not depend on maintainer tracker"
+else
+  ok "product documents do not depend on maintainer tracker"
+fi
+
+assert_contains "CI runs release contract" 'bash .github/tests/release-contract.smoke.sh' "$REPOSITORY_ROOT/.github/workflows/smoke.yml"
+assert_contains "CI runs product smoke suite with clean NODE_OPTIONS" 'NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh' "$REPOSITORY_ROOT/.github/workflows/smoke.yml"
+assert_contains "hook routes to product rebase helper" 'toolkit/scripts/rebase-inflight.sh' "$REPOSITORY_ROOT/.githooks/post-merge"
+assert_contains "maintainer instructions route to product scripts" 'toolkit/scripts/' "$REPOSITORY_ROOT/AGENTS.md"
+assert_contains "root README routes to product README" 'toolkit/README.md' "$REPOSITORY_ROOT/README.md"
+assert_contains "trial log remains marked historical" 'Historical record' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
+assert_contains "trial log preserves dated legacy evidence" 'feature/31-idem-audit-assertion' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
+assert_contains "product instructions forbid duplicate authority" 'Do not recreate an `agent-workflow` authority outside this product root.' "$PRODUCT_ROOT/AGENTS.md"
+assert_contains "root instructions identify Matt development skills" 'Matt Pocock skills under `.agents/skills/`' "$REPOSITORY_ROOT/AGENTS.md"
+
+assert_command "tracked source references and Markdown links are valid" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$REPOSITORY_ROOT"
+
+contract_fixture="$TMP_DIR/contract fixture"
+mkdir -p "$contract_fixture/.github/tests" "$contract_fixture/toolkit" "$contract_fixture/docs/plans"
+git init -q "$contract_fixture"
+printf '%s\n' '# fixture' '[toolkit](toolkit/)' > "$contract_fixture/README.md"
+printf '%s\n' '# current product docs' > "$contract_fixture/toolkit/current.md"
+printf '%s\n' '{"historicalReferences":[],"compatibilityReferences":[]}' \
+  > "$contract_fixture/.github/tests/release-contract-exceptions.json"
+git -C "$contract_fixture" add README.md toolkit/current.md .github/tests/release-contract-exceptions.json
+assert_command "minimal current-reference fixture passes" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+
+printf '%s\n' '# current product docs' '.review/schemas/current.schema.json' \
+  > "$contract_fixture/toolkit/current.md"
+assert_rejects "unapproved current legacy reference fails" 'unapproved legacy-review-schemas' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+
+printf '%s\n' '# current product docs' > "$contract_fixture/toolkit/current.md"
+printf '%s\n' '.review/schemas/historical.schema.json' > "$contract_fixture/docs/plans/history.md"
+git -C "$contract_fixture" add docs/plans/history.md
+printf '%s\n' \
+  '{' \
+  '  "historicalReferences": [{' \
+  '    "path": "docs/plans/history.md",' \
+  '    "token": "legacy-review-schemas",' \
+  '    "expectedCount": 1,' \
+  '    "reason": "immutable fixture evidence"' \
+  '  }],' \
+  '  "compatibilityReferences": []' \
+  '}' > "$contract_fixture/.github/tests/release-contract-exceptions.json"
+assert_command "exact historical exception passes" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '.review/schemas/historical.schema.json' >> "$contract_fixture/docs/plans/history.md"
+assert_rejects "historical exception count drift fails" 'count mismatch' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+
+printf '%s\n' '.review/schemas/historical.schema.json' > "$contract_fixture/docs/plans/history.md"
+printf '%s\n' '# current product docs' '[missing](missing.md)' > "$contract_fixture/toolkit/current.md"
+assert_rejects "missing current Markdown link fails" 'missing Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '```md' '[example](missing.md)' '```' \
+  > "$contract_fixture/toolkit/current.md"
+assert_command "fenced Markdown example is ignored" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+
+copy_target="$TMP_DIR/copy target"
+mkdir -p "$copy_target"
+assert_command "release copy installation succeeds" \
+  bash "$PRODUCT_ROOT/scripts/install-into.sh" "$copy_target" --mode copy
+assert_command "installed Markdown links are valid in copy context" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" installed "$copy_target"
+assert_command "copy scripts are not symlinked to source" test ! -L "$copy_target/.agent-workflow/scripts"
+assert_command "copy schemas are not symlinked to source" test ! -L "$copy_target/.agent-workflow/schemas"
+assert_command "copy docs are not symlinked to source" test ! -L "$copy_target/.agent-workflow/docs/agents"
+assert_command "copy skill is not symlinked to source" test ! -L "$copy_target/.claude/skills/agent-workflow"
+printf '%s\n' '[source-only](../../../README.md)' \
+  > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
+assert_rejects "installed source-only Markdown link fails" 'missing Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" installed "$copy_target"
+assert_absent "copy excludes Matt skills" "$copy_target/.agents"
+assert_absent "copy excludes Matt lockfile" "$copy_target/skills-lock.json"
+assert_absent "copy excludes root instructions" "$copy_target/AGENTS.md"
+assert_absent "copy excludes maintainer tracker" "$copy_target/docs/agents/issue-tracker.md"
+assert_absent "copy excludes maintainer domain config" "$copy_target/docs/agents/domain.md"
+assert_absent "copy excludes maintainer triage config" "$copy_target/docs/agents/triage-labels.md"
+assert_absent "copy excludes maintainer plans" "$copy_target/docs/plans"
+assert_absent "copy excludes repository evidence" "$copy_target/.review/source"
+assert_absent "copy excludes repository CI" "$copy_target/.github"
+assert_absent "copy excludes repository hooks" "$copy_target/.githooks"
+
+if bash "$PRODUCT_ROOT/scripts/__tests__/run-all.sh" --list | grep -F -x -q 'install-into.smoke.sh'; then
+  ok "full product suite includes installer contract"
+else
+  not_ok "full product suite includes installer contract"
+fi
+
+echo "---"
+if [ "$FAILURES" -eq 0 ]; then
+  echo "ALL CASES PASS"
+  exit 0
+fi
+echo "$FAILURES CASE(S) FAILED"
+exit 1

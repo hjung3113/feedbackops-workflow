@@ -8,5 +8,6 @@ This directory is the complete distributable `agent-workflow` product root. Root
 - A script, schema, or workflow-contract change must update the affected product playbook, README, STATUS, installer coverage, and skill references in the same commit.
 - Product schemas live in `schemas/`; target runtime evidence lives in `<target>/.review/`. Never treat target runtime state as product resources.
 - Product documents must be self-contained and must not depend on the repository-only tracker, domain, triage, Matt skills, plans, CI, hooks, or runtime evidence.
+- Keep local Markdown links valid both in this source tree and after a copy installation; source-only repository paths are not available in targets.
 - `docs/agents/workflow-trial-log.md` is dated historical evidence. Update its current-authority pointer when paths change, but do not rewrite commands that record what a trial actually used.
 - Do not recreate an `agent-workflow` authority outside this product root.

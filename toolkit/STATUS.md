@@ -91,6 +91,13 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Copy snapshot/update behavior and the exact destructive scope of `--force` are documented.
 - Fresh, migrated, and Git-metadata-free installations execute installed acceptance and completion gates without maintainer-state leakage.
 
+### v0.11 — separated-toolkit release contract
+
+- The root-owned release gate enforces one product authority beneath `toolkit/`, exact historical/compatibility exceptions for legacy paths, and valid local Markdown links in source and copy-installed contexts.
+- Copy-install release checks reject Matt skills, tracker/domain/triage configuration, plans, CI, hooks, and repository evidence in target trees.
+- GitHub CI runs the release contract followed by the full product smoke suite with a clean `NODE_OPTIONS=` value.
+- The pre-separation symlink recognizer remains only as the documented `--migrate-legacy` compatibility contract; product-home schema resolution has no root-layout fallback.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -117,7 +124,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
-- **P0 toolkit separation:** #27 is the parent; #28–#30 establish the relocatable product root and safe migration, followed by #31 release enforcement.
+- **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
 - **P1 procedure/templates:** issues #9–#11 — circuit breaker, atomic chunks, and Standard-tier generation; #4–#6 are shipped in the reusable playbook/template contract.
 - **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.

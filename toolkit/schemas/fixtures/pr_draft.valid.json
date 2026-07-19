@@ -9,7 +9,7 @@
   "head_sha": "b8b6332c4d5e6f708192a3b4c5d6e7f809102132",
   "summary": "Implements verify_result conditional requirement.",
   "files_touched": [
-    { "path": ".review/schemas/pr_draft.schema.json", "change": "edit" }
+    { "path": ".agent-workflow/schemas/pr_draft.schema.json", "change": "edit" }
   ],
   "tests": ["ajv validate"],
   "verify_cmd": "pnpm dlx ajv-cli validate -s ... -d ...",

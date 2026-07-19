@@ -27,6 +27,8 @@ cd feedbackops-workflow/toolkit
 NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 ```
 
+이 명령은 배포 제품의 전체 동작 스모크입니다. 저장소 릴리스 관리자는 저장소 루트에서 별도의 `.github/tests/release-contract.smoke.sh`를 실행해 product containment, source/copy-installed 문서 링크, maintainer 파일 비누출, CI routing을 검증합니다. 이 저장소 전용 릴리스 게이트는 타겟에 설치되지 않습니다.
+
 실행할 smoke 목록만 보려면:
 
 ```bash

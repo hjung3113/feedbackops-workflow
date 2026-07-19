@@ -42,6 +42,7 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 
 ## Verification
 
+- The repository release gate is `.github/tests/release-contract.smoke.sh`. It owns product-containment, legacy-reference exceptions, source/installed Markdown-link validity, installation non-leakage, and CI-routing checks; it is not installed into targets.
 - Run the affected `toolkit/scripts/__tests__/*.smoke.sh`. They are offline and bash-3.2 safe.
 - `toolkit/scripts/verify.sh` is the **vitest verification oracle** for a compatible target project (it loads env, runs a scoped Vitest filter via the JSON reporter, and is false-green-proof). `verify.smoke.sh` covers classification, typecheck, and stubbed filter/artifact paths without a live DB; a real filter run still needs a target with the expected backend package and local DB.
 - The network-deny regression guard is `toolkit/scripts/__tests__/sandbox-network-deny.smoke.sh` (Layer 1 offline always; Layer 2 live in-sandbox probe with `RUN_LIVE_SANDBOX_PROBE=1` + `codex` on PATH).

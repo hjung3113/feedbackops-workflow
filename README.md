@@ -10,9 +10,11 @@ This repository develops and releases the reusable `agent-workflow` toolkit.
 
 Repository contribution rules live in [`AGENTS.md`](AGENTS.md). Product-scoped rules live in [`toolkit/AGENTS.md`](toolkit/AGENTS.md).
 
-Run the product smoke suite from the repository root:
+Run the repository-owned release contract and the full product smoke suite from the repository root:
 
 ```bash
-bash .github/tests/product-boundary.smoke.sh
+bash .github/tests/release-contract.smoke.sh
 NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh
 ```
+
+The release contract checks that product authority remains contained in `toolkit/`, current references and local Markdown links resolve in source and copy-installed contexts, and maintainer-only files do not leak into target installations.
