@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.9
+## Current release: v0.10
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -19,6 +19,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
 - a single distributable `toolkit/` authority separated from the root Matt Pocock development environment;
+- fail-closed legacy absolute-symlink detection plus narrow `--migrate-legacy` conversion that preserves target customization;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
 
@@ -83,6 +84,13 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Product issue reporting is self-contained, and the duplicate Matt-directory `agent-workflow` skill has been removed.
 - `cmux-cluster.sh` now checks the target's installed `.agent-workflow/{scripts,schemas}` contract instead of source-checkout paths.
 
+### v0.10 — safe legacy installation migration
+
+- The installer recognizes coherent live or dangling pre-separation absolute links and refuses default mutation with an actionable migration command.
+- `--migrate-legacy` replaces only recognized legacy links in symlink or copy mode; real files, directories, snapshots, and unrecognized links remain target-owned.
+- Copy snapshot/update behavior and the exact destructive scope of `--force` are documented.
+- Fresh, migrated, and Git-metadata-free installations execute installed acceptance and completion gates without maintainer-state leakage.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -109,7 +117,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
-- **P0 toolkit separation:** #27 is the parent; #28 and #29 establish the relocatable interface and single product root, followed by #30 legacy-install migration and #31 release enforcement.
+- **P0 toolkit separation:** #27 is the parent; #28–#30 establish the relocatable product root and safe migration, followed by #31 release enforcement.
 - **P1 procedure/templates:** issues #9–#11 — circuit breaker, atomic chunks, and Standard-tier generation; #4–#6 are shipped in the reusable playbook/template contract.
 - **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.

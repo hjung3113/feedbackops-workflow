@@ -2,16 +2,17 @@
 # Wire a target repo to this workflow toolkit without copying by default.
 #
 # Usage:
-#   scripts/install-into.sh <target-repo-path> [--mode symlink|copy] [--force]
+#   scripts/install-into.sh <target-repo-path> [--mode symlink|copy] [--migrate-legacy|--force]
 set -euo pipefail
 
 usage() {
-  echo "usage: install-into.sh <target-repo-path> [--mode symlink|copy] [--force]" >&2
+  echo "usage: install-into.sh <target-repo-path> [--mode symlink|copy] [--migrate-legacy|--force]" >&2
 }
 
 TARGET_REPO=""
 MODE="symlink"
 FORCE=0
+MIGRATE_LEGACY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +23,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force)
       FORCE=1
+      shift
+      ;;
+    --migrate-legacy)
+      MIGRATE_LEGACY=1
       shift
       ;;
     -*)
@@ -43,6 +48,10 @@ done
 
 [[ -z "$TARGET_REPO" ]] && { echo "missing <target-repo-path>" >&2; usage; exit 2; }
 [[ "$MODE" != "symlink" && "$MODE" != "copy" ]] && { echo "invalid --mode: $MODE" >&2; usage; exit 2; }
+if [[ "$FORCE" -eq 1 && "$MIGRATE_LEGACY" -eq 1 ]]; then
+  echo "install-into: --migrate-legacy cannot be combined with --force" >&2
+  exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
@@ -87,6 +96,123 @@ SCRIPTS_DEST="$AGENT_DIR/scripts"
 SCHEMAS_DEST="$AGENT_DIR/schemas"
 DOCS_DEST="$AGENT_DIR/docs/agents"
 SKILL_DEST="$CLAUDE_SKILLS_DIR/agent-workflow"
+
+legacy_root_for() {
+  local raw_target="$1"
+  local legacy_suffix="$2"
+  local inferred_root=""
+
+  case "$raw_target" in
+    /*"$legacy_suffix")
+      inferred_root="${raw_target%"$legacy_suffix"}"
+      [[ -n "$inferred_root" ]] || return 1
+      printf '%s\n' "$inferred_root"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+SCRIPTS_LINK=""
+SCHEMAS_LINK=""
+DOCS_LINK=""
+SKILL_LINK=""
+SCRIPTS_LEGACY_ROOT=""
+SCHEMAS_LEGACY_ROOT=""
+DOCS_LEGACY_ROOT=""
+SKILL_LEGACY_ROOT=""
+
+if [[ -L "$SCRIPTS_DEST" ]]; then
+  SCRIPTS_LINK="$(readlink "$SCRIPTS_DEST")"
+  SCRIPTS_LEGACY_ROOT="$(legacy_root_for "$SCRIPTS_LINK" "/scripts")" || SCRIPTS_LEGACY_ROOT=""
+fi
+if [[ -L "$SCHEMAS_DEST" ]]; then
+  SCHEMAS_LINK="$(readlink "$SCHEMAS_DEST")"
+  SCHEMAS_LEGACY_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/.review/schemas")" || SCHEMAS_LEGACY_ROOT=""
+fi
+if [[ -L "$DOCS_DEST" ]]; then
+  DOCS_LINK="$(readlink "$DOCS_DEST")"
+  DOCS_LEGACY_ROOT="$(legacy_root_for "$DOCS_LINK" "/docs/agents")" || DOCS_LEGACY_ROOT=""
+fi
+if [[ -L "$SKILL_DEST" ]]; then
+  SKILL_LINK="$(readlink "$SKILL_DEST")"
+  SKILL_LEGACY_ROOT="$(legacy_root_for "$SKILL_LINK" "/.claude/skills/agent-workflow")" || SKILL_LEGACY_ROOT=""
+fi
+
+LEGACY_SCRIPTS=0
+LEGACY_SCHEMAS=0
+LEGACY_DOCS=0
+LEGACY_SKILL=0
+LEGACY_COUNT=0
+COHERENT_LEGACY=0
+
+if [[ -n "$SCRIPTS_LEGACY_ROOT" && \
+      "$SCRIPTS_LEGACY_ROOT" == "$SCHEMAS_LEGACY_ROOT" && \
+      "$SCRIPTS_LEGACY_ROOT" == "$DOCS_LEGACY_ROOT" && \
+      "$SCRIPTS_LEGACY_ROOT" == "$SKILL_LEGACY_ROOT" ]]; then
+  COHERENT_LEGACY=1
+fi
+
+if [[ "$COHERENT_LEGACY" -eq 1 || \
+      ( -n "$REPOSITORY_ROOT" && "$SCRIPTS_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+  LEGACY_SCRIPTS=1
+fi
+if [[ "$COHERENT_LEGACY" -eq 1 || \
+      ( -n "$REPOSITORY_ROOT" && "$SCHEMAS_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+  LEGACY_SCHEMAS=1
+fi
+if [[ "$COHERENT_LEGACY" -eq 1 || \
+      ( -n "$REPOSITORY_ROOT" && "$DOCS_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+  LEGACY_DOCS=1
+fi
+if [[ "$COHERENT_LEGACY" -eq 1 || \
+      ( -n "$REPOSITORY_ROOT" && "$SKILL_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+  LEGACY_SKILL=1
+fi
+LEGACY_COUNT=$((LEGACY_SCRIPTS + LEGACY_SCHEMAS + LEGACY_DOCS + LEGACY_SKILL))
+
+print_legacy_link() {
+  local recognized="$1"
+  local dest="$2"
+  local raw_target="$3"
+  if [[ "$recognized" -eq 1 ]]; then
+    echo "  $dest -> $raw_target" >&2
+  fi
+}
+
+if [[ "$LEGACY_COUNT" -gt 0 && "$MIGRATE_LEGACY" -eq 0 ]]; then
+  echo "install-into: legacy absolute-symlink installation detected; no changes made." >&2
+  print_legacy_link "$LEGACY_SCRIPTS" "$SCRIPTS_DEST" "$SCRIPTS_LINK"
+  print_legacy_link "$LEGACY_SCHEMAS" "$SCHEMAS_DEST" "$SCHEMAS_LINK"
+  print_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK"
+  print_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK"
+  echo "Migrate only the recognized legacy links with:" >&2
+  echo "  $0 \"$TARGET_ROOT\" --mode $MODE --migrate-legacy" >&2
+  echo "Existing files, directories, copy installs, and unrecognized symlinks will be preserved." >&2
+  exit 2
+fi
+
+if [[ "$MIGRATE_LEGACY" -eq 1 && "$LEGACY_COUNT" -eq 0 ]]; then
+  echo "install-into: --migrate-legacy found no recognized legacy absolute symlinks; no changes made." >&2
+  echo "Existing files, directories, copy installs, and unrecognized symlinks require no migration." >&2
+  exit 2
+fi
+
+remove_legacy_link() {
+  local recognized="$1"
+  local dest="$2"
+  local raw_target="$3"
+  if [[ "$recognized" -eq 1 ]]; then
+    rm "$dest"
+    echo "removed legacy link: $dest -> $raw_target"
+  fi
+}
+
+if [[ "$MIGRATE_LEGACY" -eq 1 ]]; then
+  remove_legacy_link "$LEGACY_SCRIPTS" "$SCRIPTS_DEST" "$SCRIPTS_LINK"
+  remove_legacy_link "$LEGACY_SCHEMAS" "$SCHEMAS_DEST" "$SCHEMAS_LINK"
+  remove_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK"
+  remove_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK"
+fi
 
 mkdir -p "$AGENT_DIR"
 mkdir -p "$AGENT_DIR/docs"

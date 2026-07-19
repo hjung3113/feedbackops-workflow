@@ -37,7 +37,20 @@ This installs:
 <target>/.review
 ```
 
-Symlink mode follows toolkit updates immediately but uses machine-local absolute links; do not commit those links as a portable installation. Copy mode is an intentional, commit-friendly snapshot and must be updated manually. A sibling worktree sees the installation only if the copied files/links are part of its Git tree or the installer is run for that worktree too.
+Symlink mode follows toolkit updates immediately but uses machine-local absolute links; do not commit those links as a portable installation. A sibling worktree sees the installation only if the copied files/links are part of its Git tree or the installer is run for that worktree too.
+
+Pre-`toolkit/` installations used four absolute links from the target into the old repository root. The installer detects recognized live or dangling legacy links, makes no changes, and prints the exact `--migrate-legacy` command. That option replaces only recognized legacy links in the requested symlink/copy mode; it preserves files, directories, copy installs, and unrecognized links, and cannot be combined with `--force`.
+
+Copy mode is a point-in-time snapshot and never updates automatically. Rerunning without force preserves the snapshot and target customization. To update, back up and review changes, then explicitly run `--mode copy --force`. Force replacement is limited to these managed destinations:
+
+```text
+.agent-workflow/scripts
+.agent-workflow/schemas
+.agent-workflow/docs/agents
+.claude/skills/agent-workflow
+```
+
+It does not remove target `.review`, unrelated files, or the repository itself.
 
 ## Compatibility interview
 
