@@ -145,7 +145,10 @@ function validateCurrentRootReferences(root, files) {
 function withoutFencedCode(text) {
   let fence = null;
   return text.split('\n').map((line) => {
-    const opening = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    const openingCandidate = line.match(/^\s{0,3}(`{3,}|~{3,})(.*)$/);
+    const opening = openingCandidate && !(
+      openingCandidate[1][0] === '`' && openingCandidate[2].includes('`')
+    ) ? openingCandidate : null;
     const closing = line.match(/^\s{0,3}(`{3,}|~{3,})\s*$/);
     if (!fence && opening) {
       fence = { character: opening[1][0], length: opening[1].length };
@@ -220,7 +223,7 @@ function markdownTargets(text) {
   const reference = /^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
   let cursor = 0;
   while ((cursor = clean.indexOf('](', cursor)) !== -1) {
-    if (clean[cursor - 1] === '\\' || !hasLinkOpener(clean, cursor)) {
+    if (isEscaped(clean, cursor) || !hasLinkOpener(clean, cursor)) {
       cursor += 2;
       continue;
     }
