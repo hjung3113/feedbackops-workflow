@@ -44,6 +44,20 @@ This file is the single source of truth for working in **this** repo. `CLAUDE.md
 - `scripts/verify.sh` is the **vitest verification oracle** for a compatible target project (it loads env, runs a scoped Vitest filter via the JSON reporter, and is false-green-proof). `verify.smoke.sh` covers classification, typecheck, and stubbed filter/artifact paths without a live DB; a real filter run still needs a target with the expected backend package and local DB.
 - The network-deny regression guard is `scripts/__tests__/sandbox-network-deny.smoke.sh` (Layer 1 offline always; Layer 2 live in-sandbox probe with `RUN_LIVE_SANDBOX_PROBE=1` + `codex` on PATH).
 
+## Agent skills
+
+### Issue tracker
+
+Work items and specifications live in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Matt Pocock workflow skills use the repository's five canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repository; domain vocabulary and architectural decisions are read from root-level context and ADR files when they exist. See `docs/agents/domain.md`.
+
 ## Source Of Truth
 
 1. `AGENTS.md` (this file) — repo operating rules.
