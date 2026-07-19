@@ -2,6 +2,8 @@
 
 Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 
+Immutable cross-repository evidence used to derive toolkit contracts lives under `source/`; it is not runtime state and readers must not treat it as a current issue artifact.
+
 ## Files
 
 - `ISSUE-N-PR-DRAFT.json` — CODEX → REVIEWER implementation handoff (commit SHA, files, claimed tests, risks). Its optional `verify_result` field is deprecated and ignored; CODEX cannot verify its own work. `worktree_path` lets conductor-rebuild resolve the live HEAD and `base_branch` identifies the integration base for freshness checks.
@@ -9,6 +11,7 @@ Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 - `ISSUE-N-REVIEW.json` — REVIEWER findings + patch_instructions for ARCHITECT
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)
 - `ISSUE-N-RUN.json` — watchdog process/liveness marker (`running | exited | killed_stall | refused | exhausted`). `exited/0` is not task completion evidence.
+- `ISSUE-N-ROUND-STATE.json` — CONDUCTOR-owned canonical contract state. It replaces prose amendments and carries the current contract, AC manifest view, locked/open decisions, commit range, freshness provenance, live probes, and artifact pointers. Its top-level `revision` is the `manifest_revision` pinned by every dispatch; CODEX never edits it.
 - `ISSUE-N-VERIFY.json` — canonical VERIFIER evidence for the current branch/head. This, not PR-DRAFT prose, drives verified state.
 - `ISSUE-N-PARTIAL.diff` — stashed partial work on abort (v0.1: optional)
 - `PHASE-N-SUMMARY.json` — CONDUCTOR roll-up of a phase's worker clusters. A DERIVED artifact (a cache of lower-level artifacts), never source of truth. Carries `derived_from[]` (each with `content_sha256` of the on-disk artifact + `head_sha`) and `chunks[]` (per-issue `state` + `evidence_artifact` + `evidence_head_sha`).

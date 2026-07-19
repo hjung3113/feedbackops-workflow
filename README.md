@@ -85,11 +85,12 @@ NODE_OPTIONS= scripts/cmux-dispatch.sh \
 
 ```bash
 scripts/ac-check.sh \
-  --manifest ../wt-123/.review/ISSUE-123-AC.json \
+  --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
+  --manifest-revision 3 \
   --tests ../wt-123/.review/ISSUE-123-DISCOVERED-TESTS.txt
 ```
 
-manifest는 `{"acs":[{"id":"AC-1"}]}` 형태이며, tests 파일은 실제로 발견된 테스트 이름·경로를 한 줄씩 담습니다. 중복 AC-ID나 테스트에서 발견되지 않는 ID가 있으면 리뷰로 넘어가지 않습니다.
+acceptance manifest는 별도 파일이 아니라 CONDUCTOR가 작성하는 ROUND-STATE의 `acceptance.criteria[]` 뷰입니다. 디스패치는 ROUND-STATE의 `revision`을 `--manifest-revision`으로 고정합니다. gate는 전체 스키마와 base freshness를 먼저 검증하고, stale revision·중복 AC-ID·테스트에서 발견되지 않는 ID가 있으면 리뷰로 넘어가지 않습니다.
 
 ### 6. 호스트 VERIFIER 실행
 
@@ -140,7 +141,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 | `cmux-dispatch.sh` | 보이는 cmux 워크스페이스 생성과 fresh RUN/BLOCKER 폴링 |
 | `codex-watchdog.sh` | 프로세스·파일 liveness, stall 재시도, 이중 probe 기반 refusal 분류 |
 | `codex-safe.sh` | Codex 샌드박스·cwd·모델 effort 경계, 실패 시 partial stash |
-| `ac-check.sh` | manifest AC-ID가 발견된 테스트에 존재하는지 pre-review 검사 |
+| `ac-check.sh` | ROUND-STATE revision과 AC-ID 발견 여부를 검사하는 pre-review gate |
 | `verify.sh` | Vitest JSON 분류, DB 경계, typecheck baseline, canonical VERIFY 산출물 |
 | `conductor-rebuild.sh` | `.review/*.json`에서 현재 클러스터 상태 복원 |
 | `artifact-fresh.sh` / `review-archive.sh` | 산출물 신선도 검사와 병합 후 아카이브 |

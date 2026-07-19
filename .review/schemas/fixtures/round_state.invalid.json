@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "artifact_type": "round_state",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "issue": { "number": 0, "title": "" },
+  "tier": { "name": "standard", "rationale": "" },
+  "revision": 0,
+  "updated_at": "",
+  "base_branch": "",
+  "base_sha": "short",
+  "head_sha": "short",
+  "worktree_path": "",
+  "contract": { "objective": "", "touch_allowlist": [], "verify_filter": "" },
+  "acceptance": { "criteria": [] },
+  "decisions": [],
+  "prior_findings": [],
+  "commit_scope": { "commits": [] },
+  "live_probes": [],
+  "artifact_pointers": [],
+  "unexpected": true
+}

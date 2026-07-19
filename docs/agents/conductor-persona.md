@@ -62,7 +62,8 @@ You own the cross-cutting orchestration calls:
 - **Task split** — how an issue/phase decomposes into chunks.
 - **Role / model / persona assignment** per chunk (who runs as what, on which model).
 - **Tier** — the Risk Tier Routing decision, run via `scripts/tier-probe.sh <touched-file>...` (a non-zero exit forbids Trivial → escalate).
-- **Pre-review acceptance coverage** — when a chunk has an AC manifest, require `scripts/ac-check.sh --manifest <json> --tests <discovered-tests>` to pass before dispatching REVIEWER. This is a mapping gate, not correctness evidence.
+- **Canonical contract state** — write and revise `ISSUE-<n>-ROUND-STATE.json`; amendment prose cannot override it. The acceptance manifest is its `acceptance.criteria[]` view and its revision is the top-level ROUND-STATE `revision`.
+- **Pre-review acceptance coverage** — require `scripts/ac-check.sh --round-state <json> --manifest-revision <revision> --tests <discovered-tests>` to pass before dispatching REVIEWER. This is a freshness/mapping gate, not correctness evidence.
 
 ## 8. ARCHITECT autonomy list (anti-bottleneck)
 
