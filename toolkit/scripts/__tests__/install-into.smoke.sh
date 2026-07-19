@@ -86,8 +86,9 @@ assert_legacy_links() {
 assert_external_tree_untouched() {
   label="$1"
   external="$2"
+  external_entry_count="$(find "$external" -mindepth 1 -print | wc -l | tr -d ' ')"
   assert_true "$label preserves external sentinel" grep -F -q 'outside target' "$external/sentinel"
-  assert_true "$label creates no external managed leaves" test ! -e "$external/scripts"
+  assert_true "$label creates no external paths" test "$external_entry_count" = "1"
 }
 
 assert_no_maintainer_leakage() {
