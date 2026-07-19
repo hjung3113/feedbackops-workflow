@@ -21,9 +21,10 @@ if [[ ! -d "$WT_PATH" ]]; then
 else
   # Worktree already exists. Validate it has workflow infra; refuse silent reuse
   # of a stale worktree branched from the wrong base.
-  if [[ ! -f "$WT_PATH/scripts/codex-safe.sh" || ! -d "$WT_PATH/.review/schemas" ]]; then
+  if [[ ! -f "$WT_PATH/.agent-workflow/scripts/codex-safe.sh" || ! -d "$WT_PATH/.agent-workflow/schemas" ]]; then
     echo "ERROR: worktree at $WT_PATH exists but is missing workflow infra." >&2
-    echo "       (no scripts/codex-safe.sh or .review/schemas/). Likely branched from" >&2
+    echo "       (no .agent-workflow/scripts/codex-safe.sh or .agent-workflow/schemas/)." >&2
+    echo "       The target is missing the installed workflow contract or was branched from" >&2
     echo "       a base that predates T1-T5. Remove it explicitly before re-running:" >&2
     echo "         git worktree remove --force $WT_PATH && git branch -D $BRANCH" >&2
     exit 1
@@ -40,7 +41,7 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo "ERROR: worktree at $WT_PATH is not dispatch-ready (missing: ${MISSING[*]})." >&2
   echo "       The codex sandbox blocks network, so deps/env cannot install inside it." >&2
   echo "       Run this on the HOST first (outside the sandbox):" >&2
-  echo "         scripts/prepare-worktree.sh $WT_PATH" >&2
+  echo "         $WT_PATH/.agent-workflow/scripts/prepare-worktree.sh $WT_PATH" >&2
   exit 1
 fi
 

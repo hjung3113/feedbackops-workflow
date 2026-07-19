@@ -25,7 +25,7 @@ From the toolkit repository:
 scripts/install-into.sh <target-repo> [--mode symlink|copy] [--force]
 ```
 
-The installer derives `PRODUCT_ROOT` from its own physical `scripts/` location. Git metadata is optional: when present, the enclosing repository is used only for repository-specific safety checks and is not the product identity. Product commands derive the same home from their script location and resolve schemas from its sibling `schemas/` directory. The current source checkout's `.review/schemas` path is a transition adapter until the product authorities move under `toolkit/`; installed commands do not need repository metadata.
+The installer derives `PRODUCT_ROOT` from its own physical `scripts/` location. Git metadata is optional: when present, the enclosing repository is used only for repository-specific safety checks and is not the product identity. Source and installed commands use the same sibling `scripts/`, `schemas/`, and `docs/` layout; installed commands do not need repository metadata.
 
 This installs:
 
@@ -50,7 +50,8 @@ Before the first run, answer these from the target's real files:
 5. How are typecheck, lint, build, and UI tests invoked?
 6. Does verification require a DB or other service? Can each parallel chunk get an isolated instance?
 7. Which paths or exported contracts force a higher risk tier?
-8. What artifact or captured result proves verification at the current HEAD?
+8. Which repository-native commands enumerate compile-time consumers, and what full typecheck command gates the proposed scope?
+9. What artifact or captured result proves verification at the current HEAD?
 
 Record target-specific answers in the target's `AGENTS.md` or a small target-owned adapter document. Do not add product assumptions back to the shared skill.
 
@@ -73,7 +74,26 @@ tier_trigger_paths[]
 test_discovery_command
 verify_command
 typecheck_command
+compile_consumer_commands[]
 service_isolation_strategy
 ```
 
 Until that profile contract exists, use target-native setup and verification where the bundled adapters do not fit, and state the limitation in the completion report.
+
+## Feed problems back to the toolkit
+
+Do not let a target-only workaround become the only record of a reusable failure. When adoption
+or a later run exposes a problem:
+
+1. Preserve a minimal, sanitized reproduction in the target repository and identify the installed
+   toolkit revision plus symlink/copy mode.
+2. Decide whether the evidence points to the coordination core, a bundled target adapter, or an
+   adoption/documentation gap. Leave the classification open when the boundary is not yet proven.
+3. Search the toolkit repository's open and closed GitHub issues for an existing report.
+4. After obtaining authorization for the external write, file or update the toolkit issue using
+   the inbound-report contract and copyable body template in `docs/agents/issue-reporting.md`.
+5. Put the toolkit issue URL and the target-owned temporary workaround in the target's handoff or
+   completion report. Remove or revise the workaround only after the upstream change is adopted.
+
+Never attach secrets, customer data, raw environment files, or unredacted workflow artifacts.
+The toolkit issue should contain the smallest evidence needed to reproduce and route the problem.

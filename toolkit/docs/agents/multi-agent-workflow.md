@@ -6,12 +6,12 @@ The coordination model is reusable, but some shipped adapters are still target-s
 
 ## Product home and repository context
 
-The workflow product home is the physical parent of the running command's `scripts/` directory. Scripts and schemas are sibling product resources in installed or exported layouts; `ac-check.sh` and `completion-check.sh` resolve the canonical schema through this interface. The root source checkout's `.review/schemas` location is a temporary compatibility adapter until the authorities move under `toolkit/`.
+The workflow product home is the physical parent of the running command's `scripts/` directory. Scripts, schemas, and docs are sibling product resources in source, installed, and exported layouts; `ac-check.sh` and `completion-check.sh` resolve the canonical schema through this interface.
 
 `install-into.sh` resolves `PRODUCT_ROOT` from its own location. An enclosing Git root, when discoverable, is optional `REPOSITORY_ROOT` context used only for repository-specific safety checks. Missing Git metadata does not make an exported product invalid. Target runtime evidence remains target-owned under `<target>/.review`; it is not a product schema directory.
 
 When a target run reveals a toolkit problem, follow the downstream feedback loop in the adoption
-guide and `docs/agents/issue-tracker.md`: preserve a sanitized reproduction, classify the failing
+guide and `docs/agents/issue-reporting.md`: preserve a sanitized reproduction, classify the failing
 boundary without overclaiming, search existing issues, and—only with external-write
 authorization—file it in the toolkit repository. Link that upstream issue from the target handoff
 or completion report so temporary target-owned workarounds remain traceable.
@@ -165,7 +165,7 @@ Liveness is **process + filesystem progress**, never stdout first-token output. 
 
 After a non-stall non-zero exit, the watchdog does not inspect stderr. It preserves the diagnostic log at `<worktree>/.review/ISSUE-<N>-attempt<k>-stderr.log` and echoes that path, then probes Codex directly with a low-effort `reply exactly OK` request (overridable by `CODEX_WATCHDOG_PROBE_CMD`). A passing probe means transient failure and retries. One failed probe is inconclusive: after 10 seconds (overridable by `CODEX_WATCHDOG_PROBE_GAP`) it probes once more; only two failed probes mean model/auth-level refusal, write `status:"refused"`, and exit 4.
 
-Each attempt writes `<worktree>/.review/ISSUE-<N>-RUN.json` with `artifact_type: "codex_run"` and status `running | exited | killed_stall | refused | exhausted` (schema `.review/schemas/run.schema.json`). This marker is a dispatch liveness record, not verification evidence.
+Each attempt writes `<worktree>/.review/ISSUE-<N>-RUN.json` with `artifact_type: "codex_run"` and status `running | exited | killed_stall | refused | exhausted` (schema `schemas/run.schema.json`). This marker is a dispatch liveness record, not verification evidence.
 
 **RUN.json terminal-state contract — read this before writing any polling logic.** `status:"running"` while the codex-safe process is alive and still attempting. Terminal states are `status:"exited"` (codex process finished; `exit_code` present — `exit_code === 0` means the *process* finished cleanly, it does **not** mean the task succeeded; task success is judged by commits + a canonical `VERIFY.json` artifact, never by exit code alone), `status:"killed_stall"` (watchdog killed it for no progress), `status:"refused"` (probe says model/auth-level failure; retry is futile), and `status:"exhausted"` (retries used up). There is no `"completed"` or `"failed"` string anywhere in this schema — do not poll for them. A `.review/ISSUE-<N>-BLOCKER.json` file appearing instead of/alongside `RUN.json` is a scoped abort (codex chose to stop, not crash).
 
@@ -214,11 +214,11 @@ Run `scripts/prepare-worktree.sh <wt>` on the host. It installs deps from the fr
 
 ## Artifact Lifecycle
 
-Every `.review/ISSUE-*.json` carries `lifecycle: draft | active | superseded | final`. Superseded files MUST be ignored by readers. See `.review/README.md`.
+Every `.review/ISSUE-*.json` carries `lifecycle: draft | active | superseded | final`. Superseded files MUST be ignored by readers. See `docs/agents/artifact-lifecycle.md`.
 
 ### Canonical ROUND-STATE
 
-CONDUCTOR maintains one `.review/ISSUE-<n>-ROUND-STATE.json` as the normative contract state from dispatch 0. It replaces amendment prose; reviewers never reconstruct an effective contract by merging prompt fragments. The artifact contains the current contract, acceptance criteria, decisions, prior findings, commit scope, live-probe results, and artifact pointers. Its schema is `.review/schemas/round_state.schema.json`.
+CONDUCTOR maintains one `.review/ISSUE-<n>-ROUND-STATE.json` as the normative contract state from dispatch 0. It replaces amendment prose; reviewers never reconstruct an effective contract by merging prompt fragments. The artifact contains the current contract, acceptance criteria, decisions, prior findings, commit scope, live-probe results, and artifact pointers. Its schema is `schemas/round_state.schema.json`.
 
 CONDUCTOR is the sole writer. `revision` increments whenever the normative contract or acceptance criteria change, with the reason recorded in `decisions`. CODEX, REVIEWER, and VERIFIER consume but do not edit it. The acceptance manifest is not a separate file: it is the `acceptance.criteria[]` view at the ROUND-STATE `revision`. A task narrative is at most 2 KB and carries only current intent/delta, failing AC ids, and evidence pointers; it must not restate normative criteria or allowlists.
 
@@ -288,7 +288,7 @@ Because the VERIFIER runs tests **outside** the sandbox (full host access), the 
 - **No silent `.env` fallback in issue mode (fail closed, `exit 4`).** When `VERIFY_ISSUE` is set but `VERIFY_DATABASE_URL` is unset or empty, `verify.sh` **refuses with `exit 4`** ("refusing to fall back to .env DATABASE_URL") instead of inheriting the worktree `.env`'s `DATABASE_URL`. Incident (2026-07-13): an upstream `eval $(prepare-verify-db.sh ... | tail -1)` of empty stdout left `VERIFY_DATABASE_URL` unset, the suite ran against the shared dev DB `feedbackops`, and produced a garbage FAIL artifact. Run `prepare-verify-db.sh` and export its printed `VERIFY_DATABASE_URL` first.
 - **Effective DB assertion.** Before running Vitest, `verify.sh` prints the effective database host/name/role injected into the child process, using the same redacted parser that writes `db_target` into the VERIFY artifact. Passwords are never printed or recorded.
 - **Env scrub (default-deny allowlist).** The vitest child runs under `env -i` with only an allowlist passed through (`PATH HOME SHELL TERM LANG LC_ALL TMPDIR TMP USER LOGNAME PWD NODE_OPTIONS NODE_ENV DATABASE_URL DATABASE_URL_MIGRATE WORKSPACE_ID CI`, plus `PNPM_*`/`npm_config_*`, plus any names in `VERIFY_ENV_ALLOW`). Arbitrary host secrets (tokens/keys) do **not** leak into test/app code.
-- **Canonical provenance artifact.** When `VERIFY_ISSUE=<n>` is set, `verify.sh` writes `.review/ISSUE-<n>-VERIFY.json` (schema `.review/schemas/verify.schema.json`, `artifact_type: "verify_result"`, `producer_role: "VERIFIER"`): branch, `head_sha`, cwd, `verify_cmd`, `env_profile`, `db_target` (host/database/role — **never a password**), `verdict` (passed/failed/pending/exit_code), `classifier` (PASS/FAIL), `created_at`. This makes verifier output the canonical readiness signal, not worker prose. If a green run cannot write and re-read a valid artifact, the run fails closed with exit 5; evidence is the product. If the test run is already failing, an artifact-write failure preserves that failing classifier exit and never turns it green. With `VERIFY_ISSUE` unset, behavior is unchanged (no artifact).
+- **Canonical provenance artifact.** When `VERIFY_ISSUE=<n>` is set, `verify.sh` writes `.review/ISSUE-<n>-VERIFY.json` (schema `schemas/verify.schema.json`, `artifact_type: "verify_result"`, `producer_role: "VERIFIER"`): branch, `head_sha`, cwd, `verify_cmd`, `env_profile`, `db_target` (host/database/role — **never a password**), `verdict` (passed/failed/pending/exit_code), `classifier` (PASS/FAIL), `created_at`. This makes verifier output the canonical readiness signal, not worker prose. If a green run cannot write and re-read a valid artifact, the run fails closed with exit 5; evidence is the product. If the test run is already failing, an artifact-write failure preserves that failing classifier exit and never turns it green. With `VERIFY_ISSUE` unset, behavior is unchanged (no artifact).
 
 ### Per-issue verify DB provisioning (`prepare-verify-db.sh`)
 

@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.8
+## Current release: v0.9
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -18,6 +18,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
+- a single distributable `toolkit/` authority separated from the root Matt Pocock development environment;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
 
@@ -75,6 +76,13 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Installation smoke executes both gates from real temporary Git targets and covers a metadata-free export in a path containing spaces.
 - Physical authority migration into `toolkit/`, legacy-install migration, and release enforcement remain ordered follow-ups in #29–#31.
 
+### v0.9 — distributable authority separation
+
+- Product scripts, schemas, docs, canonical skill, tests, README, STATUS, environment example, and scoped instructions live beneath `toolkit/`.
+- Root Matt skills, tracker/domain/triage configuration, plans, CI, hooks, and runtime evidence remain repository-owned and are excluded from target installs.
+- Product issue reporting is self-contained, and the duplicate Matt-directory `agent-workflow` skill has been removed.
+- `cmux-cluster.sh` now checks the target's installed `.agent-workflow/{scripts,schemas}` contract instead of source-checkout paths.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -101,7 +109,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
-- **P0 toolkit separation:** #27 is the parent; #28 establishes the relocatable interface, followed in order by #29 authority migration, #30 legacy-install migration, and #31 release enforcement.
+- **P0 toolkit separation:** #27 is the parent; #28 and #29 establish the relocatable interface and single product root, followed by #30 legacy-install migration and #31 release enforcement.
 - **P1 procedure/templates:** issues #9–#11 — circuit breaker, atomic chunks, and Standard-tier generation; #4–#6 are shipped in the reusable playbook/template contract.
 - **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.

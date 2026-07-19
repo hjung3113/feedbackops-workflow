@@ -5,8 +5,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL="$SCRIPT_DIR/../install-into.sh"
-TOOLKIT_ROOT="$(cd "$SCRIPT_DIR/../.." && git rev-parse --show-toplevel)"
-TOOLKIT_ROOT="$(cd "$TOOLKIT_ROOT" && pwd -P)"
+PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -113,16 +112,16 @@ mkdir -p "$target_symlink"
 
 assert_exit "symlink mode exits zero" PASS bash "$INSTALL" "$target_symlink"
 assert_true "symlink mode creates scripts link" test -L "$target_symlink/.agent-workflow/scripts"
-assert_true "scripts link points at toolkit scripts" test "$(readlink "$target_symlink/.agent-workflow/scripts")" = "$TOOLKIT_ROOT/scripts"
+assert_true "scripts link points at product scripts" test "$(readlink "$target_symlink/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
 assert_true "symlink mode creates schemas link" test -L "$target_symlink/.agent-workflow/schemas"
-assert_true "schemas link points at toolkit schemas" test "$(readlink "$target_symlink/.agent-workflow/schemas")" = "$TOOLKIT_ROOT/.review/schemas"
+assert_true "schemas link points at product schemas" test "$(readlink "$target_symlink/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
 assert_true "symlink mode creates docs link" test -L "$target_symlink/.agent-workflow/docs/agents"
-assert_true "docs link points at toolkit docs" test "$(readlink "$target_symlink/.agent-workflow/docs/agents")" = "$TOOLKIT_ROOT/docs/agents"
+assert_true "docs link points at product docs" test "$(readlink "$target_symlink/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
 assert_true "symlink mode creates project skill link" test -L "$target_symlink/.claude/skills/agent-workflow"
-assert_true "skill link points at toolkit skill" test "$(readlink "$target_symlink/.claude/skills/agent-workflow")" = "$TOOLKIT_ROOT/.claude/skills/agent-workflow"
+assert_true "skill link points at product skill" test "$(readlink "$target_symlink/.claude/skills/agent-workflow")" = "$PRODUCT_ROOT/.claude/skills/agent-workflow"
 assert_true "install creates target .review" test -d "$target_symlink/.review"
 prepare_gate_fixture "$target_symlink"
-assert_gate_contract "source layout" "$TOOLKIT_ROOT/scripts"
+assert_gate_contract "source layout" "$PRODUCT_ROOT/scripts"
 assert_gate_contract "symlink install" "$target_symlink/.agent-workflow/scripts"
 
 target_copy="$TMP_DIR/target-copy"
@@ -153,30 +152,38 @@ assert_true "installed playbook avoids non-privacy allowlist ceremony" grep -F -
 assert_true "copy mode includes skill entrypoint" test -e "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 assert_true "skill has no machine-specific toolkit path" sh -c "! grep -F '/Desktop/2026/feedbackops-workflow' '$target_copy/.claude/skills/agent-workflow/SKILL.md' >/dev/null"
 assert_true "skill requires explicit toolkit self-test" grep -F -q -- '--self-test' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
-assert_true "skill documents toolkit self-application refusal" grep -F -q 'If `TARGET` and `WF` are the same repository, stop' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+assert_true "skill documents source self-application refusal" grep -F -q 'resolves to `TARGET`, stop' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 
 printf '%s\n' 'local target customization' > "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 assert_exit "reinstall without force exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy
 assert_true "reinstall without force preserves target skill" grep -F -q 'local target customization' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 assert_exit "force reinstall exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy --force
 assert_true "force reinstall restores canonical skill" grep -F -q 'name: agent-workflow' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+assert_true "copy install excludes Matt skills" test ! -e "$target_copy/.agents"
+assert_true "copy install excludes Matt lockfile" test ! -e "$target_copy/skills-lock.json"
+assert_true "copy install excludes root instructions" test ! -e "$target_copy/AGENTS.md"
+assert_true "copy install excludes maintainer tracker" test ! -e "$target_copy/docs/agents/issue-tracker.md"
+assert_true "copy install excludes maintainer domain config" test ! -e "$target_copy/docs/agents/domain.md"
+assert_true "copy install excludes maintainer triage config" test ! -e "$target_copy/docs/agents/triage-labels.md"
+assert_true "copy install excludes plans" test ! -e "$target_copy/docs/plans"
+assert_true "copy install excludes repository evidence" test ! -e "$target_copy/.review/source"
 prepare_gate_fixture "$target_copy"
 assert_gate_contract "copy install" "$target_copy/.agent-workflow/scripts"
 
 product_export="$TMP_DIR/product export"
 export_target="$TMP_DIR/export target"
 mkdir -p "$product_export/docs" "$product_export/.claude/skills" "$export_target"
-cp -R "$TOOLKIT_ROOT/scripts" "$product_export/scripts"
-cp -R "$TOOLKIT_ROOT/.review/schemas" "$product_export/schemas"
-cp -R "$TOOLKIT_ROOT/docs/agents" "$product_export/docs/agents"
-cp -R "$TOOLKIT_ROOT/.claude/skills/agent-workflow" "$product_export/.claude/skills/agent-workflow"
+cp -R "$PRODUCT_ROOT/scripts" "$product_export/scripts"
+cp -R "$PRODUCT_ROOT/schemas" "$product_export/schemas"
+cp -R "$PRODUCT_ROOT/docs/agents" "$product_export/docs/agents"
+cp -R "$PRODUCT_ROOT/.claude/skills/agent-workflow" "$product_export/.claude/skills/agent-workflow"
 
 assert_exit "git-metadata-free product export installs from a path with spaces" PASS \
   bash "$product_export/scripts/install-into.sh" "$export_target" --mode copy
 assert_true "export install includes completion gate" test -e "$export_target/.agent-workflow/scripts/completion-check.sh"
 assert_true "export install includes canonical schema" test -e "$export_target/.agent-workflow/schemas/round_state.schema.json"
 
-assert_exit "refuses toolkit root" FAIL bash "$INSTALL" "$TOOLKIT_ROOT"
+assert_exit "refuses product root" FAIL bash "$INSTALL" "$PRODUCT_ROOT"
 assert_exit "errors on missing target path" FAIL bash "$INSTALL" "$TMP_DIR/does-not-exist"
 
 echo "---"

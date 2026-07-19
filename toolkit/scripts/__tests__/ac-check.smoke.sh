@@ -6,7 +6,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$SCRIPT_DIR/../ac-check.sh"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-FIXTURE="$ROOT/.review/schemas/fixtures/round_state.valid.json"
+FIXTURE="$ROOT/schemas/fixtures/round_state.valid.json"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -122,9 +122,9 @@ node -e '
   if (validate(schema, invalid).length === 0) process.exit(2);
   if (validate({...schema, oneOf: []}, valid).length === 0) process.exit(3);
 ' "$ROOT/scripts/lib/json-schema-subset.cjs" \
-  "$ROOT/.review/schemas/round_state.schema.json" \
-  "$ROOT/.review/schemas/fixtures/round_state.valid.json" \
-  "$ROOT/.review/schemas/fixtures/round_state.invalid.json"
+  "$ROOT/schemas/round_state.schema.json" \
+  "$ROOT/schemas/fixtures/round_state.valid.json" \
+  "$ROOT/schemas/fixtures/round_state.invalid.json"
 if [ "$?" -eq 0 ]; then
   echo "ok   - AC-13 schema subset validates fixtures and rejects unknown keywords"
 else

@@ -58,7 +58,7 @@ So: VISUAL-REVIEWER drives playwright **interactively** to judge; VERIFIER **cod
 
 ## 5. Output — feeds the existing `review` artifact
 
-The VISUAL-REVIEWER's verdict feeds the **existing `review` artifact** (`.review/schemas/review.schema.json`). It does **not** invent a new artifact type.
+The VISUAL-REVIEWER's verdict feeds the **existing `review` artifact** (`schemas/review.schema.json`). It does **not** invent a new artifact type.
 
 - `status`: `pass` | `fail` | `blocked` — the visual/interaction verdict rolls into REVIEWER's overall review status.
 - `checklist[]`: one entry per visual concern checked (`item` + `met` boolean + optional `note`) — e.g. each interaction-script state (create/edit/error/empty/permission) and each triggering surface (layout, tokens, shells…).
@@ -85,4 +85,4 @@ You are a contributor to REVIEWER's single `review` artifact, not a parallel art
 
 - `docs/agents/multi-agent-workflow.md` — the operating playbook (Risk Tier Routing, REVIEWER/VERIFIER protocol, the tier table's `(+ VISUAL if UI)`).
 - `docs/agents/conductor-persona.md` — the orchestrator persona (sibling doc; CONDUCTOR dispatches this role).
-- `.review/schemas/review.schema.json` — the `review` artifact this role's verdict feeds.
+- `schemas/review.schema.json` — the `review` artifact this role's verdict feeds.

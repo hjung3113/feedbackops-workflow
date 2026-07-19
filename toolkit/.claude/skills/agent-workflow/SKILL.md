@@ -24,9 +24,9 @@ Use this skill as the **router and completion gate** for a coding run. Keep deta
 2. Resolve `WF` in this order:
    - `$AGENT_WORKFLOW_HOME`, when explicitly set;
    - `$TARGET/.agent-workflow`, when installed into the target;
-   - the toolkit repository root (`../../..` from this skill) when working in the toolkit itself.
+   - the toolkit product root (`../../..` from this skill) when working in the toolkit source tree.
 3. Require `$WF/scripts/codex-safe.sh` and `$WF/docs/agents/multi-agent-workflow.md`. If either is missing, stop and run the toolkit's `scripts/install-into.sh <target>` or ask for the correct home.
-4. Resolve both paths physically. If `TARGET` and `WF` are the same repository, stop unless the user explicitly passed `--self-test`. The toolkit is a product being developed here, not the default workflow for its own development. `--self-test` is narrow authorization for intentional dogfooding; it does not weaken any other gate.
+4. Resolve both paths physically. `$TARGET/.agent-workflow` is a normal target installation. Otherwise, if `git -C "$WF" rev-parse --show-toplevel` resolves to `TARGET`, stop unless the user explicitly passed `--self-test`. The source product belongs to that repository but is not its default development workflow. `--self-test` is narrow authorization for intentional dogfooding; it does not weaken any other gate.
 
 Never assume a machine-specific absolute path. `TARGET` is the repository being changed; `WF` is the workflow implementation.
 

@@ -6,7 +6,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CHECK="$SCRIPT_DIR/../completion-check.sh"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-FIXTURE="$ROOT/.review/schemas/fixtures/round_state.valid.json"
+FIXTURE="$ROOT/schemas/fixtures/round_state.valid.json"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

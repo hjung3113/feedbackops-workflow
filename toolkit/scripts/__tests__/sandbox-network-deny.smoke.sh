@@ -2,8 +2,10 @@
 # Smoke test that the codex worker wrapper preserves sandbox network denial.
 set -u
 
-repo_root="$(git rev-parse --show-toplevel)"
-SCRIPT="$repo_root/scripts/codex-safe.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+product_root="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+repo_root="$(git -C "$product_root" rev-parse --show-toplevel)"
+SCRIPT="$product_root/scripts/codex-safe.sh"
 FAILURES=0
 
 run_case() {
@@ -24,7 +26,7 @@ run_live_probe() {
 
   (
     cd "$repo_root" &&
-      codex exec --sandbox workspace-write --cd "$repo_root" "Run exactly this one command from the repo root and nothing else: node scripts/__tests__/net-deny-probe.mjs 127.0.0.1 5434 $out"
+      codex exec --sandbox workspace-write --cd "$repo_root" "Run exactly this one command from the repo root and nothing else: node toolkit/scripts/__tests__/net-deny-probe.mjs 127.0.0.1 5434 $out"
   ) >/dev/null 2>&1
 
   if [ ! -s "$repo_root/$out" ]; then

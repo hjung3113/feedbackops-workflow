@@ -6,8 +6,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
-RUN_SCHEMA="$SCRIPT_DIR/../../.review/schemas/run.schema.json"
-RUN_FIXTURE="$SCRIPT_DIR/../../.review/schemas/fixtures/run.valid.json"
+RUN_SCHEMA="$SCRIPT_DIR/../../schemas/run.schema.json"
+RUN_FIXTURE="$SCRIPT_DIR/../../schemas/fixtures/run.valid.json"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 

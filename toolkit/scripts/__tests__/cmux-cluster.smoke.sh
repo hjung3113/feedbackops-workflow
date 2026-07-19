@@ -49,10 +49,15 @@ wt_missing_infra="$TMP_ROOT/wt-42-missing-infra"
 mkdir -p "$wt_missing_infra"
 run_case "existing worktree without workflow infra exits 1" 1 "missing workflow infra" 42 missing-infra
 
-wt_not_ready="$TMP_ROOT/wt-43-not-ready"
-mkdir -p "$wt_not_ready/scripts" "$wt_not_ready/.review/schemas"
-touch "$wt_not_ready/scripts/codex-safe.sh"
-run_case "existing worktree with infra but missing deps env exits 1" 1 "not dispatch-ready" 43 not-ready
+wt_old_layout="$TMP_ROOT/wt-43-old-layout"
+mkdir -p "$wt_old_layout/scripts" "$wt_old_layout/.review/schemas"
+touch "$wt_old_layout/scripts/codex-safe.sh"
+run_case "old source-checkout layout is not installed workflow infra" 1 "missing workflow infra" 43 old-layout
+
+wt_not_ready="$TMP_ROOT/wt-44-not-ready"
+mkdir -p "$wt_not_ready/.agent-workflow/scripts" "$wt_not_ready/.agent-workflow/schemas"
+touch "$wt_not_ready/.agent-workflow/scripts/codex-safe.sh"
+run_case "installed workflow infra advances to deps env readiness" 1 "not dispatch-ready" 44 not-ready
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then

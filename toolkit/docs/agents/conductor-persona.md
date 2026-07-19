@@ -33,7 +33,7 @@ scripts/conductor-rebuild.sh <review-dir> [<fallback-head-sha>]
 
 - Regenerate it on **every material event** (a worker reports verified, a blocker lands, a merge happens, a branch advances).
 - Every claim cites `derived_from[]` with `artifact_path`, `content_sha256`, and `head_sha`.
-- The derived-not-truth rule (from `.review/README.md`), verbatim:
+- The derived-not-truth rule (from `docs/agents/artifact-lifecycle.md`), verbatim:
 
   > PHASE-SUMMARY is a cache of lower-level artifacts. Readers MUST treat `derived_from` as authority; a `chunks[].state == "verified"` claim is INVALID unless `evidence_head_sha` equals the branch HEAD, and a `derived_from[].content_sha256` that no longer matches the on-disk artifact means the summary is STALE and must be regenerated.
 
@@ -97,6 +97,6 @@ These four failure modes were surfaced by adversarial review. Guard against each
 ## See also
 
 - `docs/agents/multi-agent-workflow.md` — the operating playbook (Risk Tier Routing, Release Captain, VERIFIER protocol, State reconstruction R6).
-- `.review/README.md` — the derived-not-truth rule and artifact catalog.
+- `docs/agents/artifact-lifecycle.md` — the derived-not-truth rule and artifact catalog.
 - `scripts/conductor-rebuild.sh` — disk-truth state reconstruction.
-- `.review/schemas/phase_summary.schema.json`, `.review/schemas/heartbeat.schema.json` — the CONDUCTOR's state artifacts.
+- `schemas/phase_summary.schema.json`, `schemas/heartbeat.schema.json` — the CONDUCTOR's state artifacts.
