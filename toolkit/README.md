@@ -47,6 +47,8 @@ Installer는 자신의 `scripts/` 위치에서 물리적인 product home을 찾�
 
 이전 루트 구조와 일치하는 absolute symlink를 하나라도 발견하면 installer는 아무것도 바꾸지 않고 중단합니다. 일부 링크만 남았거나 원래 저장소가 이동·삭제된 경우도 같습니다. 진단에 표시된 링크를 확인한 뒤 `--migrate-legacy`를 사용하세요. 이 옵션은 인식된 legacy link만 현재 product home의 symlink 또는 `--mode copy` snapshot으로 바꾸며, 실제 파일·디렉터리·임의 symlink는 보존합니다. `--force`와 함께 사용할 수 없습니다.
 
+Installer가 관리하는 상위 경로인 `.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, `.review`는 타겟 내부의 실제 디렉터리여야 합니다. 이 중 하나가 symlink이면 default, `--migrate-legacy`, `--force` 모두 변경 없이 거부하여 타겟 밖의 경로를 따라가 쓰거나 삭제하지 않습니다.
+
 Copy mode는 자동 갱신되지 않는 point-in-time snapshot입니다. 재실행만으로는 기존 snapshot과 local customization을 덮어쓰지 않습니다. 업데이트하려면 먼저 네 managed destination을 backup/diff한 뒤 `--mode copy --force`를 명시적으로 실행하세요:
 
 ```text

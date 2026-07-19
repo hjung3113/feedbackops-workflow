@@ -122,6 +122,14 @@
     },
     {
       "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
+      "token": "legacy-review-schemas",
+      "region": "filesystem-root-legacy-fixture",
+      "context": "ln -s /.review/schemas \"$legacy_root_target/.agent-workflow/schemas\"",
+      "expectedCount": 1,
+      "reason": "The installer smoke verifies the exact filesystem-root legacy schema suffix is detected."
+    },
+    {
+      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
       "token": "legacy-repository-scripts",
       "region": "repository-legacy-fixture",
       "context": "ln -s \"$REPOSITORY_ROOT/scripts\" \"$legacy_mixed/.agent-workflow/scripts\"",

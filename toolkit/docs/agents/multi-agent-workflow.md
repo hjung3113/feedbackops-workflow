@@ -12,6 +12,8 @@ The workflow product home is the physical parent of the running command's `scrip
 
 Each recognized pre-separation absolute symlink fails closed with an actionable `--migrate-legacy` command, even when only part of an installation remains or its former repository root moved or disappeared. Migration preflights all managed destinations, removes only recognized legacy link nodes, and preserves files, directories, copy snapshots, and unrecognized links. `--force` is the separate explicit full-replacement interface and cannot be combined with migration.
 
+Managed parent paths (`.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, and `.review`) must be real directories inside the target. The installer rejects symlinked parents before legacy detection or any mutation in default, migration, and force modes, preventing managed writes or removals from escaping the target root.
+
 Product containment, classified legacy-path evidence, and maintainer-file non-leakage are release concerns owned by infrastructure outside this distributable product and are not installed into targets. Product-local Markdown links must resolve from both source and installed paths. The legacy symlink recognizer above is a documented compatibility contract, not a product-home fallback.
 
 When a target run reveals a toolkit problem, follow the downstream feedback loop in the adoption

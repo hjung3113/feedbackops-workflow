@@ -133,13 +133,19 @@ else
   ok "product documents do not depend on maintainer tracker"
 fi
 
-if grep -R -E '\.github/|\.githooks/|\.review/source|docs/plans/|skills-lock\.json|\.agents/skills|docs/agents/(issue-tracker|domain|triage-labels)\.md' \
+REPOSITORY_INFRA_PATTERN='\.github/|\.githooks/|\.review/source|docs/plans/|skills-lock\.json|\.agents/skills|docs/agents/(issue-tracker|domain|triage-labels)\.md'
+if grep -R -E "$REPOSITORY_INFRA_PATTERN" \
   "$PRODUCT_ROOT/README.md" "$PRODUCT_ROOT/AGENTS.md" "$PRODUCT_ROOT/STATUS.md" \
-  "$PRODUCT_ROOT/docs" "$PRODUCT_ROOT/.claude/skills/agent-workflow" >/dev/null 2>&1; then
+  "$PRODUCT_ROOT/CLAUDE.md" "$PRODUCT_ROOT/docs" \
+  "$PRODUCT_ROOT/.claude/skills/agent-workflow" >/dev/null 2>&1; then
   not_ok "product documents do not depend on repository infrastructure"
 else
   ok "product documents do not depend on repository infrastructure"
 fi
+repository_infra_fixture="$TMP_DIR/product-claude-infra-fixture.md"
+printf '%s\n' 'Follow .github/private-policy.md.' > "$repository_infra_fixture"
+assert_command "repository infrastructure pattern covers product Claude pointer" \
+  grep -E -q "$REPOSITORY_INFRA_PATTERN" "$repository_infra_fixture"
 
 assert_command "CI actively runs release contract" ci_has_active_run \
   "$REPOSITORY_ROOT/.github/workflows/smoke.yml" 'bash .github/tests/release-contract.smoke.sh'

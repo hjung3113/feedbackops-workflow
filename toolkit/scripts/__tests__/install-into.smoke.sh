@@ -83,6 +83,13 @@ assert_legacy_links() {
 }
 # release-contract: legacy-link-fixture-end
 
+assert_external_tree_untouched() {
+  label="$1"
+  external="$2"
+  assert_true "$label preserves external sentinel" grep -F -q 'outside target' "$external/sentinel"
+  assert_true "$label creates no external managed leaves" test ! -e "$external/scripts"
+}
+
 assert_no_maintainer_leakage() {
   target="$1"
   assert_true "install excludes Matt skills" test ! -e "$target/.agents"
@@ -163,6 +170,46 @@ assert_gate_contract() {
 target_symlink="$TMP_DIR/target-symlink"
 mkdir -p "$target_symlink"
 
+for parent_case in agent agent-docs claude claude-skills review; do
+  parent_target="$TMP_DIR/symlinked-parent-$parent_case"
+  parent_external="$TMP_DIR/external-parent-$parent_case"
+  mkdir -p "$parent_target" "$parent_external"
+  printf '%s\n' 'outside target' > "$parent_external/sentinel"
+  case "$parent_case" in
+    agent)
+      ln -s "$parent_external" "$parent_target/.agent-workflow"
+      ;;
+    agent-docs)
+      mkdir -p "$parent_target/.agent-workflow"
+      ln -s "$parent_external" "$parent_target/.agent-workflow/docs"
+      ;;
+    claude)
+      ln -s "$parent_external" "$parent_target/.claude"
+      ;;
+    claude-skills)
+      mkdir -p "$parent_target/.claude"
+      ln -s "$parent_external" "$parent_target/.claude/skills"
+      ;;
+    review)
+      ln -s "$parent_external" "$parent_target/.review"
+      ;;
+  esac
+  assert_exit_output "symlinked $parent_case parent is rejected" 2 \
+    "managed parent must not be a symlink" bash "$INSTALL" "$parent_target"
+  assert_external_tree_untouched "symlinked $parent_case refusal" "$parent_external"
+done
+
+parent_target="$TMP_DIR/symlinked-parent-mutating-flags"
+parent_external="$TMP_DIR/external-parent-mutating-flags"
+mkdir -p "$parent_target" "$parent_external"
+printf '%s\n' 'outside target' > "$parent_external/sentinel"
+ln -s "$parent_external" "$parent_target/.agent-workflow"
+assert_exit_output "symlinked parent blocks forced install" 2 \
+  "managed parent must not be a symlink" bash "$INSTALL" "$parent_target" --force
+assert_exit_output "symlinked parent blocks legacy migration" 2 \
+  "managed parent must not be a symlink" bash "$INSTALL" "$parent_target" --migrate-legacy
+assert_external_tree_untouched "symlinked parent mutating flags" "$parent_external"
+
 assert_exit "symlink mode exits zero" PASS bash "$INSTALL" "$target_symlink"
 assert_true "symlink mode creates scripts link" test -L "$target_symlink/.agent-workflow/scripts"
 assert_true "scripts link points at product scripts" test "$(readlink "$target_symlink/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
@@ -239,6 +286,18 @@ make_legacy_links "$legacy_dangling" "$legacy_dangling_root" dangling
 assert_exit_output "dangling legacy install is detected" 2 \
   "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_dangling"
 assert_legacy_links "dangling legacy refusal" "$legacy_dangling" "$legacy_dangling_root"
+
+# release-contract: filesystem-root-legacy-fixture-begin
+legacy_root_target="$TMP_DIR/legacy-filesystem-root-target"
+mkdir -p "$legacy_root_target/.agent-workflow/docs" "$legacy_root_target/.claude/skills"
+ln -s /scripts "$legacy_root_target/.agent-workflow/scripts"
+ln -s /.review/schemas "$legacy_root_target/.agent-workflow/schemas"
+ln -s /docs/agents "$legacy_root_target/.agent-workflow/docs/agents"
+ln -s /.claude/skills/agent-workflow "$legacy_root_target/.claude/skills/agent-workflow"
+# release-contract: filesystem-root-legacy-fixture-end
+assert_exit_output "filesystem-root legacy install is detected" 2 \
+  "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_root_target"
+assert_legacy_links "filesystem-root legacy refusal" "$legacy_root_target" ""
 
 legacy_foreign_partial="$TMP_DIR/legacy-foreign-partial-target"
 legacy_foreign_root="$TMP_DIR/foreign moved root"

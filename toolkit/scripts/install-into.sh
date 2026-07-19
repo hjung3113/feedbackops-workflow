@@ -97,6 +97,22 @@ SCHEMAS_DEST="$AGENT_DIR/schemas"
 DOCS_DEST="$AGENT_DIR/docs/agents"
 SKILL_DEST="$CLAUDE_SKILLS_DIR/agent-workflow"
 
+reject_symlinked_managed_parent() {
+  local managed_parent=""
+  for managed_parent in \
+    "$AGENT_DIR" \
+    "$AGENT_DIR/docs" \
+    "$TARGET_ROOT/.claude" \
+    "$CLAUDE_SKILLS_DIR" \
+    "$REVIEW_DIR"; do
+    if [[ -L "$managed_parent" ]]; then
+      echo "install-into: managed parent must not be a symlink: $managed_parent" >&2
+      echo "No changes made. Replace it with a real directory inside the target before installing." >&2
+      exit 2
+    fi
+  done
+}
+
 require_source_dir() {
   local source_dir="$1"
   if [[ ! -d "$source_dir" ]]; then
@@ -109,6 +125,7 @@ require_source_dir "$SCRIPTS_SRC"
 require_source_dir "$SCHEMAS_SRC"
 require_source_dir "$DOCS_SRC"
 require_source_dir "$SKILL_SRC"
+reject_symlinked_managed_parent
 
 # release-contract: legacy-link-detection-begin
 legacy_root_for() {
@@ -117,6 +134,9 @@ legacy_root_for() {
   local inferred_root=""
 
   case "$raw_target" in
+    "$legacy_suffix")
+      printf '/\n'
+      ;;
     /*"$legacy_suffix")
       inferred_root="${raw_target%"$legacy_suffix"}"
       [[ -n "$inferred_root" ]] || return 1
