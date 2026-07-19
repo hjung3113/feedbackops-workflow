@@ -13,6 +13,7 @@ cmux × Claude × Codex 작업을 **분리된 워크트리, 구조화된 산출�
 - **보이는 디스패치** — `cmux-dispatch.sh`가 워크스페이스, cwd, prompt, 모델, liveness 예산을 하나의 경로로 고정합니다.
 - **샌드박스 경계** — 구현자 Codex는 `workspace-write` 안에서 실행되며 DB·네트워크 검증은 호스트의 VERIFIER가 담당합니다.
 - **false-green 방지** — 전체 skip, 0 tests, 스위트 초기화 실패, 잘못된 DB, 증거 산출물 누락을 성공으로 처리하지 않습니다.
+- **독립 완료 계산** — CONDUCTOR가 worker prose나 `RUN.json` 대신 live `base..HEAD` diff와 target-native test discovery를 계약과 대조합니다.
 - **병렬 격리** — 작업별 워크트리와 일회성 DB를 사용해 파일·스키마·락 간섭을 막습니다.
 - **디스크가 정본** — CONDUCTOR는 대화 메모리가 아니라 `.review/*.json`만으로 상태를 복원합니다.
 - **계약 영향 스코프** — exported-contract 변경은 scope lock 전에 target-native 소비자 탐색을 수행하고, 구현 후 전체 typecheck로 결과를 gate하며, 실행 증거를 ROUND-STATE `live_probes[]`에 남깁니다.
@@ -95,6 +96,18 @@ scripts/ac-check.sh \
 
 acceptance manifest는 별도 파일이 아니라 CONDUCTOR가 작성하는 ROUND-STATE의 `acceptance.criteria[]` 뷰입니다. 디스패치는 ROUND-STATE의 `revision`을 `--manifest-revision`으로 고정합니다. gate는 전체 스키마와 base freshness를 먼저 검증하고, stale revision·중복 AC-ID·테스트에서 발견되지 않는 ID가 있으면 리뷰로 넘어가지 않습니다.
 
+### 5.5 CONDUCTOR 완료 계산
+
+구현 종료 후 CONDUCTOR는 worker의 완료 주장이나 `RUN.json`을 입력으로 쓰지 않고, 같은 ROUND-STATE와 target-native discovery 결과로 현재 worktree의 실제 diff를 계산합니다.
+
+```bash
+scripts/completion-check.sh \
+  --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
+  --manifest-revision 3
+```
+
+`base_sha..HEAD`의 모든 변경 경로는 `contract.touch_allowlist`에 들어가야 하고, 모든 AC-ID는 target-native `contract.test_discovery_command`의 실제 출력에서 발견되어야 합니다. 이 명령은 declared worktree에서 직접 실행되며, 출력의 non-empty record 수는 canonical `acceptance.expected_test_count`와 정확히 같아야 합니다. 불일치는 `mismatches` 배열을 가진 JSON으로 출력되며 exit 1로 리뷰를 hard-stop합니다. 입력·신선도·discovery 실행 오류도 stable error code가 든 JSON으로 exit 2를 반환합니다. discovery 명령은 target profile의 책임이며 core는 Vitest를 가정하지 않습니다.
+
 Full Cluster의 migration·권한·저장 제약 결정은 ARCH 확정 전에 feasibility appendix를 남깁니다. 실제 grant/privilege, migration principal capability, 직전 migration/journal 관례, 관련 uniqueness constraint를 확인한 정확한 명령과 간결한 결과는 기존 ROUND-STATE `live_probes[]`에 기록하며, 관측 불가나 불가능한 capability는 구현 추측이 아니라 blocker/결정으로 처리합니다.
 
 모든 테스트 matrix 행은 canonical ROUND-STATE `acceptance.criteria[]` 항목이며 AC-ID의 유일한 정본은 `id`입니다. 각 `statement`에는 명시적 precondition과 관측 가능한 checkpoint를 inline으로 적고, privacy 경계 행에만 positive field allowlist assertion을 추가합니다; 외부 인용은 이 필수 inline 내용의 정본을 대체할 수 없으며, privacy 적용 여부가 모호할 때만 이를 명시합니다.
@@ -128,7 +141,7 @@ cmux-dispatch.sh ─▶ codex-watchdog.sh ─▶ codex-safe.sh ─▶ CODEX
         │                    │
         │                    └─ RUN / HEARTBEAT / BLOCKER
         ▼
-REVIEWER + ac-check.sh
+completion-check.sh ──▶ REVIEWER + ac-check.sh
         │
         ▼
 host VERIFIER ──▶ ISSUE-N-VERIFY.json
@@ -151,6 +164,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 | `codex-watchdog.sh` | 프로세스·파일 liveness, stall 재시도, 이중 probe 기반 refusal 분류 |
 | `codex-safe.sh` | Codex 샌드박스·cwd·모델 effort 경계, 최소 Git metadata 쓰기 권한, 실패 시 partial stash |
 | `ac-check.sh` | ROUND-STATE revision과 AC-ID 발견 여부를 검사하는 pre-review gate |
+| `completion-check.sh` | live `base..HEAD` 변경과 test discovery를 ROUND-STATE 계약에 독립 대조 |
 | `verify.sh` | Vitest JSON 분류, DB 경계, typecheck baseline, canonical VERIFY 산출물 |
 | `conductor-rebuild.sh` | `.review/*.json`에서 현재 클러스터 상태 복원 |
 | `artifact-fresh.sh` / `review-archive.sh` | 산출물 신선도 검사와 병합 후 아카이브 |

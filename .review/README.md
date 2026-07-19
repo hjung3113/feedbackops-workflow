@@ -11,7 +11,7 @@ Immutable cross-repository evidence used to derive toolkit contracts lives under
 - `ISSUE-N-REVIEW.json` — REVIEWER findings + patch_instructions for ARCHITECT
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)
 - `ISSUE-N-RUN.json` — watchdog process/liveness marker (`running | exited | killed_stall | refused | exhausted`). `exited/0` is not task completion evidence.
-- `ISSUE-N-ROUND-STATE.json` — CONDUCTOR-owned canonical contract state. It replaces prose amendments and carries the current contract, AC manifest view, locked/open decisions, commit range, freshness provenance, live probes, and artifact pointers. Its top-level `revision` is the `manifest_revision` pinned by every dispatch; CODEX never edits it.
+- `ISSUE-N-ROUND-STATE.json` — CONDUCTOR-owned canonical contract state. It replaces prose amendments and carries the current contract, AC manifest view (including `acceptance.expected_test_count`), locked/open decisions, commit range, freshness provenance, live probes, and artifact pointers. Its top-level `revision` is the `manifest_revision` pinned by every dispatch; CODEX never edits it.
 - `ISSUE-N-VERIFY.json` — canonical VERIFIER evidence for the current branch/head. This, not PR-DRAFT prose, drives verified state.
 - `ISSUE-N-PARTIAL.diff` — stashed partial work on abort (v0.1: optional)
 - `PHASE-N-SUMMARY.json` — CONDUCTOR roll-up of a phase's worker clusters. A DERIVED artifact (a cache of lower-level artifacts), never source of truth. Carries `derived_from[]` (each with `content_sha256` of the on-disk artifact + `head_sha`) and `chunks[]` (per-issue `state` + `evidence_artifact` + `evidence_head_sha`).
