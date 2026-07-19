@@ -2,9 +2,9 @@
 node_modules/
 .env
 .env.*
-!.env.example
+!toolkit/.env.example
 
-# runtime workflow artifacts (schemas + README + .gitkeep stay tracked)
+# repository/runtime workflow artifacts (.gitkeep and source evidence stay tracked)
 .review/ISSUE-*.json
 .review/CLUSTER-*.json
 .review/PHASE-*.json
