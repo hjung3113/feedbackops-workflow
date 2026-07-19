@@ -13,13 +13,14 @@ PROMPT_FILE=""
 CWD=""
 MODEL=""
 EFFORT=""
+READ_ONLY=0
 FIRST_PROGRESS_TIMEOUT=240
 STALL_TIMEOUT=180
 MAX_RETRIES=2
 POLL_INTERVAL="${CODEX_WATCHDOG_POLL_INTERVAL:-15}"
 
 usage() {
-  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
+  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--read-only] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
 }
 
 now() { date +%s; }
@@ -66,6 +67,7 @@ while [ $# -gt 0 ]; do
     --cwd) CWD="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --read-only) READ_ONLY=1; shift 1 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
@@ -109,17 +111,17 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   # policy cap (5.6 above medium is refused). Omitting them falls back to the
   # user's codex config default, which is NOT the workflow's role allocation —
   # pin them at dispatch.
-  if [ -n "$MODEL" ] || [ -n "$EFFORT" ]; then
+  if [ -n "$MODEL" ] || [ -n "$EFFORT" ] || [ "$READ_ONLY" -eq 1 ]; then
     set -- --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD"
     [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
     [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    [ "$READ_ONLY" -eq 1 ] && set -- "$@" --heartbeat-file "$CWD/.review/HEARTBEAT-ISSUE-${ISSUE_N}.json"
     NODE_OPTIONS= "$CODEX_SAFE" "$@" 2>"$STDERR_LOG" &
   else
     NODE_OPTIONS= "$CODEX_SAFE" --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD" 2>"$STDERR_LOG" &
   fi
   pid=$!
   write_marker "running" "$attempt" "$pid" "" || true
-  touch "$STAMP"
 
   first_seen=0
   last_progress="$(now)"

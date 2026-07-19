@@ -50,12 +50,13 @@ PROMPT_FILE=""
 WS_NAME=""
 MODEL=""
 EFFORT=""
+READ_ONLY=0
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--read-only] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -85,6 +86,7 @@ while [ $# -gt 0 ]; do
     --name) WS_NAME="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --read-only) READ_ONLY=1; shift 1 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -128,6 +130,7 @@ CMD="NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --c
 # that the reviewer outranks the implementer). Pin it at the dispatch site.
 [ -n "$MODEL" ] && CMD="$CMD --model $MODEL"
 [ -n "$EFFORT" ] && CMD="$CMD --effort $EFFORT"
+[ "$READ_ONLY" -eq 1 ] && CMD="$CMD --read-only"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"$CMD\""

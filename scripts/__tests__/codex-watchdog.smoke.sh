@@ -29,6 +29,10 @@ case "${CODEX_STUB_MODE:-success}" in
     sleep 999
     exit 0
     ;;
+  silent_success)
+    sleep 4
+    exit 0
+    ;;
   progress)
     printf '%s\n' "one" > "codex-progress.txt"
     sleep 1
@@ -80,6 +84,12 @@ run_watchdog() {
   return $?
 }
 
+run_read_only_watchdog() {
+  wt="$1"; issue="$2"
+  CODEX_STUB_MODE=silent_success CODEX_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue "$issue" --prompt-file "$wt/prompt.txt" --cwd "$wt" --read-only --first-progress-timeout 2 --stall-timeout 3 --max-retries 0 >/dev/null 2>&1
+  return $?
+}
+
 WT_A="$(make_wt wt-success)"
 run_watchdog "$WT_A" success 201 0
 ec=$?
@@ -94,6 +104,13 @@ ec=$?
 [ "$ec" -eq 6 ] && pass "stall exhausts with exit 6" || fail "stall exhausts with exit 6 (got $ec)"
 status="$(marker_status "$WT_B/.review/ISSUE-202-RUN.json")"
 [ "$status" = "exhausted" ] && pass "stall marker exhausted" || fail "stall marker exhausted"
+
+WT_READ_ONLY="$(make_wt wt-read-only)"
+run_read_only_watchdog "$WT_READ_ONLY" 206
+ec=$?
+[ "$ec" -eq 0 ] && pass "read-only silent run survives first-progress timeout" || fail "read-only silent run survives first-progress timeout (got $ec)"
+status="$(marker_status "$WT_READ_ONLY/.review/ISSUE-206-RUN.json")"
+[ "$status" = "exited" ] && pass "read-only silent run marker exited" || fail "read-only silent run marker exited"
 
 WT_C="$(make_wt wt-progress)"
 run_watchdog "$WT_C" progress 203 0
