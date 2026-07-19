@@ -14,6 +14,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - pre-review AC-ID existence checking;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
+- an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
 
 Run the current inventory instead of copying a count into docs:

@@ -1,6 +1,6 @@
 ---
 name: agent-workflow
-description: Run or adapt an evidence-gated multi-agent coding workflow with cmux, isolated worktrees, independent implementation and review agents, and host-side verification. Use whenever the user asks for /agent-workflow, parallel agent implementation, a watched cmux cluster, artifact-based handoffs, or installing this workflow into another repository. Do not use for a one-step read-only explanation.
+description: Run or adapt an evidence-gated multi-agent coding workflow with cmux, isolated worktrees, independent implementation and review agents, and host-side verification. Invoke only when the user explicitly asks for /agent-workflow or explicitly requests this workflow; never auto-apply it while developing the toolkit itself.
 trigger: /agent-workflow
 ---
 
@@ -15,6 +15,7 @@ Use this skill as the **router and completion gate** for a coding run. Keep deta
 /agent-workflow #<issue-number>
 /agent-workflow <task> --target <repo-path>
 /agent-workflow <task> --tier trivial|standard|full
+/agent-workflow <task> --self-test
 ```
 
 ## Resolve target and toolkit
@@ -25,6 +26,7 @@ Use this skill as the **router and completion gate** for a coding run. Keep deta
    - `$TARGET/.agent-workflow`, when installed into the target;
    - the toolkit repository root (`../../..` from this skill) when working in the toolkit itself.
 3. Require `$WF/scripts/codex-safe.sh` and `$WF/docs/agents/multi-agent-workflow.md`. If either is missing, stop and run the toolkit's `scripts/install-into.sh <target>` or ask for the correct home.
+4. Resolve both paths physically. If `TARGET` and `WF` are the same repository, stop unless the user explicitly passed `--self-test`. The toolkit is a product being developed here, not the default workflow for its own development. `--self-test` is narrow authorization for intentional dogfooding; it does not weaken any other gate.
 
 Never assume a machine-specific absolute path. `TARGET` is the repository being changed; `WF` is the workflow implementation.
 

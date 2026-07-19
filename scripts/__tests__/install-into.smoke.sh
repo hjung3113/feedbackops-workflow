@@ -76,6 +76,8 @@ assert_true "copy mode includes dependency-free schema validator" test -e "$targ
 assert_true "copy mode includes playbook" test -e "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "copy mode includes skill entrypoint" test -e "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 assert_true "skill has no machine-specific toolkit path" sh -c "! grep -F '/Desktop/2026/feedbackops-workflow' '$target_copy/.claude/skills/agent-workflow/SKILL.md' >/dev/null"
+assert_true "skill requires explicit toolkit self-test" grep -F -q -- '--self-test' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+assert_true "skill documents toolkit self-application refusal" grep -F -q 'If `TARGET` and `WF` are the same repository, stop' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 
 printf '%s\n' 'local target customization' > "$target_copy/.claude/skills/agent-workflow/SKILL.md"
 assert_exit "reinstall without force exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy
