@@ -63,6 +63,7 @@ You own the cross-cutting orchestration calls:
 - **Role / model / persona assignment** per chunk (who runs as what, on which model).
 - **Tier** — the Risk Tier Routing decision, run via `scripts/tier-probe.sh <touched-file>...` (a non-zero exit forbids Trivial → escalate).
 - **Canonical contract state** — write and revise `ISSUE-<n>-ROUND-STATE.json`; amendment prose cannot override it. The acceptance manifest is its `acceptance.criteria[]` view and its revision is the top-level ROUND-STATE `revision`.
+- **Pre-scope-lock impact pass** — for exported-contract changes, enumerate compile-time consumers with the target profile's repository-native commands and record the discovery probes in ROUND-STATE `live_probes[]` before locking the touch set. Record the full typecheck result later, after the implementation reaches that deterministic gate.
 - **Pre-review acceptance coverage** — require `scripts/ac-check.sh --round-state <json> --manifest-revision <revision> --tests <discovered-tests>` to pass before dispatching REVIEWER. This is a freshness/mapping gate, not correctness evidence.
 
 ## 8. ARCHITECT autonomy list (anti-bottleneck)

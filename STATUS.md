@@ -13,6 +13,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - independent REVIEWER and host-side VERIFIER gates;
 - pre-review AC-ID existence checking;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
+- a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
@@ -83,7 +84,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
-- **P1 procedure/templates:** issues #3–#6 and #9–#11 — impact pass, ARCH feasibility, richer AC rows, completion calculation, circuit breaker, atomic chunks, and Standard-tier generation.
+- **P1 procedure/templates:** issues #4–#6 and #9–#11 — ARCH feasibility, richer AC rows, completion calculation, circuit breaker, atomic chunks, and Standard-tier generation.
 - **P2 toolkit/procedure:** #13, #14, #17, #19 — verifier output/freshness, integrated-head closure, re-review capsule, and plain-checkout Git handling.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.

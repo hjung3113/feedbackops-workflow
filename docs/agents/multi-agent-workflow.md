@@ -30,6 +30,18 @@ The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is
 
 This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
 
+### Pre-scope-lock impact pass
+
+Before locking the touch set for a chunk that changes an exported contract, CONDUCTOR must enumerate the changed exports' compile-time consumers. Use the target profile recorded during adoption and the target repository's native search/index facilities; CodeGraph may be used when available, but it is not a workflow dependency. Do not add a toolkit-level `impact-manifest` script without new evidence that repository-native discovery is insufficient.
+
+The pre-lock output is the enumerated consumer set: use it to propose the touch allowlist and review scope. Enumeration does not imply that every consumer needs an edit. Compile-atomic chunk composition is specified separately by issue #10 and is not defined by this pass.
+
+After the contract change is implemented, run the target profile's full typecheck command as the deterministic gate. A passing typecheck does not replace pre-lock consumer enumeration; it checks the resulting implementation at a realizable checkpoint.
+
+Record each discovery and typecheck command in canonical ROUND-STATE `live_probes[]`, including its exit code, observation time, and a concise result summary. The discovery probes are recorded before lock and the typecheck probe after it runs. The existing `live_probes[]` interface is sufficient; add a separate impact section only when a concrete target demonstrates information that it cannot represent.
+
+This pass does not claim completeness for dynamic registries or convention-coupled consumers. Record concrete residual risks for adversarial review. Issue #10 will define triggered watch-item handling; until it lands, do not claim that mechanism exists or turn residuals into ambient scope claims.
+
 ## Model Allocation — role × model map, dynamic by tier
 
 The current operator profile exposes suffixed OpenAI 5.6 aliases: **`gpt-5.6-sol` (top, heavy reasoning) > `gpt-5.6-terra` (everyday implementation) > `gpt-5.6-luna` (light/mechanical)**. These are environment capabilities, not portable toolkit dependencies. On a new machine/account, preflight the intended aliases and substitute an explicitly pinned ladder with the same capability ordering. The operator currently keeps fast mode off; that preference lives in machine config and is not installed by this repository.

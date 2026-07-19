@@ -55,7 +55,7 @@ The target instructions own product conventions. The workflow playbook owns role
 
 ## Run loop
 
-1. **Scope** — resolve the issue/task, target repository, acceptance criteria, allowed touch set, and integration branch. For a dispatched coding run, CONDUCTOR records the normative contract in `ISSUE-<n>-ROUND-STATE.json`; prompt amendments cannot override it.
+1. **Scope** — resolve the issue/task, target repository, acceptance criteria, allowed touch set, and integration branch. Before locking scope for an exported-contract change, follow the playbook's pre-scope-lock impact pass. For a dispatched coding run, CONDUCTOR records the normative contract in `ISSUE-<n>-ROUND-STATE.json`; prompt amendments cannot override it.
 2. **Route risk** — select Trivial, Standard, or Full from the playbook. Before Trivial, run `tier-probe.sh` when the target is compatible; otherwise conservatively escalate.
 3. **Prepare** — create one worktree per write chunk. Use `prepare-worktree.sh` only when the target matches its pnpm/env contract; otherwise run the target's documented host-side setup.
 4. **Dispatch** — write `.review/ISSUE-<N>-PROMPT.txt`, explicitly pin the playbook-selected model/effort, then call `cmux-dispatch.sh`. Use `--read-only` for thinking/review seats and tune liveness budgets only when needed.
