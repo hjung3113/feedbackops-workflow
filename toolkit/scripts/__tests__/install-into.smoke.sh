@@ -320,6 +320,24 @@ assert_true "foreign partial migration rewires schemas" test "$(readlink "$legac
 assert_true "foreign partial migration rewires docs" test "$(readlink "$legacy_foreign_partial/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
 assert_true "foreign partial migration preserves custom skill" grep -F -q 'foreign partial custom skill' "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
 
+for custom_schema_state in live dangling; do
+  custom_schema_target="$TMP_DIR/custom-schema-$custom_schema_state-target"
+  custom_schema_root="$TMP_DIR/custom-schema-$custom_schema_state-root"
+  mkdir -p "$custom_schema_target/.agent-workflow"
+  if [ "$custom_schema_state" = "live" ]; then
+    mkdir -p "$custom_schema_root/schemas"
+  fi
+  ln -s "$custom_schema_root/schemas" "$custom_schema_target/.agent-workflow/schemas"
+  assert_exit "lone $custom_schema_state custom schemas link remains installable" PASS \
+    bash "$INSTALL" "$custom_schema_target"
+  assert_true "lone $custom_schema_state custom schemas link is preserved" \
+    test "$(readlink "$custom_schema_target/.agent-workflow/schemas")" = "$custom_schema_root/schemas"
+  assert_exit "lone $custom_schema_state custom schemas link is not migratable" FAIL \
+    bash "$INSTALL" "$custom_schema_target" --migrate-legacy
+  assert_true "refused $custom_schema_state custom schemas migration preserves link" \
+    test "$(readlink "$custom_schema_target/.agent-workflow/schemas")" = "$custom_schema_root/schemas"
+done
+
 moved_current_target="$TMP_DIR/moved-current-target"
 moved_current_root="$TMP_DIR/deleted current product home"
 mkdir -p "$moved_current_target/.agent-workflow/docs" "$moved_current_target/.claude/skills"
@@ -331,8 +349,14 @@ assert_exit_output "moved current-layout install is detected" 2 \
   "legacy absolute-symlink installation detected" bash "$INSTALL" "$moved_current_target"
 assert_exit "moved current-layout links migrate explicitly" PASS \
   bash "$INSTALL" "$moved_current_target" --migrate-legacy
+assert_true "moved current-layout migration rewires scripts" \
+  test "$(readlink "$moved_current_target/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
 assert_true "moved current-layout migration rewires schemas" \
   test "$(readlink "$moved_current_target/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
+assert_true "moved current-layout migration rewires docs" \
+  test "$(readlink "$moved_current_target/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
+assert_true "moved current-layout migration rewires skill" \
+  test "$(readlink "$moved_current_target/.claude/skills/agent-workflow")" = "$PRODUCT_ROOT/.claude/skills/agent-workflow"
 
 assert_exit "legacy links migrate to current symlink mode" PASS \
   bash "$INSTALL" "$legacy_dangling" --migrate-legacy

@@ -152,6 +152,7 @@ DOCS_LINK=""
 SKILL_LINK=""
 SCRIPTS_LEGACY_ROOT=""
 SCHEMAS_LEGACY_ROOT=""
+SCHEMAS_CURRENT_ROOT=""
 DOCS_LEGACY_ROOT=""
 SKILL_LEGACY_ROOT=""
 
@@ -163,7 +164,7 @@ if [[ -L "$SCHEMAS_DEST" ]]; then
   SCHEMAS_LINK="$(readlink "$SCHEMAS_DEST")"
   SCHEMAS_LEGACY_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/.review/schemas")" || SCHEMAS_LEGACY_ROOT=""
   if [[ -z "$SCHEMAS_LEGACY_ROOT" ]]; then
-    SCHEMAS_LEGACY_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/schemas")" || SCHEMAS_LEGACY_ROOT=""
+    SCHEMAS_CURRENT_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/schemas")" || SCHEMAS_CURRENT_ROOT=""
   fi
 fi
 if [[ -L "$DOCS_DEST" ]]; then
@@ -187,6 +188,12 @@ if [[ -n "$SCRIPTS_LEGACY_ROOT" && "$SCRIPTS_LINK" != "$SCRIPTS_SRC" ]]; then
 fi
 if [[ -n "$SCHEMAS_LEGACY_ROOT" && "$SCHEMAS_LINK" != "$SCHEMAS_SRC" ]]; then
   LEGACY_SCHEMAS=1
+elif [[ -n "$SCHEMAS_CURRENT_ROOT" && "$SCHEMAS_LINK" != "$SCHEMAS_SRC" ]]; then
+  if [[ "$SCHEMAS_CURRENT_ROOT" == "$SCRIPTS_LEGACY_ROOT" || \
+        "$SCHEMAS_CURRENT_ROOT" == "$DOCS_LEGACY_ROOT" || \
+        "$SCHEMAS_CURRENT_ROOT" == "$SKILL_LEGACY_ROOT" ]]; then
+    LEGACY_SCHEMAS=1
+  fi
 fi
 if [[ -n "$DOCS_LEGACY_ROOT" && "$DOCS_LINK" != "$DOCS_SRC" ]]; then
   LEGACY_DOCS=1
