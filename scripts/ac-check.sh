@@ -1,24 +1,33 @@
 #!/usr/bin/env bash
-# ac-check.sh — verify that manifest AC ids exist in discovered test names.
+# ac-check.sh — verify that ROUND-STATE AC ids exist in discovered test names.
 #
-# Usage: scripts/ac-check.sh --manifest <json-file> --tests <text-file>
+# Usage: scripts/ac-check.sh --round-state <json-file> --manifest-revision <n> --tests <text-file>
 #
 # Exit 0 = all ACs mapped; 1 = one or more findings; 2 = usage/input error.
 # bash-3.2-compatible: no associative arrays, no ${var,,}, no mapfile.
 set -u
 
 PROG="ac-check"
-manifest=""
+round_state=""
+expected_revision=""
 tests=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --manifest)
+    --round-state)
       if [ "$#" -lt 2 ]; then
-        echo "$PROG: ERROR — --manifest requires a file" >&2
+        echo "$PROG: ERROR — --round-state requires a file" >&2
         exit 2
       fi
-      manifest="$2"
+      round_state="$2"
+      shift 2
+      ;;
+    --manifest-revision)
+      if [ "$#" -lt 2 ]; then
+        echo "$PROG: ERROR — --manifest-revision requires a positive integer" >&2
+        exit 2
+      fi
+      expected_revision="$2"
       shift 2
       ;;
     --tests)
@@ -30,19 +39,26 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     *)
-      echo "$PROG: usage: $0 --manifest <json-file> --tests <text-file>" >&2
+      echo "$PROG: usage: $0 --round-state <json-file> --manifest-revision <n> --tests <text-file>" >&2
       exit 2
       ;;
   esac
 done
 
-if [ -z "$manifest" ] || [ -z "$tests" ]; then
-  echo "$PROG: usage: $0 --manifest <json-file> --tests <text-file>" >&2
+if [ -z "$round_state" ] || [ -z "$expected_revision" ] || [ -z "$tests" ]; then
+  echo "$PROG: usage: $0 --round-state <json-file> --manifest-revision <n> --tests <text-file>" >&2
   exit 2
 fi
 
-if [ ! -f "$manifest" ] || [ ! -r "$manifest" ]; then
-  echo "$PROG: ERROR — manifest not found or unreadable: $manifest" >&2
+case "$expected_revision" in
+  ''|*[!0-9]*|0)
+    echo "$PROG: ERROR — --manifest-revision requires a positive integer" >&2
+    exit 2
+    ;;
+esac
+
+if [ ! -f "$round_state" ] || [ ! -r "$round_state" ]; then
+  echo "$PROG: ERROR — ROUND-STATE not found or unreadable: $round_state" >&2
   exit 2
 fi
 if [ ! -f "$tests" ] || [ ! -r "$tests" ]; then
@@ -56,7 +72,7 @@ ids_file="$(mktemp "${TMPDIR:-/tmp}/ac-check.XXXXXX")" || {
 }
 trap 'rm -f "$ids_file"' EXIT
 
-# Validate the manifest shape and emit one id per line for bash processing.
+# Validate the acceptance section and emit its revision followed by one id per line.
 node -e '
   const fs = require("fs");
   const file = process.argv[1];
@@ -67,24 +83,58 @@ node -e '
     console.error("parse error: " + error.message);
     process.exit(1);
   }
-  if (!value || Array.isArray(value) || !Array.isArray(value.acs)) {
-    console.error("manifest must contain an acs array");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    console.error("ROUND-STATE must be an object");
     process.exit(1);
   }
-  for (const ac of value.acs) {
+  if (value.schema_version !== "1" || value.artifact_type !== "round_state") {
+    console.error("input must be a schema_version 1 round_state artifact");
+    process.exit(1);
+  }
+  if (value.producer_role !== "CONDUCTOR") {
+    console.error("ROUND-STATE producer_role must be CONDUCTOR");
+    process.exit(1);
+  }
+  if (value.lifecycle !== "active" && value.lifecycle !== "final") {
+    console.error("ROUND-STATE lifecycle must be active or final");
+    process.exit(1);
+  }
+  if (!value.acceptance || typeof value.acceptance !== "object" || Array.isArray(value.acceptance)) {
+    console.error("ROUND-STATE must contain an acceptance object");
+    process.exit(1);
+  }
+  if (!Number.isInteger(value.revision) || value.revision < 1) {
+    console.error("ROUND-STATE revision must be a positive integer");
+    process.exit(1);
+  }
+  const acceptance = value.acceptance;
+  if (!Array.isArray(acceptance.criteria) || acceptance.criteria.length === 0) {
+    console.error("acceptance.criteria must be a non-empty array");
+    process.exit(1);
+  }
+  process.stdout.write(String(value.revision) + "\n");
+  for (const ac of acceptance.criteria) {
     if (!ac || Array.isArray(ac) || typeof ac.id !== "string" || ac.id.length === 0 || /[\r\n]/.test(ac.id)) {
       console.error("each ac must contain a non-empty single-line string id");
       process.exit(1);
     }
     process.stdout.write(ac.id + "\n");
   }
-' "$manifest" > "$ids_file"
+' "$round_state" > "$ids_file"
 node_status=$?
 if [ "$node_status" -ne 0 ]; then
-  echo "$PROG: ERROR — invalid manifest: $manifest" >&2
+  echo "$PROG: ERROR — invalid ROUND-STATE acceptance section: $round_state" >&2
   exit 2
 fi
 
+actual_revision="$(sed -n '1p' "$ids_file")"
+if [ "$actual_revision" != "$expected_revision" ]; then
+  printf 'STALE expected revision %s, found %s\n' "$expected_revision" "$actual_revision"
+  exit 1
+fi
+
+sed '1d' "$ids_file" > "${ids_file}.criteria"
+mv "${ids_file}.criteria" "$ids_file"
 ac_count="$(wc -l < "$ids_file" | tr -d ' ')"
 seen_file="$(mktemp "${TMPDIR:-/tmp}/ac-check-seen.XXXXXX")" || {
   echo "$PROG: ERROR — could not create temporary file" >&2
@@ -115,7 +165,7 @@ while IFS= read -r id || [ -n "$id" ]; do
 done < "$ids_file"
 
 if [ "$violations" -eq 0 ]; then
-  printf 'OK %s acs mapped\n' "$ac_count"
+  printf 'OK revision %s: %s acs mapped\n' "$actual_revision" "$ac_count"
   exit 0
 fi
 exit 1

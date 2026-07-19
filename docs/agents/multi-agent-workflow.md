@@ -184,19 +184,28 @@ Run `scripts/prepare-worktree.sh <wt>` on the host. It installs deps from the fr
 
 Every `.review/ISSUE-*.json` carries `lifecycle: draft | active | superseded | final`. Superseded files MUST be ignored by readers. See `.review/README.md`.
 
+### Canonical ROUND-STATE
+
+CONDUCTOR maintains one `.review/ISSUE-<n>-ROUND-STATE.json` as the normative contract state from dispatch 0. It replaces amendment prose; reviewers never reconstruct an effective contract by merging prompt fragments. The artifact contains the current contract, acceptance criteria, decisions, prior findings, commit scope, live-probe results, and artifact pointers. Its schema is `.review/schemas/round_state.schema.json`.
+
+CONDUCTOR is the sole writer. `revision` increments whenever the normative contract or acceptance criteria change, with the reason recorded in `decisions`. CODEX, REVIEWER, and VERIFIER consume but do not edit it. The acceptance manifest is not a separate file: it is the `acceptance.criteria[]` view at the ROUND-STATE `revision`. A task narrative carries only current intent/delta, failing AC ids, and evidence pointers; it must not restate normative criteria or allowlists.
+
 ## Workflow Tax Brake
 
 If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has failed and must be re-evaluated. The workflow exists to ship faster, not slower.
 
 ### Pre-review AC-ID gate
 
-When a task uses a machine-readable acceptance manifest, run the deterministic coverage check before review:
+Run the deterministic coverage check against the exact ROUND-STATE revision pinned by the dispatch before review:
 
 ```bash
-scripts/ac-check.sh --manifest <manifest.json> --tests <discovered-tests.txt>
+scripts/ac-check.sh \
+  --round-state <ISSUE-N-ROUND-STATE.json> \
+  --manifest-revision <revision> \
+  --tests <discovered-tests.txt>
 ```
 
-The manifest shape is `{"acs":[{"id":"AC-1"}]}`. The tests file contains the actually discovered test names or paths. Duplicate AC ids and ids absent from the discovered-test text fail the gate; malformed inputs are usage errors. This check proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
+`--manifest-revision` must equal the artifact's top-level `revision`; a mismatch is stale and fails before AC mapping. AC ids come from `acceptance.criteria[].id`. The tests file contains actually discovered test names or paths. Duplicate or undiscovered ids fail the gate; malformed inputs are usage errors. This proves only that every declared id is represented in discovery output—it does not prove behavior, so REVIEWER and VERIFIER still run.
 
 ## VERIFIER protocol
 

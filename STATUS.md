@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.5
+## Current release: v0.6
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -12,6 +12,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
 - pre-review AC-ID existence checking;
+- CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - an offline Bash 3.2 smoke suite and GitHub Actions gate.
 
@@ -49,6 +50,12 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - The integrated wrapper changes passed clean-context review and a full smoke run at `main@5500d6a`.
 - The versioned Claude skill is now a thin router; `install-into.sh` deploys scripts, schemas, playbook docs, and the project-local skill.
 
+### v0.6 — canonical contract state
+
+- `ISSUE-N-ROUND-STATE.json` replaces fragmented amendment prose with one CONDUCTOR-owned contract artifact.
+- The acceptance manifest is the artifact's `acceptance.criteria[]` view; its revision is the ROUND-STATE top-level `revision`.
+- `ac-check.sh` rejects stale `--manifest-revision` values before checking duplicate or undiscovered AC ids.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -75,7 +82,7 @@ The next generalization must be based on a second real target. The intended spli
 
 ## Open roadmap
 
-- **P1 procedure/templates:** issues #3–#11 — impact pass, ARCH feasibility, AC rows, completion calculation, ROUND-STATE, circuit breaker, atomic chunks, and Standard-tier minimal state.
+- **P1 procedure/templates:** issues #3–#6 and #9–#11 — impact pass, ARCH feasibility, richer AC rows, completion calculation, circuit breaker, atomic chunks, and Standard-tier generation.
 - **P2 toolkit/procedure:** #13, #14, #17, #19 — verifier output/freshness, integrated-head closure, re-review capsule, and plain-checkout Git handling.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.

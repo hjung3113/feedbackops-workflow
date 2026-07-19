@@ -1,0 +1,38 @@
+{
+  "schema_version": "1",
+  "artifact_type": "round_state",
+  "lifecycle": "active",
+  "producer_role": "CONDUCTOR",
+  "issue": { "number": 188, "title": "shared contract change" },
+  "tier": { "name": "full_cluster", "rationale": "changes a shared exported contract" },
+  "revision": 4,
+  "updated_at": "2026-07-20T12:00:00Z",
+  "contract": {
+    "objective": "change the shared contract without leaving compile-time consumers behind",
+    "touch_allowlist": ["packages/shared/**", "apps/backend/**"],
+    "verify_filter": "shared-contract"
+  },
+  "acceptance": {
+    "criteria": [
+      { "id": "AC-1", "statement": "all compile-time consumers are enumerated" },
+      { "id": "AC-2", "statement": "the scoped verifier passes" }
+    ]
+  },
+  "decisions": [
+    { "id": "D-1", "revision": 4, "status": "decided", "summary": "keep the change compile-atomic", "rationale": "partial consumers caused an extra review round" }
+  ],
+  "prior_findings": [],
+  "commit_scope": {
+    "base_sha": "1111111111111111111111111111111111111111",
+    "head_sha": "2222222222222222222222222222222222222222",
+    "commits": [
+      { "sha": "2222222222222222222222222222222222222222", "subject": "feat: update shared contract" }
+    ]
+  },
+  "live_probes": [
+    { "command": "pnpm --filter backend run typecheck", "exit_code": 0, "observed_at": "2026-07-20T11:55:00Z", "summary": "no new TypeScript errors" }
+  ],
+  "artifact_pointers": [
+    { "artifact_type": "verify_result", "path": ".review/ISSUE-188-VERIFY.json", "head_sha": "2222222222222222222222222222222222222222" }
+  ]
+}
