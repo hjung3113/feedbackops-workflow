@@ -50,12 +50,14 @@ PROMPT_FILE=""
 WS_NAME=""
 MODEL=""
 EFFORT=""
+FIRST_PROGRESS_TIMEOUT=""
+STALL_TIMEOUT=""
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -85,6 +87,8 @@ while [ $# -gt 0 ]; do
     --name) WS_NAME="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
+    --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -128,6 +132,11 @@ CMD="NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --c
 # that the reviewer outranks the implementer). Pin it at the dispatch site.
 [ -n "$MODEL" ] && CMD="$CMD --model $MODEL"
 [ -n "$EFFORT" ] && CMD="$CMD --effort $EFFORT"
+# Read-heavy dispatches (ARCH briefs, debate rounds, large reviews) legitimately
+# produce NO file progress for many minutes; the watchdog's 240s default
+# first-progress timeout kills them mid-read. Forward larger budgets for those.
+[ -n "$FIRST_PROGRESS_TIMEOUT" ] && CMD="$CMD --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
+[ -n "$STALL_TIMEOUT" ] && CMD="$CMD --stall-timeout $STALL_TIMEOUT"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"$CMD\""

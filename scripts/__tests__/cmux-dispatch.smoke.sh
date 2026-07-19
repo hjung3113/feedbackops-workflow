@@ -85,6 +85,32 @@ case "$printed" in
   *) fail "dry-run uses cmux workspace create (got: $printed)" ;;
 esac
 
+# --- watchdog timeout flags are forwarded only when explicitly supplied ---
+timeout_out="$TMP_ROOT/dry-run-timeouts.stdout"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --first-progress-timeout 1500 --stall-timeout 900 --dry-run >"$timeout_out" 2>&1
+ec=$?
+timeout_printed="$(cat "$timeout_out")"
+if [ "$ec" -eq 0 ] && printf '%s\n' "$timeout_printed" | grep -q -- "--first-progress-timeout 1500" && printf '%s\n' "$timeout_printed" | grep -q -- "--stall-timeout 900"; then
+  pass "dry-run forwards explicit watchdog timeout flags"
+else
+  fail "dry-run forwards explicit watchdog timeout flags (ec=$ec: $timeout_printed)"
+fi
+
+if ! printf '%s\n' "$printed" | grep -q -- "--first-progress-timeout" && ! printf '%s\n' "$printed" | grep -q -- "--stall-timeout"; then
+  pass "dry-run omits watchdog timeout flags when unspecified"
+else
+  fail "dry-run omits watchdog timeout flags when unspecified (got: $printed)"
+fi
+
+usage_out="$TMP_ROOT/usage.stderr"
+bash "$DISPATCH" > /dev/null 2>"$usage_out"
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q -- "--first-progress-timeout" "$usage_out" && grep -q -- "--stall-timeout" "$usage_out"; then
+  pass "usage mentions both watchdog timeout flags"
+else
+  fail "usage mentions both watchdog timeout flags (ec=$ec: $(cat "$usage_out"))"
+fi
+
 # --- dry-run does not call the real cmux binary ---
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
