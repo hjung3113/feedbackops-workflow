@@ -15,6 +15,7 @@ MODEL=""
 EFFORT=""
 HEARTBEAT_FILE=""
 HEARTBEAT_PID=""
+HEARTBEAT_INTERVAL="${CODEX_SAFE_HEARTBEAT_INTERVAL:-20}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -58,6 +59,10 @@ esac
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 stop_heartbeat() {
   if [[ -n "$HEARTBEAT_PID" ]]; then
+    # The ticker shell may be between `sleep &` and recording that child's
+    # PID when cleanup arrives. Kill its direct children first, then let the
+    # ticker trap reap the recorded sleep child before reaping the ticker.
+    pkill -TERM -P "$HEARTBEAT_PID" 2>/dev/null || true
     kill "$HEARTBEAT_PID" 2>/dev/null || true
     wait "$HEARTBEAT_PID" 2>/dev/null || true
     HEARTBEAT_PID=""
@@ -122,19 +127,25 @@ if [[ -n "$HEARTBEAT_FILE" ]]; then
     stop_ticker_sleep() {
       if [[ -n "$ticker_sleep" ]]; then
         kill "$ticker_sleep" 2>/dev/null || true
+        wait "$ticker_sleep" 2>/dev/null || true
+        ticker_sleep=""
       fi
     }
     trap 'stop_ticker_sleep; exit 0' TERM INT
     while true; do
       mkdir -p "$(dirname "$HEARTBEAT_FILE")" || exit 1
       : > "$HEARTBEAT_FILE"
-      sleep 20 &
+      sleep "$HEARTBEAT_INTERVAL" &
       ticker_sleep=$!
       wait "$ticker_sleep" || exit 0
       ticker_sleep=""
     done
   ) &
   HEARTBEAT_PID=$!
+  # Test seam: lets the offline smoke assert that cleanup reaps both levels.
+  if [[ -n "${CODEX_SAFE_HEARTBEAT_PID_FILE:-}" ]]; then
+    printf '%s\n' "$HEARTBEAT_PID" > "$CODEX_SAFE_HEARTBEAT_PID_FILE"
+  fi
 fi
 
 set +e

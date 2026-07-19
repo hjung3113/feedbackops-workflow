@@ -85,21 +85,21 @@ case "$printed" in
   *) fail "dry-run uses cmux workspace create (got: $printed)" ;;
 esac
 
-# --- watchdog timeout flags are forwarded only when explicitly supplied ---
+# --- watchdog flags are forwarded only when explicitly supplied ---
 timeout_out="$TMP_ROOT/dry-run-timeouts.stdout"
-bash "$DISPATCH" --issue 301 --worktree "$WT" --first-progress-timeout 1500 --stall-timeout 900 --dry-run >"$timeout_out" 2>&1
+bash "$DISPATCH" --issue 301 --worktree "$WT" --read-only --first-progress-timeout 1500 --stall-timeout 900 --dry-run >"$timeout_out" 2>&1
 ec=$?
 timeout_printed="$(cat "$timeout_out")"
-if [ "$ec" -eq 0 ] && printf '%s\n' "$timeout_printed" | grep -q -- "--first-progress-timeout 1500" && printf '%s\n' "$timeout_printed" | grep -q -- "--stall-timeout 900"; then
-  pass "dry-run forwards explicit watchdog timeout flags"
+if [ "$ec" -eq 0 ] && printf '%s\n' "$timeout_printed" | grep -q -- "--read-only" && printf '%s\n' "$timeout_printed" | grep -q -- "--first-progress-timeout 1500" && printf '%s\n' "$timeout_printed" | grep -q -- "--stall-timeout 900"; then
+  pass "dry-run forwards combined read-only and watchdog timeout flags"
 else
-  fail "dry-run forwards explicit watchdog timeout flags (ec=$ec: $timeout_printed)"
+  fail "dry-run forwards combined read-only and watchdog timeout flags (ec=$ec: $timeout_printed)"
 fi
 
-if ! printf '%s\n' "$printed" | grep -q -- "--first-progress-timeout" && ! printf '%s\n' "$printed" | grep -q -- "--stall-timeout"; then
-  pass "dry-run omits watchdog timeout flags when unspecified"
+if ! printf '%s\n' "$printed" | grep -q -- "--read-only" && ! printf '%s\n' "$printed" | grep -q -- "--first-progress-timeout" && ! printf '%s\n' "$printed" | grep -q -- "--stall-timeout"; then
+  pass "dry-run omits read-only and watchdog timeout flags when unspecified"
 else
-  fail "dry-run omits watchdog timeout flags when unspecified (got: $printed)"
+  fail "dry-run omits read-only and watchdog timeout flags when unspecified (got: $printed)"
 fi
 
 usage_out="$TMP_ROOT/usage.stderr"
@@ -224,7 +224,7 @@ watchdog_out="$TMP_ROOT/watchdog-relative.out"
 # no codex on PATH here: expect it to get PAST the existence check (prints the
 # resolved-path echo line) and fail later trying to invoke codex-safe.sh —
 # that later failure is expected and NOT what this case asserts on.
-PATH="/usr/bin:/bin" bash "$WATCHDOG" --issue 303 --prompt-file ".review/ISSUE-303-PROMPT.txt" --cwd "$WT_REL" --max-retries 0 >"$watchdog_out" 2>&1
+CODEX_WATCHDOG_PROBE_GAP=0 PATH="/usr/bin:/bin" bash "$WATCHDOG" --issue 303 --prompt-file ".review/ISSUE-303-PROMPT.txt" --cwd "$WT_REL" --max-retries 0 >"$watchdog_out" 2>&1
 if grep -q "prompt-file=$WT_REL/.review/ISSUE-303-PROMPT.txt" "$watchdog_out"; then
   pass "watchdog resolves relative prompt-file against --cwd"
 else

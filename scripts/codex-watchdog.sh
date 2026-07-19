@@ -18,6 +18,7 @@ FIRST_PROGRESS_TIMEOUT=240
 STALL_TIMEOUT=180
 MAX_RETRIES=2
 POLL_INTERVAL="${CODEX_WATCHDOG_POLL_INTERVAL:-15}"
+PROBE_GAP="${CODEX_WATCHDOG_PROBE_GAP:-10}"
 
 usage() {
   echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--read-only] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
@@ -176,9 +177,16 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   if probe_model >/dev/null 2>&1; then
     echo "codex-watchdog: attempt $attempt failed; probe succeeded, retrying" >&2
   else
-    write_marker "refused" "$attempt" "$pid" "$ec" || true
-    echo "FAIL-FAST: probe failed; model/auth-level problem, retry futile" >&2
-    exit 4
+    # One failed probe can be a transient service/network fault. Only two
+    # independently failed probes classify the attempt as model/auth refusal.
+    sleep "$PROBE_GAP"
+    if probe_model >/dev/null 2>&1; then
+      echo "codex-watchdog: first probe failed but recheck succeeded, retrying" >&2
+    else
+      write_marker "refused" "$attempt" "$pid" "$ec" || true
+      echo "FAIL-FAST: two probes failed; model/auth-level problem, retry futile" >&2
+      exit 4
+    fi
   fi
 done
 

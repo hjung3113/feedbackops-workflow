@@ -42,13 +42,23 @@ WT="$TMP_DIR/wt"
 mkdir -p "$BIN" "$WT"
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
+[ -n "${CODEX_STUB_PID:-}" ] && printf '%s\n' "$$" > "$CODEX_STUB_PID"
 if [ "${CODEX_STUB_SLEEP:-0}" -gt 0 ]; then
-  sleep "$CODEX_STUB_SLEEP"
+  /bin/sleep "$CODEX_STUB_SLEEP"
 fi
 printf '%s\n' "$*" > "$CODEX_STUB_ARGS"
 exit 0
 EOF
 chmod +x "$BIN/codex"
+
+cat > "$BIN/sleep" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${TICKER_SLEEP_PID:-}" ]; then
+  printf '%s\n' "$$" > "$TICKER_SLEEP_PID"
+fi
+exec /bin/sleep "$@"
+EOF
+chmod +x "$BIN/sleep"
 
 run_stub_case() {
   name="$1"; expect_medium="$2"; shift 2
@@ -77,43 +87,51 @@ run_stub_case "gpt-5.6-omitted-effort-pins-medium" 1 --model gpt-5.6
 run_stub_case "gpt-5.6-explicit-medium-passes" 1 --model gpt-5.6 --effort medium
 run_stub_case "gpt-5.5-omitted-effort-does-not-pin" 0 --model gpt-5.5
 
-# A read-only codex run can legitimately write no worktree files for minutes.
-# The heartbeat must advance repeatedly while it runs, then leave no ticker.
-HEARTBEAT="$WT/.review/heartbeat.json"
-HEARTBEAT_ARGS="$TMP_DIR/heartbeat.args"
-HEARTBEAT_TIMES="$TMP_DIR/heartbeat-times"
-(
-  sleep 2
-  stat -f %m "$HEARTBEAT" 2>/dev/null || stat -c %Y "$HEARTBEAT"
-  echo "heartbeat sample 1" >&2
-  sleep 21
-  stat -f %m "$HEARTBEAT" 2>/dev/null || stat -c %Y "$HEARTBEAT"
-  echo "heartbeat sample 2" >&2
-  sleep 21
-  stat -f %m "$HEARTBEAT" 2>/dev/null || stat -c %Y "$HEARTBEAT"
-  echo "heartbeat sample 3" >&2
-) > "$HEARTBEAT_TIMES" &
-heartbeat_monitor=$!
-CODEX_STUB_ARGS="$HEARTBEAT_ARGS" CODEX_STUB_SLEEP=45 PATH="$BIN:$PATH" bash "$CODEX_SAFE" \
-  --issue 33 --prompt "hello" --cwd "$WT" --heartbeat-file "$HEARTBEAT" >/dev/null 2>&1
-heartbeat_ec=$?
-wait "$heartbeat_monitor"
-set -- $(sed -n '1,3p' "$HEARTBEAT_TIMES")
-mtime_one="$1"
-mtime_two="$2"
-mtime_three="$3"
-if [ "$heartbeat_ec" -eq 0 ] && [ "$mtime_two" -gt "$mtime_one" ] && [ "$mtime_three" -gt "$mtime_two" ]; then
-  echo "ok   - heartbeat file advances twice during a 45s child run"
-else
-  echo "NOT OK - heartbeat file advances twice during a 45s child run"
-  FAILURES=$((FAILURES + 1))
-fi
-if pgrep -f "heartbeat.json" >/dev/null 2>&1; then
-  echo "NOT OK - heartbeat ticker has no orphan after child exit"
-  FAILURES=$((FAILURES + 1))
-else
-  echo "ok   - heartbeat ticker has no orphan after child exit"
-fi
+# Record both ticker processes while codex-safe is alive, then assert that
+# cleanup removes the ticker shell AND its sleep child on normal and signal exits.
+wait_for_file() {
+  file="$1"
+  tries=0
+  while [ ! -s "$file" ] && [ "$tries" -lt 5 ]; do
+    /bin/sleep 1
+    tries=$((tries + 1))
+  done
+  [ -s "$file" ]
+}
+gone() { ! kill -0 "$1" 2>/dev/null; }
+
+run_ticker_case() {
+  name="$1"; child_sleep="$2"; signal_run="$3"
+  heartbeat="$WT/.review/${name}.json"
+  codex_pid_file="$TMP_DIR/${name}.codex.pid"
+  ticker_pid_file="$TMP_DIR/${name}.ticker.pid"
+  ticker_sleep_file="$TMP_DIR/${name}.ticker-sleep.pid"
+  CODEX_STUB_ARGS="$TMP_DIR/${name}.args" CODEX_STUB_PID="$codex_pid_file" CODEX_SAFE_HEARTBEAT_PID_FILE="$ticker_pid_file" TICKER_SLEEP_PID="$ticker_sleep_file" CODEX_STUB_SLEEP="$child_sleep" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --heartbeat-file "$heartbeat" >/dev/null 2>&1 &
+  safe_pid=$!
+  if ! wait_for_file "$codex_pid_file" || ! wait_for_file "$ticker_pid_file" || ! wait_for_file "$ticker_sleep_file"; then
+    echo "NOT OK - $name records ticker processes"
+    FAILURES=$((FAILURES + 1))
+    kill -TERM "$safe_pid" 2>/dev/null || true
+    wait "$safe_pid" 2>/dev/null || true
+    return
+  fi
+  codex_pid="$(cat "$codex_pid_file")"
+  ticker_pid="$(cat "$ticker_pid_file")"
+  ticker_sleep_pid="$(cat "$ticker_sleep_file")"
+  if [ "$signal_run" -eq 1 ]; then
+    kill -TERM "$safe_pid" 2>/dev/null || true
+  fi
+  wait "$safe_pid" 2>/dev/null
+  if [ -n "$ticker_pid" ] && gone "$ticker_pid" && gone "$ticker_sleep_pid"; then
+    echo "ok   - $name removes recorded ticker PID and child"
+  else
+    echo "NOT OK - $name removes recorded ticker PID and child"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+run_ticker_case "normal ticker cleanup" 3 0
+run_ticker_case "signal ticker cleanup" 30 1
 
 CODEX_STUB_ARGS="$TMP_DIR/high.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6 --effort high >/dev/null 2>&1
 high_ec=$?
