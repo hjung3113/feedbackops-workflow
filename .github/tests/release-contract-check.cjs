@@ -79,6 +79,7 @@ function validateLegacyReferences(root, files) {
     let region = '';
     for (const rawLine of text.split('\n')) {
       const context = rawLine.trim();
+      const canonicalLine = rawLine.replace(/["']/g, '');
       const marker = context.match(/^# release-contract: ([a-z0-9-]+)-(begin|end)$/);
       if (marker) {
         if (marker[2] === 'begin') {
@@ -92,7 +93,7 @@ function validateLegacyReferences(root, files) {
         continue;
       }
       for (const [token, literal] of Object.entries(TOKENS)) {
-        const count = countLiteral(rawLine, literal);
+        const count = countLiteral(canonicalLine, literal);
         if (count > 0) {
           const key = `${token}\0${relative}\0${region}\0${context}`;
           actual.set(key, (actual.get(key) || 0) + count);
@@ -154,12 +155,33 @@ function withoutFencedCode(text) {
   }).join('\n');
 }
 
+function withoutInlineCode(text) {
+  return text.replace(/(`+)([\s\S]*?)\1/g, (match) => ' '.repeat(match.length));
+}
+
+function hasLinkOpener(text, closingBracket) {
+  let depth = 1;
+  for (let position = closingBracket - 1; position >= 0; position -= 1) {
+    if (text[position] === '\n') return false;
+    if (text[position] === ']' && text[position - 1] !== '\\') depth += 1;
+    if (text[position] === '[' && text[position - 1] !== '\\') {
+      depth -= 1;
+      if (depth === 0) return true;
+    }
+  }
+  return false;
+}
+
 function markdownTargets(text) {
   const targets = [];
-  const clean = withoutFencedCode(text);
+  const clean = withoutInlineCode(withoutFencedCode(text)).replace(/<!--[\s\S]*?-->/g, '');
   const reference = /^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
   let cursor = 0;
   while ((cursor = clean.indexOf('](', cursor)) !== -1) {
+    if (clean[cursor - 1] === '\\' || !hasLinkOpener(clean, cursor)) {
+      cursor += 2;
+      continue;
+    }
     let position = cursor + 2;
     while (/\s/.test(clean[position] || '')) position += 1;
     let target = '';
@@ -200,7 +222,6 @@ function markdownTargets(text) {
 
 function markdownAnchors(text) {
   const anchors = new Set();
-  const duplicates = new Map();
   const lines = withoutFencedCode(text).split('\n');
   const addHeading = (value) => {
     const base = value
@@ -211,9 +232,13 @@ function markdownAnchors(text) {
       .replace(/[^\p{L}\p{N}\s_-]/gu, '')
       .replace(/\s+/g, '-');
     if (!base) return;
-    const seen = duplicates.get(base) || 0;
-    anchors.add(seen === 0 ? base : `${base}-${seen}`);
-    duplicates.set(base, seen + 1);
+    let candidate = base;
+    let suffix = 0;
+    while (anchors.has(candidate)) {
+      suffix += 1;
+      candidate = `${base}-${suffix}`;
+    }
+    anchors.add(candidate);
   };
   for (let index = 0; index < lines.length; index += 1) {
     const atx = lines[index].match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);

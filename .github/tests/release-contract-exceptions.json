@@ -17,6 +17,70 @@
   ],
   "compatibilityReferences": [
     {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-docs",
+      "region": "repository-boundary-checks",
+      "context": "assert_exists \"root maintainer issue tracker\" \"$REPOSITORY_ROOT/docs/agents/issue-tracker.md\"",
+      "expectedCount": 1,
+      "reason": "The release gate distinguishes the root maintainer tracker from product documentation."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-docs",
+      "region": "repository-boundary-checks",
+      "context": "assert_exists \"root maintainer domain config\" \"$REPOSITORY_ROOT/docs/agents/domain.md\"",
+      "expectedCount": 1,
+      "reason": "The release gate distinguishes root maintainer domain configuration from product documentation."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-docs",
+      "region": "repository-boundary-checks",
+      "context": "assert_exists \"root maintainer triage config\" \"$REPOSITORY_ROOT/docs/agents/triage-labels.md\"",
+      "expectedCount": 1,
+      "reason": "The release gate distinguishes root maintainer triage configuration from product documentation."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-skill",
+      "region": "repository-boundary-checks",
+      "context": "assert_absent \"no root Claude product skill\" \"$REPOSITORY_ROOT/.claude/skills/agent-workflow\"",
+      "expectedCount": 1,
+      "reason": "The release gate proves the former root product skill is absent."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-scripts",
+      "region": "repository-boundary-checks",
+      "context": "assert_absent \"no root product scripts\" \"$REPOSITORY_ROOT/scripts\"",
+      "expectedCount": 1,
+      "reason": "The release gate proves the former root script authority is absent."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-review-schemas",
+      "region": "repository-boundary-checks",
+      "context": "assert_absent \"no root product schemas\" \"$REPOSITORY_ROOT/.review/schemas\"",
+      "expectedCount": 1,
+      "reason": "The release gate proves the former root schema authority is absent."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-repository-docs",
+      "region": "repository-boundary-checks",
+      "context": "assert_absent \"no root product playbook\" \"$REPOSITORY_ROOT/docs/agents/multi-agent-workflow.md\"",
+      "expectedCount": 1,
+      "reason": "The release gate proves the former root product playbook is absent."
+    },
+    {
+      "path": ".github/tests/release-contract.smoke.sh",
+      "token": "legacy-review-schemas",
+      "region": "release-sensitivity-fixtures",
+      "context": "LEGACY_REVIEW_SCHEMAS=\".review/schemas\"",
+      "expectedCount": 1,
+      "reason": "The release gate constructs deterministic negative and exception-drift fixtures."
+    },
+    {
       "path": "toolkit/scripts/install-into.sh",
       "token": "legacy-review-schemas",
       "region": "legacy-link-detection",
