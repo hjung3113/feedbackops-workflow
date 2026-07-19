@@ -18,7 +18,7 @@
 #                             succeeded. Task success is judged by commits +
 #                             a VERIFY artifact, never by exit_code alone.
 #   - status:"killed_stall"  watchdog killed it for no file/process progress.
-#   - status:"refused"       4xx/model-refusal signature; retry is futile.
+#   - status:"refused"       failed model/auth probe; retry is futile.
 #   - status:"exhausted"     retries used up with no success.
 #   A `.review/ISSUE-<N>-BLOCKER.json` file appearing instead of/alongside
 #   RUN.json is a scoped abort — codex chose to stop, not crash.
@@ -52,12 +52,13 @@ MODEL=""
 EFFORT=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
+READ_ONLY=0
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--read-only] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -89,6 +90,7 @@ while [ $# -gt 0 ]; do
     --effort) EFFORT="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
+    --read-only) READ_ONLY=1; shift 1 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -134,9 +136,11 @@ CMD="NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --c
 [ -n "$EFFORT" ] && CMD="$CMD --effort $EFFORT"
 # Read-heavy dispatches (ARCH briefs, debate rounds, large reviews) legitimately
 # produce NO file progress for many minutes; the watchdog's 240s default
-# first-progress timeout kills them mid-read. Forward larger budgets for those.
+# first-progress timeout kills them mid-read. Forward larger budgets for those
+# (or declare --read-only so heartbeat liveness applies).
 [ -n "$FIRST_PROGRESS_TIMEOUT" ] && CMD="$CMD --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
 [ -n "$STALL_TIMEOUT" ] && CMD="$CMD --stall-timeout $STALL_TIMEOUT"
+[ "$READ_ONLY" -eq 1 ] && CMD="$CMD --read-only"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"$CMD\""

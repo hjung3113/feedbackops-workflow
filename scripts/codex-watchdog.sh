@@ -13,13 +13,14 @@ PROMPT_FILE=""
 CWD=""
 MODEL=""
 EFFORT=""
+READ_ONLY=0
 FIRST_PROGRESS_TIMEOUT=240
 STALL_TIMEOUT=180
 MAX_RETRIES=2
 POLL_INTERVAL="${CODEX_WATCHDOG_POLL_INTERVAL:-15}"
 
 usage() {
-  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
+  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--read-only] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
 }
 
 now() { date +%s; }
@@ -59,6 +60,16 @@ kill_tree() {
   kill -KILL "$pid" 2>/dev/null || true
 }
 
+probe_model() {
+  if [ -n "${CODEX_WATCHDOG_PROBE_CMD:-}" ]; then
+    sh -c "$CODEX_WATCHDOG_PROBE_CMD" </dev/null
+  elif [ -n "$MODEL" ]; then
+    codex exec --skip-git-repo-check -m "$MODEL" -c model_reasoning_effort=low "reply exactly OK" </dev/null
+  else
+    codex exec --skip-git-repo-check -c model_reasoning_effort=low "reply exactly OK" </dev/null
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --issue) ISSUE_N="$2"; shift 2 ;;
@@ -66,6 +77,7 @@ while [ $# -gt 0 ]; do
     --cwd) CWD="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --read-only) READ_ONLY=1; shift 1 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
@@ -109,17 +121,17 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   # policy cap (5.6 above medium is refused). Omitting them falls back to the
   # user's codex config default, which is NOT the workflow's role allocation —
   # pin them at dispatch.
-  if [ -n "$MODEL" ] || [ -n "$EFFORT" ]; then
+  if [ -n "$MODEL" ] || [ -n "$EFFORT" ] || [ "$READ_ONLY" -eq 1 ]; then
     set -- --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD"
     [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
     [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    [ "$READ_ONLY" -eq 1 ] && set -- "$@" --heartbeat-file "$CWD/.review/HEARTBEAT-ISSUE-${ISSUE_N}.json"
     NODE_OPTIONS= "$CODEX_SAFE" "$@" 2>"$STDERR_LOG" &
   else
     NODE_OPTIONS= "$CODEX_SAFE" --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD" 2>"$STDERR_LOG" &
   fi
   pid=$!
   write_marker "running" "$attempt" "$pid" "" || true
-  touch "$STAMP"
 
   first_seen=0
   last_progress="$(now)"
@@ -152,20 +164,21 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     exit 0
   fi
 
-  # 4xx must be a standalone 3-digit number: the old bare `4[0-9][0-9]`
-  # matched digit runs inside PIDs — a stall-killed child writes bash's job
-  # line ("line NN: 74123 Terminated: 15 ...") into the stderr log, and any
-  # PID containing 4dd misclassified the stall as a refusal (exit 4, retries
-  # skipped). PIDs allocate sequentially, so the misclassification came in
-  # bursts.
-  if grep -qiE '(^|[^0-9])4[0-9][0-9]([^0-9]|$)|unsupported model|model_not_found|invalid.*(model|api key)|unauthorized' "$STDERR_LOG"; then
-    write_marker "refused" "$attempt" "$pid" "$ec" || true
-    echo "FAIL-FAST: model refusal (4xx) — retry futile" >&2
-    exit 4
+  attempt_stderr="$CWD/.review/ISSUE-${ISSUE_N}-attempt${attempt}-stderr.log"
+  mkdir -p "$CWD/.review" || exit 1
+  mv "$STDERR_LOG" "$attempt_stderr"
+  echo "codex-watchdog: attempt $attempt stderr preserved at $attempt_stderr" >&2
+
+  if [ "$killed_for_stall" -eq 1 ]; then
+    continue
   fi
 
-  if [ "$killed_for_stall" -eq 0 ]; then
-    write_marker "killed_stall" "$attempt" "$pid" "$ec" || true
+  if probe_model >/dev/null 2>&1; then
+    echo "codex-watchdog: attempt $attempt failed; probe succeeded, retrying" >&2
+  else
+    write_marker "refused" "$attempt" "$pid" "$ec" || true
+    echo "FAIL-FAST: probe failed; model/auth-level problem, retry futile" >&2
+    exit 4
   fi
 done
 

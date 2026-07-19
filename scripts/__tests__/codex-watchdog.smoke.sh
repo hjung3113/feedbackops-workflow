@@ -29,6 +29,14 @@ case "${CODEX_STUB_MODE:-success}" in
     sleep 999
     exit 0
     ;;
+  silent_success)
+    sleep 4
+    exit 0
+    ;;
+  silent_long_success)
+    sleep 6
+    exit 0
+    ;;
   progress)
     printf '%s\n' "one" > "codex-progress.txt"
     sleep 1
@@ -46,10 +54,24 @@ case "${CODEX_STUB_MODE:-success}" in
     echo "codex-safe.sh: line 71: 74123 Terminated: 15  codex exec ..." >&2
     exit 1
     ;;
+  status_code_content)
+    echo "echoed file content: status 404 is ordinary fixture data" >&2
+    exit 1
+    ;;
+  fail)
+    echo "ordinary transient failure" >&2
+    exit 1
+    ;;
 esac
 exit 2
 EOF
 chmod +x "$BIN/codex"
+
+cat > "$BIN/probe" <<'EOF'
+#!/usr/bin/env bash
+exit "${CODEX_PROBE_EXIT:-0}"
+EOF
+chmod +x "$BIN/probe"
 
 make_wt() {
   d="$TMP_DIR/$1"
@@ -80,6 +102,12 @@ run_watchdog() {
   return $?
 }
 
+run_read_only_watchdog() {
+  wt="$1"; issue="$2"
+  CODEX_STUB_MODE=silent_success CODEX_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue "$issue" --prompt-file "$wt/prompt.txt" --cwd "$wt" --read-only --first-progress-timeout 2 --stall-timeout 3 --max-retries 0 >/dev/null 2>&1
+  return $?
+}
+
 WT_A="$(make_wt wt-success)"
 run_watchdog "$WT_A" success 201 0
 ec=$?
@@ -89,11 +117,18 @@ status="$(marker_status "$WT_A/.review/ISSUE-201-RUN.json")"
 validate_marker_basic "$WT_A/.review/ISSUE-201-RUN.json" && pass "success marker valid shape" || fail "success marker valid shape"
 
 WT_B="$(make_wt wt-stall)"
-run_watchdog "$WT_B" stall 202 1
+run_watchdog "$WT_B" silent_long_success 202 1
 ec=$?
-[ "$ec" -eq 6 ] && pass "stall exhausts with exit 6" || fail "stall exhausts with exit 6 (got $ec)"
+[ "$ec" -eq 6 ] && pass "non-read-only silent run exhausts with exit 6" || fail "non-read-only silent run exhausts with exit 6 (got $ec)"
 status="$(marker_status "$WT_B/.review/ISSUE-202-RUN.json")"
-[ "$status" = "exhausted" ] && pass "stall marker exhausted" || fail "stall marker exhausted"
+[ "$status" = "exhausted" ] && pass "non-read-only silent marker exhausted" || fail "non-read-only silent marker exhausted"
+
+WT_READ_ONLY="$(make_wt wt-read-only)"
+run_read_only_watchdog "$WT_READ_ONLY" 206
+ec=$?
+[ "$ec" -eq 0 ] && pass "read-only silent run survives first-progress timeout" || fail "read-only silent run survives first-progress timeout (got $ec)"
+status="$(marker_status "$WT_READ_ONLY/.review/ISSUE-206-RUN.json")"
+[ "$status" = "exited" ] && pass "read-only silent run marker exited" || fail "read-only silent run marker exited"
 
 WT_C="$(make_wt wt-progress)"
 run_watchdog "$WT_C" progress 203 0
@@ -102,19 +137,31 @@ ec=$?
 status="$(marker_status "$WT_C/.review/ISSUE-203-RUN.json")"
 [ "$status" = "exited" ] && pass "progress marker exited" || fail "progress marker exited"
 
-WT_D="$(make_wt wt-refuse)"
-run_watchdog "$WT_D" refuse 204 2
+WT_D="$(make_wt wt-probe-refuse)"
+CODEX_STUB_MODE=refuse CODEX_PROBE_EXIT=1 CODEX_WATCHDOG_PROBE_CMD="$BIN/probe" CODEX_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 204 --prompt-file "$WT_D/prompt.txt" --cwd "$WT_D" --first-progress-timeout 2 --stall-timeout 3 --max-retries 2 >/dev/null 2>&1
 ec=$?
-[ "$ec" -eq 4 ] && pass "4xx refusal exits 4" || fail "4xx refusal exits 4 (got $ec)"
+[ "$ec" -eq 4 ] && pass "failed probe exits 4" || fail "failed probe exits 4 (got $ec)"
 status="$(marker_status "$WT_D/.review/ISSUE-204-RUN.json")"
-[ "$status" = "refused" ] && pass "4xx marker refused" || fail "4xx marker refused"
+[ "$status" = "refused" ] && pass "failed probe marker refused" || fail "failed probe marker refused"
 
-WT_E="$(make_wt wt-pid-noise)"
-run_watchdog "$WT_E" pid_noise 205 0
+WT_E="$(make_wt wt-status-code-content)"
+OUTPUT_E="$TMP_DIR/status-code-content.out"
+CODEX_STUB_MODE=status_code_content CODEX_PROBE_EXIT=0 CODEX_WATCHDOG_PROBE_CMD="$BIN/probe" CODEX_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 205 --prompt-file "$WT_E/prompt.txt" --cwd "$WT_E" --first-progress-timeout 2 --stall-timeout 3 --max-retries 1 >"$OUTPUT_E" 2>&1
 ec=$?
-[ "$ec" -eq 6 ] && pass "PID digit-noise is not a refusal (exits 6)" || fail "PID digit-noise is not a refusal (expected 6, got $ec)"
+[ "$ec" -eq 6 ] && pass "bare status-code stderr is not a refusal (exits 6)" || fail "bare status-code stderr is not a refusal (expected 6, got $ec)"
 status="$(marker_status "$WT_E/.review/ISSUE-205-RUN.json")"
-[ "$status" = "exhausted" ] && pass "PID digit-noise marker exhausted" || fail "PID digit-noise marker exhausted (got $status)"
+[ "$status" = "exhausted" ] && pass "bare status-code marker exhausted" || fail "bare status-code marker exhausted (got $status)"
+stderr_e="$WT_E/.review/ISSUE-205-attempt1-stderr.log"
+[ -f "$stderr_e" ] && pass "non-zero attempt stderr is preserved" || fail "non-zero attempt stderr is preserved"
+grep -q "$stderr_e" "$OUTPUT_E" && pass "preserved stderr path is echoed" || fail "preserved stderr path is echoed"
+
+WT_F="$(make_wt wt-probe-transient)"
+CODEX_STUB_MODE=fail CODEX_PROBE_EXIT=0 CODEX_WATCHDOG_PROBE_CMD="$BIN/probe" CODEX_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 207 --prompt-file "$WT_F/prompt.txt" --cwd "$WT_F" --first-progress-timeout 2 --stall-timeout 3 --max-retries 1 >/dev/null 2>&1
+ec=$?
+[ "$ec" -eq 6 ] && pass "successful probe keeps failed attempts retryable" || fail "successful probe keeps failed attempts retryable (got $ec)"
+status="$(marker_status "$WT_F/.review/ISSUE-207-RUN.json")"
+[ "$status" = "exhausted" ] && pass "successful probe never marks refused" || fail "successful probe never marks refused (got $status)"
+[ -f "$WT_F/.review/ISSUE-207-attempt2-stderr.log" ] && pass "successful probe reaches retry attempt" || fail "successful probe reaches retry attempt"
 
 validate_marker_basic "$RUN_FIXTURE" && pass "run fixture valid shape" || fail "run fixture valid shape"
 node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$RUN_SCHEMA" >/dev/null 2>&1 && pass "run schema parses" || fail "run schema parses"

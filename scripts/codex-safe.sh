@@ -13,6 +13,8 @@ PROMPT_FILE=""
 CWD="$(pwd)"
 MODEL=""
 EFFORT=""
+HEARTBEAT_FILE=""
+HEARTBEAT_PID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -22,6 +24,7 @@ while [[ $# -gt 0 ]]; do
     --cwd) CWD="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --heartbeat-file) HEARTBEAT_FILE="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -49,10 +52,27 @@ esac
 [[ -n "$PROMPT_FILE" ]] && PROMPT="$(cat "$PROMPT_FILE")"
 [[ -z "$PROMPT" ]] && { echo "prompt is empty (check --prompt-file content)" >&2; exit 2; }
 
-# Trap to stash ONLY on non-zero exit (codex failure or abort).
-# On success, leave artifacts alone — agent already wrote its handoff files.
+# Stop the heartbeat ticker before any failure-path stash. The explicit
+# post-wait stop below is the normal path; this trap covers signals and shell
+# failures so a read-only dispatch never leaves a ticker behind.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-trap 's=$?; if [[ $s -ne 0 ]]; then "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$CWD" || true; fi; exit $s' EXIT
+stop_heartbeat() {
+  if [[ -n "$HEARTBEAT_PID" ]]; then
+    kill "$HEARTBEAT_PID" 2>/dev/null || true
+    wait "$HEARTBEAT_PID" 2>/dev/null || true
+    HEARTBEAT_PID=""
+  fi
+}
+cleanup() {
+  s=$?
+  stop_heartbeat
+  if [[ $s -ne 0 ]]; then
+    "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$CWD" || true
+  fi
+  trap - EXIT
+  exit "$s"
+}
+trap cleanup EXIT
 
 cd "$CWD"
 
@@ -87,10 +107,39 @@ if [[ "${#EXTRA[@]}" -gt 0 ]]; then
     --sandbox workspace-write \
     --cd "$CWD" \
     "${EXTRA[@]}" \
-    "$PROMPT"
+    "$PROMPT" &
 else
   codex exec \
     --sandbox workspace-write \
     --cd "$CWD" \
-    "$PROMPT"
+    "$PROMPT" &
 fi
+CODEX_PID=$!
+
+if [[ -n "$HEARTBEAT_FILE" ]]; then
+  (
+    ticker_sleep=""
+    stop_ticker_sleep() {
+      if [[ -n "$ticker_sleep" ]]; then
+        kill "$ticker_sleep" 2>/dev/null || true
+      fi
+    }
+    trap 'stop_ticker_sleep; exit 0' TERM INT
+    while true; do
+      mkdir -p "$(dirname "$HEARTBEAT_FILE")" || exit 1
+      : > "$HEARTBEAT_FILE"
+      sleep 20 &
+      ticker_sleep=$!
+      wait "$ticker_sleep" || exit 0
+      ticker_sleep=""
+    done
+  ) &
+  HEARTBEAT_PID=$!
+fi
+
+set +e
+wait "$CODEX_PID"
+CODEX_EXIT=$?
+set -e
+stop_heartbeat
+exit "$CODEX_EXIT"
