@@ -4,8 +4,8 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
-REPOSITORY_ROOT="$(cd "$PRODUCT_ROOT/.." && pwd -P)"
+REPOSITORY_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+PRODUCT_ROOT="$REPOSITORY_ROOT/toolkit"
 FAILURES=0
 
 ok() { echo "ok   - $1"; }

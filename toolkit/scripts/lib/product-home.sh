@@ -14,10 +14,6 @@ agent_workflow_schema_dir() {
     printf '%s\n' "$product_root/schemas"
     return 0
   fi
-  if [ -d "$product_root/.review/schemas" ]; then
-    printf '%s\n' "$product_root/.review/schemas"
-    return 0
-  fi
 
   return 1
 }

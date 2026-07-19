@@ -1,7 +1,5 @@
 # feedbackops-workflow
 
-[![smoke](https://github.com/hjung3113/feedbackops-workflow/actions/workflows/smoke.yml/badge.svg)](https://github.com/hjung3113/feedbackops-workflow/actions/workflows/smoke.yml)
-
 cmux × Claude × Codex 작업을 **분리된 워크트리, 구조화된 산출물, 독립 검증**으로 운영하는 멀티 에이전트 개발 워크플로 툴킷입니다.
 
 에이전트의 “완료했습니다”를 믿지 않고, 커밋·리뷰·테스트 산출물을 기계적으로 대조해 병렬 작업의 false green과 상태 손실을 막는 것이 목적입니다. FeedbackOps에서 실전 검증한 워크플로를 별도 저장소로 분리했으며, 타겟 프로젝트에 설치해 사용합니다.

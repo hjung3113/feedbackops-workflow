@@ -73,7 +73,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 - `install-into.sh` distinguishes location-derived `PRODUCT_ROOT` from optional Git `REPOSITORY_ROOT` safety context, so a metadata-free export remains installable.
 - `ac-check.sh` and `completion-check.sh` share one product-home schema resolver across source, symlink, and copy layouts.
-- Installation smoke executes both gates from real temporary Git targets and covers a metadata-free export in a path containing spaces.
+- Installation smoke executes both gates from real temporary Git targets and covers a metadata-free export in a path containing spaces; source commands now require the canonical sibling `schemas/` directory.
 - Physical authority migration into `toolkit/`, legacy-install migration, and release enforcement remain ordered follow-ups in #29–#31.
 
 ### v0.9 — distributable authority separation

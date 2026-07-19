@@ -13,5 +13,6 @@ Repository contribution rules live in [`AGENTS.md`](AGENTS.md). Product-scoped r
 Run the product smoke suite from the repository root:
 
 ```bash
+bash .github/tests/product-boundary.smoke.sh
 NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh
 ```
