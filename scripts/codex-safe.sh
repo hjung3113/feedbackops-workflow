@@ -92,19 +92,15 @@ EXTRA=()
 # Incident 2026-07-16: this silently ate EVERY commit for seven consecutive
 # dispatches (issue #127 chunk d). Codex wrote each chunk in full, failed to
 # commit, and exited 0, so the failure looked like the model ignoring an
-# instruction. No prompt wording can fix a sandbox denial. Grant the git common
-# dir explicitly, and ONLY when it lies outside --cd, so a plain checkout (gitdir
-# already inside) does not widen the sandbox for nothing.
+# instruction. No prompt wording can fix a sandbox denial. Grant only the
+# resolved git common dir explicitly: a plain checkout needs its in-tree .git
+# too, because workspace-write still denies Git metadata writes by default.
 GIT_COMMON_DIR="$(git -C "$CWD" rev-parse --git-common-dir 2>/dev/null || true)"
 if [[ -n "$GIT_COMMON_DIR" ]]; then
   GIT_COMMON_DIR="$(cd "$CWD" && cd "$GIT_COMMON_DIR" 2>/dev/null && pwd || true)"
 fi
 if [[ -n "$GIT_COMMON_DIR" ]]; then
-  ABS_CWD="$(cd "$CWD" && pwd)"
-  case "$GIT_COMMON_DIR" in
-    "$ABS_CWD"/*) ;;  # gitdir already inside the writable root — nothing to add
-    *) EXTRA+=( -c "sandbox_workspace_write.writable_roots=[\"$GIT_COMMON_DIR\"]" ) ;;
-  esac
+  EXTRA+=( -c "sandbox_workspace_write.writable_roots=[\"$GIT_COMMON_DIR\"]" )
 fi
 
 if [[ "${#EXTRA[@]}" -gt 0 ]]; then

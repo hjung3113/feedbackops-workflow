@@ -180,16 +180,17 @@ if [ -d "$TMP_DIR/gitwt" ]; then
     FAILURES=$((FAILURES + 1))
   fi
 
-  # A NON-worktree checkout keeps its gitdir inside --cd, so it needs nothing
-  # extra; a redundant writable root would widen the sandbox for free.
+  # A plain checkout still needs its resolved Git metadata directory explicitly
+  # writable: workspace-write denies commits to .git even when it is in --cd.
+  # The grant must be exactly .git, not the checkout or another parent directory.
   args_file="$TMP_DIR/plain.args"
   CODEX_STUB_ARGS="$args_file" PATH="$BIN:$PATH" bash "$CODEX_SAFE" \
     --issue 33 --prompt "hello" --cwd "$GIT_MAIN" >/dev/null 2>&1
-  if grep -q 'writable_roots' "$args_file" 2>/dev/null; then
-    echo "NOT OK - plain repo cwd must not widen the sandbox with writable_roots"
-    FAILURES=$((FAILURES + 1))
+  if grep -Fq "sandbox_workspace_write.writable_roots=[\"$GIT_MAIN/.git\"]" "$args_file" 2>/dev/null; then
+    echo "ok   - plain repo cwd grants only its resolved gitdir as writable root"
   else
-    echo "ok   - plain repo cwd passes no extra writable root"
+    echo "NOT OK - plain repo cwd must grant only $GIT_MAIN/.git as writable root"
+    FAILURES=$((FAILURES + 1))
   fi
 
   # A non-git cwd must still dispatch.

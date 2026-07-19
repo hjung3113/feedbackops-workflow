@@ -46,7 +46,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 ### v0.5 — wrapper contracts, acceptance gate, and portable skill entrypoint
 
 - `cmux-dispatch.sh` forwards model/effort and optional liveness budgets.
-- `codex-safe.sh` grants a linked worktree's Git common dir and supports read-only heartbeats.
+- `codex-safe.sh` grants only a linked worktree's or plain checkout's resolved Git metadata dir and supports read-only heartbeats.
 - `codex-watchdog.sh` classifies refusal from two failed probes rather than stderr text.
 - `ac-check.sh` rejects duplicate or undiscovered manifest AC ids before review.
 - The integrated wrapper changes passed clean-context review and a full smoke run at `main@5500d6a`.
@@ -80,12 +80,12 @@ The next generalization must be based on a second real target. The intended spli
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
 - `VERIFY_ISSUE` without `VERIFY_DATABASE_URL` fails closed instead of using a shared `.env` DB.
 - A failed refusal probe is inconclusive; only two failures separated by the configured gap produce `status:"refused"`.
-- Plain-checkout Git metadata remains intentionally unwritable to Codex; linked worktrees receive only their Git common dir. Broader handling is tracked by issue #19.
+- Write-capable Codex receives only the resolved Git metadata dir for either a linked worktree or plain checkout, never a broader checkout or parent root.
 
 ## Open roadmap
 
 - **P1 procedure/templates:** issues #4–#6 and #9–#11 — ARCH feasibility, richer AC rows, completion calculation, circuit breaker, atomic chunks, and Standard-tier generation.
-- **P2 toolkit/procedure:** #13, #14, #17, #19 — verifier output/freshness, integrated-head closure, re-review capsule, and plain-checkout Git handling.
+- **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
 
