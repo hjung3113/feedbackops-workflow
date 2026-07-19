@@ -22,7 +22,7 @@ The workflow's **coordination model is reusable**, but every script is not yet t
 From the toolkit repository:
 
 ```bash
-scripts/install-into.sh <target-repo> [--mode symlink|copy] [--force]
+scripts/install-into.sh <target-repo> [--mode symlink|copy] [--migrate-legacy|--force]
 ```
 
 The installer derives `PRODUCT_ROOT` from its own physical `scripts/` location. Git metadata is optional: when present, the enclosing repository is used only for repository-specific safety checks and is not the product identity. Source and installed commands use the same sibling `scripts/`, `schemas/`, and `docs/` layout; installed commands do not need repository metadata.

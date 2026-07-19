@@ -280,6 +280,27 @@ assert_exit_output "force and legacy migration are mutually exclusive" 2 \
   "cannot be combined" bash "$INSTALL" "$legacy_conflict" --force --migrate-legacy
 assert_legacy_links "conflicting flags" "$legacy_conflict" "$legacy_conflict_root"
 
+legacy_rollback="$TMP_DIR/legacy-rollback-target"
+legacy_rollback_root="$TMP_DIR/legacy-rollback-root"
+fake_bin="$TMP_DIR/fake-bin"
+cp_count="$TMP_DIR/cp-count"
+mkdir -p "$legacy_rollback" "$fake_bin"
+make_legacy_links "$legacy_rollback" "$legacy_rollback_root" live
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'count_file="${CP_COUNT_FILE:?}"' \
+  'count=0' \
+  '[[ -f "$count_file" ]] && count="$(cat "$count_file")"' \
+  'count=$((count + 1))' \
+  'printf '\''%s\n'\'' "$count" > "$count_file"' \
+  '[[ "$count" -eq 4 ]] && exit 97' \
+  'exec /bin/cp "$@"' > "$fake_bin/cp"
+chmod +x "$fake_bin/cp"
+assert_exit_output "failed copy migration reports rollback" 97 \
+  "restoring the previous installation" env PATH="$fake_bin:$PATH" CP_COUNT_FILE="$cp_count" \
+  bash "$INSTALL" "$legacy_rollback" --mode copy --migrate-legacy
+assert_legacy_links "failed copy migration rollback" "$legacy_rollback" "$legacy_rollback_root"
+
 for custom_mode in symlink copy; do
   custom_target="$TMP_DIR/custom-$custom_mode"
   custom_docs="$TMP_DIR/custom-docs-$custom_mode"
@@ -302,6 +323,7 @@ done
 product_export="$TMP_DIR/product export"
 export_target="$TMP_DIR/export target"
 mkdir -p "$product_export/docs" "$product_export/.claude/skills" "$export_target"
+product_export_real="$(cd "$product_export" && pwd -P)"
 cp -R "$PRODUCT_ROOT/scripts" "$product_export/scripts"
 cp -R "$PRODUCT_ROOT/schemas" "$product_export/schemas"
 cp -R "$PRODUCT_ROOT/docs/agents" "$product_export/docs/agents"
@@ -315,6 +337,19 @@ assert_no_maintainer_leakage "$export_target"
 prepare_gate_fixture "$export_target"
 assert_gate_contract "git-free export copy install" "$export_target/.agent-workflow/scripts"
 
+export_legacy_target="$TMP_DIR/export legacy target"
+export_legacy_root="$TMP_DIR/export old root"
+export_legacy_output="$TMP_DIR/export-legacy-output.txt"
+mkdir -p "$export_legacy_target"
+make_legacy_links "$export_legacy_target" "$export_legacy_root" dangling
+bash "$product_export/scripts/install-into.sh" "$export_legacy_target" >"$export_legacy_output" 2>&1
+export_legacy_status=$?
+export_legacy_command="$(grep -- '--migrate-legacy$' "$export_legacy_output")"
+assert_true "spaced export legacy detection exits two" test "$export_legacy_status" -eq 2
+assert_true "spaced export migration guidance quotes product path" grep -F -q 'product\ export/scripts/install-into.sh' "$export_legacy_output"
+assert_exit "spaced export migration guidance is executable" PASS bash -c "$export_legacy_command"
+assert_true "spaced export migration rewires scripts" test "$(readlink "$export_legacy_target/.agent-workflow/scripts")" = "$product_export_real/scripts"
+
 assert_exit "refuses product root" FAIL bash "$INSTALL" "$PRODUCT_ROOT"
 assert_exit "errors on missing target path" FAIL bash "$INSTALL" "$TMP_DIR/does-not-exist"
 
@@ -323,6 +358,7 @@ assert_true "README documents narrow legacy migration" grep -F -q -- '--migrate-
 assert_true "README documents explicit copy update" grep -F -q -- '--mode copy --force' "$PRODUCT_ROOT/README.md"
 assert_true "adoption guide names managed scripts destination" grep -F -q '.agent-workflow/scripts' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
 assert_true "adoption guide names managed skill destination" grep -F -q '.claude/skills/agent-workflow' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
+assert_true "adoption usage documents mutually exclusive migration flags" grep -F -q -- '[--migrate-legacy|--force]' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then

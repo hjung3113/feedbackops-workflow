@@ -97,6 +97,19 @@ SCHEMAS_DEST="$AGENT_DIR/schemas"
 DOCS_DEST="$AGENT_DIR/docs/agents"
 SKILL_DEST="$CLAUDE_SKILLS_DIR/agent-workflow"
 
+require_source_dir() {
+  local source_dir="$1"
+  if [[ ! -d "$source_dir" ]]; then
+    echo "required product directory is missing: $source_dir" >&2
+    exit 2
+  fi
+}
+
+require_source_dir "$SCRIPTS_SRC"
+require_source_dir "$SCHEMAS_SRC"
+require_source_dir "$DOCS_SRC"
+require_source_dir "$SKILL_SRC"
+
 legacy_root_for() {
   local raw_target="$1"
   local legacy_suffix="$2"
@@ -186,7 +199,7 @@ if [[ "$LEGACY_COUNT" -gt 0 && "$MIGRATE_LEGACY" -eq 0 ]]; then
   print_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK"
   print_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK"
   echo "Migrate only the recognized legacy links with:" >&2
-  echo "  $0 \"$TARGET_ROOT\" --mode $MODE --migrate-legacy" >&2
+  printf '  %q %q --mode %q --migrate-legacy\n' "$0" "$TARGET_ROOT" "$MODE" >&2
   echo "Existing files, directories, copy installs, and unrecognized symlinks will be preserved." >&2
   exit 2
 fi
@@ -197,27 +210,29 @@ if [[ "$MIGRATE_LEGACY" -eq 1 && "$LEGACY_COUNT" -eq 0 ]]; then
   exit 2
 fi
 
+mkdir -p "$AGENT_DIR"
+mkdir -p "$AGENT_DIR/docs"
+mkdir -p "$REVIEW_DIR"
+mkdir -p "$CLAUDE_SKILLS_DIR"
+
+SCRIPTS_ABSENT=0
+SCHEMAS_ABSENT=0
+DOCS_ABSENT=0
+SKILL_ABSENT=0
+[[ ! -e "$SCRIPTS_DEST" && ! -L "$SCRIPTS_DEST" ]] && SCRIPTS_ABSENT=1
+[[ ! -e "$SCHEMAS_DEST" && ! -L "$SCHEMAS_DEST" ]] && SCHEMAS_ABSENT=1
+[[ ! -e "$DOCS_DEST" && ! -L "$DOCS_DEST" ]] && DOCS_ABSENT=1
+[[ ! -e "$SKILL_DEST" && ! -L "$SKILL_DEST" ]] && SKILL_ABSENT=1
+
 remove_legacy_link() {
   local recognized="$1"
   local dest="$2"
   local raw_target="$3"
   if [[ "$recognized" -eq 1 ]]; then
-    rm "$dest"
+    rm "$dest" || return $?
     echo "removed legacy link: $dest -> $raw_target"
   fi
 }
-
-if [[ "$MIGRATE_LEGACY" -eq 1 ]]; then
-  remove_legacy_link "$LEGACY_SCRIPTS" "$SCRIPTS_DEST" "$SCRIPTS_LINK"
-  remove_legacy_link "$LEGACY_SCHEMAS" "$SCHEMAS_DEST" "$SCHEMAS_LINK"
-  remove_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK"
-  remove_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK"
-fi
-
-mkdir -p "$AGENT_DIR"
-mkdir -p "$AGENT_DIR/docs"
-mkdir -p "$REVIEW_DIR"
-mkdir -p "$CLAUDE_SKILLS_DIR"
 
 install_link() {
   src="$1"
@@ -232,7 +247,7 @@ install_link() {
     fi
   fi
 
-  ln -s "$src" "$dest"
+  ln -s "$src" "$dest" || return $?
   echo "linked: $dest -> $src"
 }
 
@@ -249,20 +264,61 @@ install_copy() {
     fi
   fi
 
-  cp -R "$src" "$dest"
+  cp -R "$src" "$dest" || return $?
   echo "copied: $dest"
 }
 
-if [[ "$MODE" == "symlink" ]]; then
-  install_link "$SCRIPTS_SRC" "$SCRIPTS_DEST"
-  install_link "$SCHEMAS_SRC" "$SCHEMAS_DEST"
-  install_link "$DOCS_SRC" "$DOCS_DEST"
-  install_link "$SKILL_SRC" "$SKILL_DEST"
+perform_install() {
+  if [[ "$MODE" == "symlink" ]]; then
+    install_link "$SCRIPTS_SRC" "$SCRIPTS_DEST" || return $?
+    install_link "$SCHEMAS_SRC" "$SCHEMAS_DEST" || return $?
+    install_link "$DOCS_SRC" "$DOCS_DEST" || return $?
+    install_link "$SKILL_SRC" "$SKILL_DEST" || return $?
+  else
+    install_copy "$SCRIPTS_SRC" "$SCRIPTS_DEST" || return $?
+    install_copy "$SCHEMAS_SRC" "$SCHEMAS_DEST" || return $?
+    install_copy "$DOCS_SRC" "$DOCS_DEST" || return $?
+    install_copy "$SKILL_SRC" "$SKILL_DEST" || return $?
+  fi
+}
+
+restore_destination() {
+  local recognized="$1"
+  local initially_absent="$2"
+  local dest="$3"
+  local raw_target="$4"
+
+  if [[ "$recognized" -eq 1 ]]; then
+    rm -rf "$dest"
+    ln -s "$raw_target" "$dest"
+  elif [[ "$initially_absent" -eq 1 ]]; then
+    rm -rf "$dest"
+  fi
+}
+
+rollback_migration() {
+  echo "install-into: migration failed; restoring the previous installation." >&2
+  restore_destination "$LEGACY_SCRIPTS" "$SCRIPTS_ABSENT" "$SCRIPTS_DEST" "$SCRIPTS_LINK"
+  restore_destination "$LEGACY_SCHEMAS" "$SCHEMAS_ABSENT" "$SCHEMAS_DEST" "$SCHEMAS_LINK"
+  restore_destination "$LEGACY_DOCS" "$DOCS_ABSENT" "$DOCS_DEST" "$DOCS_LINK"
+  restore_destination "$LEGACY_SKILL" "$SKILL_ABSENT" "$SKILL_DEST" "$SKILL_LINK"
+}
+
+if [[ "$MIGRATE_LEGACY" -eq 1 ]]; then
+  set +e
+  remove_legacy_link "$LEGACY_SCRIPTS" "$SCRIPTS_DEST" "$SCRIPTS_LINK" && \
+    remove_legacy_link "$LEGACY_SCHEMAS" "$SCHEMAS_DEST" "$SCHEMAS_LINK" && \
+    remove_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK" && \
+    remove_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK" && \
+    perform_install
+  migration_status=$?
+  set -e
+  if [[ "$migration_status" -ne 0 ]]; then
+    rollback_migration
+    exit "$migration_status"
+  fi
 else
-  install_copy "$SCRIPTS_SRC" "$SCRIPTS_DEST"
-  install_copy "$SCHEMAS_SRC" "$SCHEMAS_DEST"
-  install_copy "$DOCS_SRC" "$DOCS_DEST"
-  install_copy "$SKILL_SRC" "$SKILL_DEST"
+  perform_install
 fi
 
 cat <<EOF
