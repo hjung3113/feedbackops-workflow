@@ -15,6 +15,7 @@ cmux × Claude × Codex 작업을 **분리된 워크트리, 구조화된 산출�
 - **false-green 방지** — 전체 skip, 0 tests, 스위트 초기화 실패, 잘못된 DB, 증거 산출물 누락을 성공으로 처리하지 않습니다.
 - **병렬 격리** — 작업별 워크트리와 일회성 DB를 사용해 파일·스키마·락 간섭을 막습니다.
 - **디스크가 정본** — CONDUCTOR는 대화 메모리가 아니라 `.review/*.json`만으로 상태를 복원합니다.
+- **계약 영향 스코프** — exported-contract 변경은 scope lock 전에 target-native 소비자 탐색을 수행하고, 구현 후 전체 typecheck로 결과를 gate하며, 실행 증거를 ROUND-STATE `live_probes[]`에 남깁니다.
 - **macOS Bash 3.2 호환** — 주요 계약은 오프라인 smoke로 검증하고 GitHub Actions에서도 실행합니다.
 
 ## 빠른 시작
@@ -133,6 +134,8 @@ Release Captain ──▶ merge decision
 ```
 
 CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합니다. `RUN.json` 종료 코드는 프로세스 상태일 뿐 작업 완료 증거가 아니며, 병합 가능 여부는 현재 HEAD에서 생성된 REVIEW와 VERIFY 산출물로 판정합니다.
+
+공개 계약을 바꾸는 청크는 touch allowlist를 확정하기 전에 타겟 프로필의 repository-native 명령으로 compile-time consumer를 열거합니다. CodeGraph는 사용 가능한 선택지일 뿐 필수 의존성이 아닙니다. 구현 후에는 전체 typecheck를 결정론적 gate로 실행합니다. 각 명령과 결과는 canonical ROUND-STATE의 `live_probes[]`에 기록하며, dynamic/convention 소비자는 adversarial review의 잔여 위험으로 남깁니다. Triggered watch-item 절차는 #10에서 정의합니다.
 
 ## 주요 도구
 

@@ -48,7 +48,8 @@ Before the first run, answer these from the target's real files:
 5. How are typecheck, lint, build, and UI tests invoked?
 6. Does verification require a DB or other service? Can each parallel chunk get an isolated instance?
 7. Which paths or exported contracts force a higher risk tier?
-8. What artifact or captured result proves verification at the current HEAD?
+8. Which repository-native commands enumerate compile-time consumers, and what full typecheck command gates the proposed scope?
+9. What artifact or captured result proves verification at the current HEAD?
 
 Record target-specific answers in the target's `AGENTS.md` or a small target-owned adapter document. Do not add product assumptions back to the shared skill.
 
@@ -71,6 +72,7 @@ tier_trigger_paths[]
 test_discovery_command
 verify_command
 typecheck_command
+compile_consumer_commands[]
 service_isolation_strategy
 ```
 
