@@ -55,6 +55,7 @@ assert_exit_output() {
   fi
 }
 
+# release-contract: legacy-link-fixture-begin
 make_legacy_links() {
   target="$1"
   legacy_root="$2"
@@ -80,6 +81,7 @@ assert_legacy_links() {
   assert_true "$label preserves docs link" test "$(readlink "$target/.agent-workflow/docs/agents")" = "$legacy_root/docs/agents"
   assert_true "$label preserves skill link" test "$(readlink "$target/.claude/skills/agent-workflow")" = "$legacy_root/.claude/skills/agent-workflow"
 }
+# release-contract: legacy-link-fixture-end
 
 assert_no_maintainer_leakage() {
   target="$1"
@@ -259,11 +261,13 @@ assert_true "migrated copy includes schema" test -e "$legacy_copy/.agent-workflo
 prepare_gate_fixture "$legacy_copy"
 assert_gate_contract "migrated copy install" "$legacy_copy/.agent-workflow/scripts"
 
+# release-contract: repository-legacy-fixture-begin
 legacy_mixed="$TMP_DIR/legacy-mixed-target"
 mkdir -p "$legacy_mixed/.agent-workflow/docs" "$legacy_mixed/.claude/skills/agent-workflow"
 ln -s "$REPOSITORY_ROOT/scripts" "$legacy_mixed/.agent-workflow/scripts"
 ln -s "$REPOSITORY_ROOT/.review/schemas" "$legacy_mixed/.agent-workflow/schemas"
 ln -s "$REPOSITORY_ROOT/docs/agents" "$legacy_mixed/.agent-workflow/docs/agents"
+# release-contract: repository-legacy-fixture-end
 printf '%s\n' 'custom skill stays' > "$legacy_mixed/.claude/skills/agent-workflow/SKILL.md"
 assert_exit "known partial legacy links migrate without deleting customization" PASS \
   bash "$INSTALL" "$legacy_mixed" --migrate-legacy

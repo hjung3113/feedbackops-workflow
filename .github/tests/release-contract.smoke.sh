@@ -9,6 +9,7 @@ PRODUCT_ROOT="$REPOSITORY_ROOT/toolkit"
 FAILURES=0
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+LEGACY_REVIEW_SCHEMAS=".review""/schemas"
 
 ok() { echo "ok   - $1"; }
 not_ok() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
@@ -101,9 +102,9 @@ assert_exists "root Claude pointer" "$REPOSITORY_ROOT/CLAUDE.md"
 assert_exists "root repository map" "$REPOSITORY_ROOT/README.md"
 assert_exists "root Matt skills lock" "$REPOSITORY_ROOT/skills-lock.json"
 assert_exists "root imported review skill" "$REPOSITORY_ROOT/.agents/skills/code-review/SKILL.md"
-assert_exists "root maintainer issue tracker" "$REPOSITORY_ROOT/docs/agents/issue-tracker.md"
-assert_exists "root maintainer domain config" "$REPOSITORY_ROOT/docs/agents/domain.md"
-assert_exists "root maintainer triage config" "$REPOSITORY_ROOT/docs/agents/triage-labels.md"
+assert_exists "root maintainer issue tracker" "$REPOSITORY_ROOT/docs"/agents/issue-tracker.md
+assert_exists "root maintainer domain config" "$REPOSITORY_ROOT/docs"/agents/domain.md
+assert_exists "root maintainer triage config" "$REPOSITORY_ROOT/docs"/agents/triage-labels.md
 assert_exists "root plans" "$REPOSITORY_ROOT/docs/plans"
 assert_exists "root CI" "$REPOSITORY_ROOT/.github/workflows/smoke.yml"
 assert_exists "release contract checker" "$SCRIPT_DIR/release-contract-check.cjs"
@@ -112,12 +113,12 @@ assert_exists "root hook" "$REPOSITORY_ROOT/.githooks/post-merge"
 assert_exists "root runtime evidence" "$REPOSITORY_ROOT/.review"
 
 assert_absent "no Matt-directory product skill" "$REPOSITORY_ROOT/.agents/skills/agent-workflow"
-assert_absent "no root Claude product skill" "$REPOSITORY_ROOT/.claude/skills/agent-workflow"
-assert_absent "no root product scripts" "$REPOSITORY_ROOT/scripts"
-assert_absent "no root product schemas" "$REPOSITORY_ROOT/.review/schemas"
+assert_absent "no root Claude product skill" "$REPOSITORY_ROOT/.claude/skills"/agent-workflow
+assert_absent "no root product scripts" "$REPOSITORY_ROOT"/scripts
+assert_absent "no root product schemas" "$REPOSITORY_ROOT/.review"/schemas
 assert_absent "no root product STATUS" "$REPOSITORY_ROOT/STATUS.md"
 assert_absent "no root product env example" "$REPOSITORY_ROOT/.env.example"
-assert_absent "no root product playbook" "$REPOSITORY_ROOT/docs/agents/multi-agent-workflow.md"
+assert_absent "no root product playbook" "$REPOSITORY_ROOT/docs"/agents/multi-agent-workflow.md
 
 canonical_skill_count="$(git -C "$REPOSITORY_ROOT" ls-files | grep -E '/agent-workflow/SKILL\.md$' | wc -l | tr -d ' ')"
 assert_equals "exactly one canonical product skill" "1" "$canonical_skill_count"
@@ -173,20 +174,20 @@ assert_rejects "bare root product command fails" 'legacy root product path' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 printf '%s\n' '# fixture' '[toolkit](toolkit/)' > "$contract_fixture/README.md"
 
-printf '%s\n' '# current product docs' '.review/schemas/current.schema.json' \
+printf '%s\n' '# current product docs' "$LEGACY_REVIEW_SCHEMAS/current.schema.json" \
   > "$contract_fixture/toolkit/current.md"
 assert_rejects "unapproved current legacy reference fails" 'unapproved legacy-review-schemas' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 
 printf '%s\n' '# current product docs' > "$contract_fixture/toolkit/current.md"
-printf '%s\n' '.review/schemas/historical.schema.json' > "$contract_fixture/docs/plans/history.md"
+printf '%s\n' "$LEGACY_REVIEW_SCHEMAS/historical.schema.json" > "$contract_fixture/docs/plans/history.md"
 git -C "$contract_fixture" add docs/plans/history.md
 printf '%s\n' \
   '{' \
   '  "historicalReferences": [{' \
   '    "path": "docs/plans/history.md",' \
   '    "token": "legacy-review-schemas",' \
-  '    "context": ".review/schemas/historical.schema.json",' \
+  "    \"context\": \"$LEGACY_REVIEW_SCHEMAS/historical.schema.json\"," \
   '    "expectedCount": 1,' \
   '    "reason": "immutable fixture evidence"' \
   '  }],' \
@@ -194,11 +195,40 @@ printf '%s\n' \
   '}' > "$contract_fixture/.github/tests/release-contract-exceptions.json"
 assert_command "exact historical exception passes" \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
-printf '%s\n' '.review/schemas/historical.schema.json' >> "$contract_fixture/docs/plans/history.md"
+printf '%s\n' "$LEGACY_REVIEW_SCHEMAS/historical.schema.json" >> "$contract_fixture/docs/plans/history.md"
 assert_rejects "historical exception count drift fails" 'count mismatch' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 
-printf '%s\n' '.review/schemas/historical.schema.json' > "$contract_fixture/docs/plans/history.md"
+region_fixture="$TMP_DIR/region fixture"
+mkdir -p "$region_fixture/.github/tests" "$region_fixture/toolkit/scripts"
+git init -q "$region_fixture"
+printf '%s\n' \
+  '# release-contract: compatibility-fixture-begin' \
+  "$LEGACY_REVIEW_SCHEMAS/compat.schema.json" \
+  '# release-contract: compatibility-fixture-end' > "$region_fixture/toolkit/scripts/install.sh"
+printf '%s\n' \
+  '{' \
+  '  "historicalReferences": [],' \
+  '  "compatibilityReferences": [{' \
+  '    "path": "toolkit/scripts/install.sh",' \
+  '    "token": "legacy-review-schemas",' \
+  '    "region": "compatibility-fixture",' \
+  "    \"context\": \"$LEGACY_REVIEW_SCHEMAS/compat.schema.json\"," \
+  '    "expectedCount": 1,' \
+  '    "reason": "named compatibility fixture"' \
+  '  }]' \
+  '}' > "$region_fixture/.github/tests/release-contract-exceptions.json"
+git -C "$region_fixture" add toolkit/scripts/install.sh .github/tests/release-contract-exceptions.json
+assert_command "named compatibility region passes" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$region_fixture"
+printf '%s\n' \
+  "$LEGACY_REVIEW_SCHEMAS/compat.schema.json" \
+  '# release-contract: compatibility-fixture-begin' \
+  '# release-contract: compatibility-fixture-end' > "$region_fixture/toolkit/scripts/install.sh"
+assert_rejects "compatibility line moved outside region fails" 'unapproved legacy-review-schemas' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$region_fixture"
+
+printf '%s\n' "$LEGACY_REVIEW_SCHEMAS/historical.schema.json" > "$contract_fixture/docs/plans/history.md"
 printf '%s\n' '# current product docs' '[missing](missing.md)' > "$contract_fixture/toolkit/current.md"
 assert_rejects "missing current Markdown link fails" 'missing Markdown link' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
@@ -220,6 +250,18 @@ assert_rejects "file URI Markdown link fails" 'machine-absolute Markdown link' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 printf '%s\n' '# current product docs' '[drive path](C:\\workspace\\example.md)' > "$contract_fixture/toolkit/current.md"
 assert_rejects "Windows drive Markdown link fails" 'machine-absolute Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# balanced target' > "$contract_fixture/toolkit/a_(b).md"
+git -C "$contract_fixture" add 'toolkit/a_(b).md'
+printf '%s\n' \
+  'Setext Heading' \
+  '==============' \
+  '# Repeat' \
+  '# Repeat' \
+  '[setext](#setext-heading)' \
+  '[duplicate](#repeat-1)' \
+  '[balanced](a_(b).md)' > "$contract_fixture/toolkit/current.md"
+assert_command "balanced destinations and GitHub heading anchors pass" \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 
 copy_target="$TMP_DIR/copy target"

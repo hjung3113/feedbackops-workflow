@@ -110,6 +110,7 @@ require_source_dir "$SCHEMAS_SRC"
 require_source_dir "$DOCS_SRC"
 require_source_dir "$SKILL_SRC"
 
+# release-contract: legacy-link-detection-begin
 legacy_root_for() {
   local raw_target="$1"
   local legacy_suffix="$2"
@@ -150,6 +151,7 @@ if [[ -L "$SKILL_DEST" ]]; then
   SKILL_LINK="$(readlink "$SKILL_DEST")"
   SKILL_LEGACY_ROOT="$(legacy_root_for "$SKILL_LINK" "/.claude/skills/agent-workflow")" || SKILL_LEGACY_ROOT=""
 fi
+# release-contract: legacy-link-detection-end
 
 LEGACY_SCRIPTS=0
 LEGACY_SCHEMAS=0

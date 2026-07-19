@@ -49,10 +49,12 @@ wt_missing_infra="$TMP_ROOT/wt-42-missing-infra"
 mkdir -p "$wt_missing_infra"
 run_case "existing worktree without workflow infra exits 1" 1 "missing workflow infra" 42 missing-infra
 
+# release-contract: old-layout-fixture-begin
 wt_old_layout="$TMP_ROOT/wt-43-old-layout"
 mkdir -p "$wt_old_layout/scripts" "$wt_old_layout/.review/schemas"
 touch "$wt_old_layout/scripts/codex-safe.sh"
 run_case "old source-checkout layout is not installed workflow infra" 1 "missing workflow infra" 43 old-layout
+# release-contract: old-layout-fixture-end
 
 wt_not_ready="$TMP_ROOT/wt-44-not-ready"
 mkdir -p "$wt_not_ready/.agent-workflow/scripts" "$wt_not_ready/.agent-workflow/schemas"

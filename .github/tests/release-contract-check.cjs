@@ -41,7 +41,6 @@ function validateLegacyReferences(root, files) {
   const metadataPaths = new Set([
     '.github/tests/release-contract-check.cjs',
     '.github/tests/release-contract-exceptions.json',
-    '.github/tests/release-contract.smoke.sh',
   ]);
   const config = JSON.parse(fs.readFileSync(exceptionsPath, 'utf8'));
   const exceptions = [];
@@ -56,7 +55,8 @@ function validateLegacyReferences(root, files) {
         fail(`unknown exception token ${entry.token || '<missing>'}`);
         continue;
       }
-      if (!entry.reason || !entry.context || !Number.isInteger(entry.expectedCount) || entry.expectedCount < 1) {
+      if (!entry.reason || !entry.context || !Number.isInteger(entry.expectedCount) || entry.expectedCount < 1 ||
+          (kind === 'compatibilityReferences' && !entry.region)) {
         fail(`invalid ${kind} entry for ${entry.path || '<missing>'}`);
         continue;
       }
@@ -66,7 +66,7 @@ function validateLegacyReferences(root, files) {
 
   const expected = new Map();
   for (const entry of exceptions) {
-    const key = `${entry.token}\0${entry.path}\0${entry.context}`;
+    const key = `${entry.token}\0${entry.path}\0${entry.region || ''}\0${entry.context}`;
     if (expected.has(key)) fail(`duplicate ${entry.kind} exception for ${entry.token} in ${entry.path}`);
     expected.set(key, entry);
   }
@@ -76,23 +76,37 @@ function validateLegacyReferences(root, files) {
     if (metadataPaths.has(relative)) continue;
     const text = readText(path.join(root, relative));
     if (text === null) continue;
+    let region = '';
     for (const rawLine of text.split('\n')) {
       const context = rawLine.trim();
+      const marker = context.match(/^# release-contract: ([a-z0-9-]+)-(begin|end)$/);
+      if (marker) {
+        if (marker[2] === 'begin') {
+          if (region) fail(`nested compatibility region in ${relative}: ${marker[1]}`);
+          region = marker[1];
+        } else if (region !== marker[1]) {
+          fail(`unmatched compatibility region end in ${relative}: ${marker[1]}`);
+        } else {
+          region = '';
+        }
+        continue;
+      }
       for (const [token, literal] of Object.entries(TOKENS)) {
         const count = countLiteral(rawLine, literal);
         if (count > 0) {
-          const key = `${token}\0${relative}\0${context}`;
+          const key = `${token}\0${relative}\0${region}\0${context}`;
           actual.set(key, (actual.get(key) || 0) + count);
         }
       }
     }
+    if (region) fail(`unclosed compatibility region in ${relative}: ${region}`);
   }
 
   for (const [key, count] of actual) {
     const entry = expected.get(key);
-    const [token, relative, context] = key.split('\0');
+    const [token, relative, region, context] = key.split('\0');
     if (!entry) {
-      fail(`unapproved ${token} reference in ${relative}: ${context}`);
+      fail(`unapproved ${token} reference in ${relative}${region ? ` [${region}]` : ''}: ${context}`);
     } else if (entry.expectedCount !== count) {
       fail(`${entry.kind} count mismatch for ${token} in ${relative}: expected ${entry.expectedCount}, got ${count}`);
     }
@@ -143,32 +157,74 @@ function withoutFencedCode(text) {
 function markdownTargets(text) {
   const targets = [];
   const clean = withoutFencedCode(text);
-  const inline = /!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g;
   const reference = /^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
-  for (const expression of [inline, reference]) {
-    let match;
-    while ((match = expression.exec(clean)) !== null) targets.push(match[1] || match[2]);
+  let cursor = 0;
+  while ((cursor = clean.indexOf('](', cursor)) !== -1) {
+    let position = cursor + 2;
+    while (/\s/.test(clean[position] || '')) position += 1;
+    let target = '';
+    if (clean[position] === '<') {
+      const close = clean.indexOf('>', position + 1);
+      if (close !== -1) target = clean.slice(position + 1, close);
+    } else {
+      let depth = 1;
+      let escaped = false;
+      for (; position < clean.length; position += 1) {
+        const character = clean[position];
+        if (escaped) {
+          target += character;
+          escaped = false;
+        } else if (character === '\\') {
+          escaped = true;
+        } else if (character === '(') {
+          depth += 1;
+          target += character;
+        } else if (character === ')') {
+          depth -= 1;
+          if (depth === 0) break;
+          target += character;
+        } else if (/\s/.test(character) && depth === 1) {
+          break;
+        } else {
+          target += character;
+        }
+      }
+    }
+    if (target) targets.push(target);
+    cursor += 2;
   }
+  let match;
+  while ((match = reference.exec(clean)) !== null) targets.push(match[1] || match[2]);
   return targets;
 }
 
 function markdownAnchors(text) {
   const anchors = new Set();
   const duplicates = new Map();
-  for (const line of withoutFencedCode(text).split('\n')) {
-    const heading = line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
-    if (!heading) continue;
-    const base = heading[1]
+  const lines = withoutFencedCode(text).split('\n');
+  const addHeading = (value) => {
+    const base = value
       .replace(/!?\[([^\]]+)\]\([^)]*\)/g, '$1')
       .replace(/[`*_~]/g, '')
       .toLowerCase()
       .trim()
       .replace(/[^\p{L}\p{N}\s_-]/gu, '')
       .replace(/\s+/g, '-');
-    if (!base) continue;
+    if (!base) return;
     const seen = duplicates.get(base) || 0;
     anchors.add(seen === 0 ? base : `${base}-${seen}`);
     duplicates.set(base, seen + 1);
+  };
+  for (let index = 0; index < lines.length; index += 1) {
+    const atx = lines[index].match(/^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (atx) {
+      addHeading(atx[1]);
+      continue;
+    }
+    if (lines[index].trim() && /^\s{0,3}(?:=+|-+)\s*$/.test(lines[index + 1] || '')) {
+      addHeading(lines[index].trim());
+      index += 1;
+    }
   }
   return anchors;
 }
