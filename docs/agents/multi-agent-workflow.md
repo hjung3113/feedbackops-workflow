@@ -116,12 +116,12 @@ All write-capable task dispatches MUST go through `scripts/codex-safe.sh`, which
 
 - `--sandbox workspace-write` (no read/write outside the working root)
 - `--cd <worktree>` on the codex call (locks codex's writable root to one worktree). The wrapper's own CLI flag is `--cwd`; it maps that to codex's `-C/--cd`.
-- `sandbox_workspace_write.writable_roots=["<git common dir>"]` when `--cwd` is a git **worktree** (see below)
+- `sandbox_workspace_write.writable_roots=["<resolved Git metadata dir>"]` when `--cwd` is a Git checkout or linked worktree (see below)
 - abort-time `workflow-stash.sh` (preserve partial diff on non-zero exit)
 
 Direct `codex exec` is forbidden for implementation and review tasks. The cheap model-availability preflight in "Model Allocation" is the only direct non-task exception; it uses `--skip-git-repo-check`, requests an exact harmless reply, and must not carry project work.
 
-#### Why a worktree needs the git common dir as a writable root
+#### Why a Git checkout needs its metadata directory as a writable root
 
 **Incident (2026-07-16, issue #127 chunk d):** codex finished seven consecutive dispatches with `exit_code: 0`, every line of the chunk written — and **zero commits**. Prompts said `git commit` was part of the task, in capitals, naming how many prior runs had skipped it. It made no difference, because the model was never the problem.
 
@@ -133,7 +133,7 @@ fatal: Unable to create '/path/to/main/.git/worktrees/<n>/index.lock': Operation
 
 The failure mode is nasty because it is **silent and looks behavioural**: codex reports the work it did, exits 0, and the missing commit reads as an instruction-following defect. It was a sandbox denial. No prompt wording can fix a sandbox denial — a mistake that cost seven rounds of conductor commit fallbacks before anyone probed the actual `git commit` stderr.
 
-`codex-safe.sh` now resolves `git rev-parse --git-common-dir` and grants it as a writable root **only when it lies outside `--cd`** — a plain checkout keeps its gitdir inside the working root and gets nothing extra, so the sandbox is never widened for free. Guarded by `scripts/__tests__/codex-safe.smoke.sh` (worktree grants it / plain repo does not / non-git cwd still dispatches).
+`codex-safe.sh` resolves `git rev-parse --git-common-dir` and grants **only that resolved Git metadata directory** as a writable root. This covers both a linked worktree (whose common dir is outside `--cd`) and a plain checkout (whose in-tree `.git` is still denied by `workspace-write`); it does not grant the checkout, a parent directory, or another metadata path. Guarded by `scripts/__tests__/codex-safe.smoke.sh` (worktree and plain repo each grant their resolved gitdir / non-git cwd still dispatches).
 
 **Diagnostic lesson:** a scratch-repo repro under `/tmp` shows the bug **passing** — codex's sandbox makes `/tmp` writable by default, which masks it. Reproduce this class of bug in a worktree of the real repo, not a temp fixture.
 
