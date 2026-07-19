@@ -74,6 +74,7 @@ Report only evidence that was independently observed:
 - exact verification command and result;
 - whether canonical VERIFY evidence applies and matches HEAD;
 - remaining blockers or target-adapter gaps;
+- toolkit issues discovered in the target, including the authorized upstream issue URL or a note that filing still needs authorization;
 - whether merge, push, and issue closure were performed.
 
 Do not restate the entire playbook in the final response. Link the relevant artifact or document.
