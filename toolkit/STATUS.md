@@ -88,6 +88,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 ### v0.10 — safe legacy installation migration
 
 - The installer recognizes each live or dangling pre-separation absolute link, including partial and moved-root installations, and refuses default mutation with an actionable migration command.
+- Relocated or deleted post-separation product homes are recognized through the same fail-closed migration path, including the current `schemas/` layout.
 - `--migrate-legacy` replaces only recognized legacy links in symlink or copy mode; real files, directories, snapshots, and unrecognized links remain target-owned.
 - Symlinked managed parents are rejected before default, migration, or force-mode mutation, so installation cannot follow a parent link outside the target.
 - Copy snapshot/update behavior and the exact destructive scope of `--force` are documented.

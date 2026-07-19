@@ -45,7 +45,7 @@ scripts/install-into.sh ../my-project
 
 Installer는 자신의 `scripts/` 위치에서 물리적인 product home을 찾습니다. Git 저장소 루트는 self-install 같은 저장소 안전 검사를 위한 선택적 컨텍스트일 뿐이며, Git 메타데이터가 없는 export와 공백이 포함된 경로도 설치할 수 있습니다. Source와 installed command는 같은 home의 형제 `scripts/`, `schemas/`, `docs/` 구조를 사용합니다.
 
-이전 루트 구조와 일치하는 absolute symlink를 하나라도 발견하면 installer는 아무것도 바꾸지 않고 중단합니다. 일부 링크만 남았거나 원래 저장소가 이동·삭제된 경우도 같습니다. 진단에 표시된 링크를 확인한 뒤 `--migrate-legacy`를 사용하세요. 이 옵션은 인식된 legacy link만 현재 product home의 symlink 또는 `--mode copy` snapshot으로 바꾸며, 실제 파일·디렉터리·임의 symlink는 보존합니다. `--force`와 함께 사용할 수 없습니다.
+이전 루트 구조와 일치하는 absolute symlink를 하나라도 발견하면 installer는 아무것도 바꾸지 않고 중단합니다. 일부 링크만 남았거나 원래 저장소가 이동·삭제된 경우도 같습니다. 분리 후 product home이 이동·삭제되어 현재 레이아웃의 absolute symlink가 dangling 상태가 된 경우도 같은 방식으로 감지합니다. 진단에 표시된 링크를 확인한 뒤 `--migrate-legacy`를 사용하세요. 이 옵션은 인식된 link만 현재 product home의 symlink 또는 `--mode copy` snapshot으로 바꾸며, 실제 파일·디렉터리·임의 symlink는 보존합니다. `--force`와 함께 사용할 수 없습니다.
 
 Installer가 관리하는 상위 경로인 `.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, `.review`는 타겟 내부의 실제 디렉터리여야 합니다. 이 중 하나가 symlink이면 default, `--migrate-legacy`, `--force` 모두 변경 없이 거부하여 타겟 밖의 경로를 따라가 쓰거나 삭제하지 않습니다.
 

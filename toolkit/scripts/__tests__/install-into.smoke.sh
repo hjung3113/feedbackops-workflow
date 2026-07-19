@@ -320,6 +320,20 @@ assert_true "foreign partial migration rewires schemas" test "$(readlink "$legac
 assert_true "foreign partial migration rewires docs" test "$(readlink "$legacy_foreign_partial/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
 assert_true "foreign partial migration preserves custom skill" grep -F -q 'foreign partial custom skill' "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
 
+moved_current_target="$TMP_DIR/moved-current-target"
+moved_current_root="$TMP_DIR/deleted current product home"
+mkdir -p "$moved_current_target/.agent-workflow/docs" "$moved_current_target/.claude/skills"
+ln -s "$moved_current_root/scripts" "$moved_current_target/.agent-workflow/scripts"
+ln -s "$moved_current_root/schemas" "$moved_current_target/.agent-workflow/schemas"
+ln -s "$moved_current_root/docs/agents" "$moved_current_target/.agent-workflow/docs/agents"
+ln -s "$moved_current_root/.claude/skills/agent-workflow" "$moved_current_target/.claude/skills/agent-workflow"
+assert_exit_output "moved current-layout install is detected" 2 \
+  "legacy absolute-symlink installation detected" bash "$INSTALL" "$moved_current_target"
+assert_exit "moved current-layout links migrate explicitly" PASS \
+  bash "$INSTALL" "$moved_current_target" --migrate-legacy
+assert_true "moved current-layout migration rewires schemas" \
+  test "$(readlink "$moved_current_target/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
+
 assert_exit "legacy links migrate to current symlink mode" PASS \
   bash "$INSTALL" "$legacy_dangling" --migrate-legacy
 assert_true "migrated scripts link uses product" test "$(readlink "$legacy_dangling/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"

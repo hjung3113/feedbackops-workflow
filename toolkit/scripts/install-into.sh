@@ -162,6 +162,9 @@ fi
 if [[ -L "$SCHEMAS_DEST" ]]; then
   SCHEMAS_LINK="$(readlink "$SCHEMAS_DEST")"
   SCHEMAS_LEGACY_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/.review/schemas")" || SCHEMAS_LEGACY_ROOT=""
+  if [[ -z "$SCHEMAS_LEGACY_ROOT" ]]; then
+    SCHEMAS_LEGACY_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/schemas")" || SCHEMAS_LEGACY_ROOT=""
+  fi
 fi
 if [[ -L "$DOCS_DEST" ]]; then
   DOCS_LINK="$(readlink "$DOCS_DEST")"
