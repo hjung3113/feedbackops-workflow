@@ -158,29 +158,17 @@ LEGACY_SCHEMAS=0
 LEGACY_DOCS=0
 LEGACY_SKILL=0
 LEGACY_COUNT=0
-COHERENT_LEGACY=0
 
-if [[ -n "$SCRIPTS_LEGACY_ROOT" && \
-      "$SCRIPTS_LEGACY_ROOT" == "$SCHEMAS_LEGACY_ROOT" && \
-      "$SCRIPTS_LEGACY_ROOT" == "$DOCS_LEGACY_ROOT" && \
-      "$SCRIPTS_LEGACY_ROOT" == "$SKILL_LEGACY_ROOT" ]]; then
-  COHERENT_LEGACY=1
-fi
-
-if [[ "$COHERENT_LEGACY" -eq 1 || \
-      ( -n "$REPOSITORY_ROOT" && "$SCRIPTS_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+if [[ -n "$SCRIPTS_LEGACY_ROOT" && "$SCRIPTS_LINK" != "$SCRIPTS_SRC" ]]; then
   LEGACY_SCRIPTS=1
 fi
-if [[ "$COHERENT_LEGACY" -eq 1 || \
-      ( -n "$REPOSITORY_ROOT" && "$SCHEMAS_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+if [[ -n "$SCHEMAS_LEGACY_ROOT" && "$SCHEMAS_LINK" != "$SCHEMAS_SRC" ]]; then
   LEGACY_SCHEMAS=1
 fi
-if [[ "$COHERENT_LEGACY" -eq 1 || \
-      ( -n "$REPOSITORY_ROOT" && "$DOCS_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+if [[ -n "$DOCS_LEGACY_ROOT" && "$DOCS_LINK" != "$DOCS_SRC" ]]; then
   LEGACY_DOCS=1
 fi
-if [[ "$COHERENT_LEGACY" -eq 1 || \
-      ( -n "$REPOSITORY_ROOT" && "$SKILL_LEGACY_ROOT" == "$REPOSITORY_ROOT" ) ]]; then
+if [[ -n "$SKILL_LEGACY_ROOT" && "$SKILL_LINK" != "$SKILL_SRC" ]]; then
   LEGACY_SKILL=1
 fi
 LEGACY_COUNT=$((LEGACY_SCRIPTS + LEGACY_SCHEMAS + LEGACY_DOCS + LEGACY_SKILL))
@@ -323,6 +311,12 @@ else
   perform_install
 fi
 
+if [[ "$MODE" == "copy" ]]; then
+  ENV_NEXT_STEP="Copy .env.example from the distributable toolkit package before sharing this snapshot."
+else
+  ENV_NEXT_STEP="Copy toolkit env defaults into the target when needed: $PRODUCT_ROOT/.env.example"
+fi
+
 cat <<EOF
 
 Next steps:
@@ -330,5 +324,5 @@ Next steps:
   - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
   - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/cmux-dispatch.sh
   - Verify target fit before using the bundled backend/Vitest verify.sh adapter.
-  - Copy toolkit env defaults into the target when needed: $PRODUCT_ROOT/.env.example
+  - $ENV_NEXT_STEP
 EOF

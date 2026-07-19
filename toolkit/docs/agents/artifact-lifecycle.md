@@ -1,8 +1,8 @@
-# .review/
+# Workflow artifact lifecycle
 
 Per-issue agent handoff artifacts. JSON canonical, lifecycle-tracked.
 
-Immutable cross-repository evidence used to derive toolkit contracts lives under `source/`; it is not runtime state and readers must not treat it as a current issue artifact.
+Immutable derivation evidence belongs to a consuming repository's own evidence area; it is never runtime state or a distributable toolkit dependency.
 
 ## Files
 

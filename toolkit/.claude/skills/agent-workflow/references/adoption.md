@@ -104,7 +104,8 @@ or a later run exposes a problem:
    adoption/documentation gap. Leave the classification open when the boundary is not yet proven.
 3. Search the toolkit repository's open and closed GitHub issues for an existing report.
 4. After obtaining authorization for the external write, file or update the toolkit issue using
-   the inbound-report contract and copyable body template in `docs/agents/issue-reporting.md`.
+   the inbound-report contract and copyable body template at
+   `<target>/.agent-workflow/docs/agents/issue-reporting.md`.
 5. Put the toolkit issue URL and the target-owned temporary workaround in the target's handoff or
    completion report. Remove or revise the workaround only after the upstream change is adopted.
 

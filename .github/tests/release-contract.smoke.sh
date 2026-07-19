@@ -133,7 +133,7 @@ else
   ok "product documents do not depend on maintainer tracker"
 fi
 
-if grep -R -E '\.github/|\.githooks/|docs/agents/(issue-tracker|domain|triage-labels)\.md' \
+if grep -R -E '\.github/|\.githooks/|\.review/source|docs/plans/|skills-lock\.json|\.agents/skills|docs/agents/(issue-tracker|domain|triage-labels)\.md' \
   "$PRODUCT_ROOT/README.md" "$PRODUCT_ROOT/AGENTS.md" "$PRODUCT_ROOT/STATUS.md" \
   "$PRODUCT_ROOT/docs" "$PRODUCT_ROOT/.claude/skills/agent-workflow" >/dev/null 2>&1; then
   not_ok "product documents do not depend on repository infrastructure"
@@ -155,6 +155,7 @@ assert_contains "root README routes to product README" 'toolkit/README.md' "$REP
 assert_contains "trial log remains marked historical" 'Historical record' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "trial log preserves dated legacy evidence" 'feature/31-idem-audit-assertion' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "product instructions forbid duplicate authority" 'Do not recreate an `agent-workflow` authority outside this product root.' "$PRODUCT_ROOT/AGENTS.md"
+assert_exists "product Claude pointer" "$PRODUCT_ROOT/CLAUDE.md"
 assert_contains "root instructions identify Matt development skills" 'Matt Pocock skills under `.agents/skills/`' "$REPOSITORY_ROOT/AGENTS.md"
 
 assert_command "tracked source references and Markdown links are valid" \

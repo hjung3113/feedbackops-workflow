@@ -173,6 +173,7 @@ assert_true "docs link points at product docs" test "$(readlink "$target_symlink
 assert_true "symlink mode creates project skill link" test -L "$target_symlink/.claude/skills/agent-workflow"
 assert_true "skill link points at product skill" test "$(readlink "$target_symlink/.claude/skills/agent-workflow")" = "$PRODUCT_ROOT/.claude/skills/agent-workflow"
 assert_true "install creates target .review" test -d "$target_symlink/.review"
+assert_exit "current symlink install remains idempotent" PASS bash "$INSTALL" "$target_symlink"
 assert_no_maintainer_leakage "$target_symlink"
 prepare_gate_fixture "$target_symlink"
 assert_gate_contract "source layout" "$PRODUCT_ROOT/scripts"
@@ -238,6 +239,26 @@ make_legacy_links "$legacy_dangling" "$legacy_dangling_root" dangling
 assert_exit_output "dangling legacy install is detected" 2 \
   "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_dangling"
 assert_legacy_links "dangling legacy refusal" "$legacy_dangling" "$legacy_dangling_root"
+
+legacy_foreign_partial="$TMP_DIR/legacy-foreign-partial-target"
+legacy_foreign_root="$TMP_DIR/foreign moved root"
+mkdir -p "$legacy_foreign_partial"
+make_legacy_links "$legacy_foreign_partial" "$legacy_foreign_root" dangling
+rm "$legacy_foreign_partial/.claude/skills/agent-workflow"
+mkdir -p "$legacy_foreign_partial/.claude/skills/agent-workflow"
+printf '%s\n' 'foreign partial custom skill' > "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
+assert_exit_output "foreign partial dangling legacy install is detected" 2 \
+  "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_foreign_partial"
+assert_true "foreign partial refusal preserves scripts link" test -L "$legacy_foreign_partial/.agent-workflow/scripts"
+assert_true "foreign partial refusal preserves schemas link" test -L "$legacy_foreign_partial/.agent-workflow/schemas"
+assert_true "foreign partial refusal preserves docs link" test -L "$legacy_foreign_partial/.agent-workflow/docs/agents"
+assert_true "foreign partial refusal preserves custom skill" grep -F -q 'foreign partial custom skill' "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
+assert_exit "foreign partial legacy links migrate explicitly" PASS \
+  bash "$INSTALL" "$legacy_foreign_partial" --migrate-legacy
+assert_true "foreign partial migration rewires scripts" test "$(readlink "$legacy_foreign_partial/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
+assert_true "foreign partial migration rewires schemas" test "$(readlink "$legacy_foreign_partial/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
+assert_true "foreign partial migration rewires docs" test "$(readlink "$legacy_foreign_partial/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
+assert_true "foreign partial migration preserves custom skill" grep -F -q 'foreign partial custom skill' "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
 
 assert_exit "legacy links migrate to current symlink mode" PASS \
   bash "$INSTALL" "$legacy_dangling" --migrate-legacy

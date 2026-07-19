@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.10
+## Current release: v0.11
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -21,7 +21,8 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a single distributable `toolkit/` authority separated from the root Matt Pocock development environment;
 - fail-closed legacy absolute-symlink detection plus narrow `--migrate-legacy` conversion that preserves target customization;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
-- an offline Bash 3.2 smoke suite and GitHub Actions gate.
+- a root-owned release contract that checks toolkit containment, exact compatibility exceptions, source/copy/symlink links, and target-install non-leakage;
+- an offline Bash 3.2 smoke suite; this source repository runs the release gate and full suite in CI.
 
 Run the current inventory instead of copying a count into docs:
 
@@ -86,7 +87,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 ### v0.10 — safe legacy installation migration
 
-- The installer recognizes coherent live or dangling pre-separation absolute links and refuses default mutation with an actionable migration command.
+- The installer recognizes each live or dangling pre-separation absolute link, including partial and moved-root installations, and refuses default mutation with an actionable migration command.
 - `--migrate-legacy` replaces only recognized legacy links in symlink or copy mode; real files, directories, snapshots, and unrecognized links remain target-owned.
 - Copy snapshot/update behavior and the exact destructive scope of `--force` are documented.
 - Fresh, migrated, and Git-metadata-free installations execute installed acceptance and completion gates without maintainer-state leakage.

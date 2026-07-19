@@ -10,7 +10,7 @@ The workflow product home is the physical parent of the running command's `scrip
 
 `install-into.sh` resolves `PRODUCT_ROOT` from its own location. An enclosing Git root, when discoverable, is optional `REPOSITORY_ROOT` context used only for repository-specific safety checks. Missing Git metadata does not make an exported product invalid. Target runtime evidence remains target-owned under `<target>/.review`; it is not a product schema directory.
 
-Existing pre-separation absolute symlink installations fail closed with an actionable `--migrate-legacy` command. Migration preflights all managed destinations, removes only recognized legacy link nodes, and preserves files, directories, copy snapshots, and unrecognized links. `--force` is the separate explicit full-replacement interface and cannot be combined with migration.
+Each recognized pre-separation absolute symlink fails closed with an actionable `--migrate-legacy` command, even when only part of an installation remains or its former repository root moved or disappeared. Migration preflights all managed destinations, removes only recognized legacy link nodes, and preserves files, directories, copy snapshots, and unrecognized links. `--force` is the separate explicit full-replacement interface and cannot be combined with migration.
 
 Product containment, classified legacy-path evidence, and maintainer-file non-leakage are release concerns owned by infrastructure outside this distributable product and are not installed into targets. Product-local Markdown links must resolve from both source and installed paths. The legacy symlink recognizer above is a documented compatibility contract, not a product-home fallback.
 
