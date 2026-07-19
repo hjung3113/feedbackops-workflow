@@ -259,6 +259,10 @@ printf '%s\n' '# current product docs' '[broken\\](missing.md)' \
   > "$contract_fixture/toolkit/current.md"
 assert_rejects "even backslashes keep the closing bracket active" 'missing Markdown link' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '\\[broken](missing.md)' \
+  > "$contract_fixture/toolkit/current.md"
+assert_rejects "even backslashes keep the opening bracket active" 'missing Markdown link' \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 printf '%s\n' '# current product docs' '\`[broken](missing.md)\`' \
   > "$contract_fixture/toolkit/current.md"
 assert_rejects "escaped backticks do not hide active links" 'missing Markdown link' \

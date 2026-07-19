@@ -208,8 +208,8 @@ function hasLinkOpener(text, closingBracket) {
   let depth = 1;
   for (let position = closingBracket - 1; position >= 0; position -= 1) {
     if (text[position] === '\n') return false;
-    if (text[position] === ']' && text[position - 1] !== '\\') depth += 1;
-    if (text[position] === '[' && text[position - 1] !== '\\') {
+    if (text[position] === ']' && !isEscaped(text, position)) depth += 1;
+    if (text[position] === '[' && !isEscaped(text, position)) {
       depth -= 1;
       if (depth === 0) return true;
     }
