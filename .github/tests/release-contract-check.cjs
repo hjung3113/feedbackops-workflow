@@ -145,18 +145,60 @@ function validateCurrentRootReferences(root, files) {
 function withoutFencedCode(text) {
   let fence = null;
   return text.split('\n').map((line) => {
-    const marker = line.match(/^\s{0,3}(```+|~~~+)/);
-    if (marker) {
-      if (!fence) fence = marker[1][0];
-      else if (marker[1][0] === fence) fence = null;
+    const opening = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    const closing = line.match(/^\s{0,3}(`{3,}|~{3,})\s*$/);
+    if (!fence && opening) {
+      fence = { character: opening[1][0], length: opening[1].length };
+      return '';
+    }
+    if (fence && closing && closing[1][0] === fence.character && closing[1].length >= fence.length) {
+      fence = null;
       return '';
     }
     return fence ? '' : line;
   }).join('\n');
 }
 
+function isEscaped(text, position) {
+  let slashes = 0;
+  for (let index = position - 1; index >= 0 && text[index] === '\\'; index -= 1) slashes += 1;
+  return slashes % 2 === 1;
+}
+
 function withoutInlineCode(text) {
-  return text.replace(/(`+)([\s\S]*?)\1/g, (match) => ' '.repeat(match.length));
+  const masked = text.split('');
+  let position = 0;
+  while (position < text.length) {
+    if (text[position] !== '`' || isEscaped(text, position)) {
+      position += 1;
+      continue;
+    }
+    let openingLength = 1;
+    while (text[position + openingLength] === '`') openingLength += 1;
+    let search = position + openingLength;
+    let closing = -1;
+    while (search < text.length) {
+      if (text[search] !== '`' || isEscaped(text, search)) {
+        search += 1;
+        continue;
+      }
+      let closingLength = 1;
+      while (text[search + closingLength] === '`') closingLength += 1;
+      if (closingLength === openingLength) {
+        closing = search;
+        break;
+      }
+      search += closingLength;
+    }
+    if (closing === -1) {
+      position += openingLength;
+      continue;
+    }
+    const end = closing + openingLength;
+    for (let index = position; index < end; index += 1) masked[index] = ' ';
+    position = end;
+  }
+  return masked.join('');
 }
 
 function hasLinkOpener(text, closingBracket) {

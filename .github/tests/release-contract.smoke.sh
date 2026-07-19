@@ -239,6 +239,10 @@ printf '%s\n' '# current product docs' '```md' '[example](missing.md)' '```' \
   > "$contract_fixture/toolkit/current.md"
 assert_command "fenced Markdown example is ignored" \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '````md' '[example](missing.md)' '```' \
+  '[still fenced](missing.md)' '````' > "$contract_fixture/toolkit/current.md"
+assert_command "shorter inner fence does not close outer fence" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 printf '%s\n' '# current product docs' '`[example](missing.md)`' 'plain text](missing.md)' \
   > "$contract_fixture/toolkit/current.md"
 assert_command "inline code and non-link delimiters are ignored" \
@@ -246,6 +250,10 @@ assert_command "inline code and non-link delimiters are ignored" \
 printf '%s\n' '# current product docs' '\[escaped](missing.md)' '[escaped\](missing.md)' \
   '<!-- [commented](missing.md) -->' > "$contract_fixture/toolkit/current.md"
 assert_command "escaped and commented Markdown links are ignored" \
+  node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
+printf '%s\n' '# current product docs' '\`[broken](missing.md)\`' \
+  > "$contract_fixture/toolkit/current.md"
+assert_rejects "escaped backticks do not hide active links" 'missing Markdown link' \
   node "$SCRIPT_DIR/release-contract-check.cjs" source "$contract_fixture"
 printf '%s\n' '# outside product root' > "$TMP_DIR/outside.md"
 ln -s "$TMP_DIR/outside.md" "$contract_fixture/toolkit/outside.md"
