@@ -128,10 +128,13 @@ if (String(state.revision) !== expectedRevision) {
   error("stale_manifest_revision", "expected revision does not match ROUND-STATE");
 }
 
-let worktreeRoot, liveHead;
+let worktreeRoot, liveHead, liveBranch = null;
 try {
   worktreeRoot = fs.realpathSync(state.worktree_path);
   liveHead = execFileSync("git", ["-C", worktreeRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  try {
+    liveBranch = execFileSync("git", ["-C", worktreeRoot, "symbolic-ref", "--short", "HEAD"], { encoding: "utf8" }).trim();
+  } catch (e) { liveBranch = null; }
 } catch (e) {
   error("uncheckable_worktree", "cannot resolve the declared worktree HEAD");
 }
@@ -183,6 +186,13 @@ function validateEvidence(reference) {
   return null;
 }
 
+function isAncestor(ancestor, descendant) {
+  try {
+    execFileSync("git", ["-C", worktreeRoot, "merge-base", "--is-ancestor", ancestor, descendant], { stdio: "ignore" });
+    return true;
+  } catch (e) { return false; }
+}
+
 const control = state.round_control || { failures: [] };
 const failures = control.failures;
 const ids = new Set();
@@ -224,6 +234,19 @@ for (let index = 0; index < failures.length; index += 1) {
     if (!closurePassed) {
       error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
     }
+    if (!isAncestor(failure.closed_by.head_sha, liveHead)) {
+      error("failure_closure_lineage_invalid", "closure HEAD must be an ancestor of the live ROUND-STATE HEAD");
+    }
+    const failedArtifactHeads = failureArtifacts
+      .filter(({reference}) => reference.kind === "verify" || reference.kind === "review")
+      .map(({reference}) => reference.head_sha);
+    if (!failedArtifactHeads.every((failedHead) => failedHead !== failure.closed_by.head_sha
+        && isAncestor(failedHead, failure.closed_by.head_sha))) {
+      error("failure_closure_lineage_invalid", "closure HEAD must strictly descend from failed-round evidence");
+    }
+    if (failure.closed_by.kind === "verify" && liveBranch && closure.branch !== liveBranch) {
+      error("failure_closure_branch_mismatch", "closure VERIFY branch does not match the live worktree branch");
+    }
   }
 }
 if (control.security_stop) validateEvidence(control.security_stop.evidence);
@@ -250,7 +273,7 @@ function decision(name, allowed, mode, trigger, obligations, exitCode) {
     same_origin_streak: sameOriginStreak,
     redispatches_completed: redispatchesCompleted,
     classified_failures: activeFailures.length,
-    admission_key: allowed ? `issue-${state.issue.number}-dispatch-${nextOrdinal}-${mode}` : null,
+    admission_key: allowed ? `issue-${state.issue.number}-dispatch-${nextOrdinal}` : null,
     issue_number: state.issue.number,
     worktree_path: worktreeRoot,
     trigger,

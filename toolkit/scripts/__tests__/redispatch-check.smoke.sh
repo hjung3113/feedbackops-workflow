@@ -47,18 +47,30 @@ const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".rev
 const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:00:00Z"};
 const verifyFail={...verifyPass,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL"};
 for (const name of ["F-1","F-2","F-3"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyFail));
-for (const name of ["F-1-closed","F-2-closed","hard-fact"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyPass));
+fs.writeFileSync(path.join(root,"hard-fact.json"),JSON.stringify(verifyPass));
+fs.writeFileSync(path.join(root,"old-pass.json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"wrong-issue.json"),JSON.stringify({...verifyFail,issue:999}));
-fs.writeFileSync(path.join(root,"zero-pass.json"),JSON.stringify({...verifyPass,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
 const review={schema_version:"1",artifact_type:"review",lifecycle:"final",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"security review",met:true}]};
 fs.writeFileSync(path.join(root,"security.json"),JSON.stringify(review));
-fs.writeFileSync(path.join(root,"draft-review.json"),JSON.stringify({...review,lifecycle:"draft",checklist:[{item:"unfinished review",met:false}]}));
 fs.writeFileSync(path.join(root,"oracle.json"),"oracle evidence\n");
 fs.writeFileSync(path.join(root,"passing-analog.json"),"passing analog evidence\n");
 fs.writeFileSync(path.join(root,"plain.json"),"not a verifier artifact\n");
 NODE
 git -C "$WORKTREE" add .review/evidence
-git -C "$WORKTREE" commit -qm evidence
+git -C "$WORKTREE" commit -qm failure-evidence
+CLOSURE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
+node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path");
+const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:01:00Z"};
+for (const name of ["F-1-closed","F-2-closed"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyPass));
+fs.writeFileSync(path.join(root,"wrong-branch.json"),JSON.stringify({...verifyPass,branch:"other"}));
+fs.writeFileSync(path.join(root,"zero-pass.json"),JSON.stringify({...verifyPass,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
+const review={schema_version:"1",artifact_type:"review",lifecycle:"draft",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"unfinished review",met:false}]};
+fs.writeFileSync(path.join(root,"draft-review.json"),JSON.stringify(review));
+NODE
+git -C "$WORKTREE" add .review/evidence
+git -C "$WORKTREE" commit -qm closure-evidence
 git -C "$WORKTREE" branch -M main
 BRANCH="main"
 HEAD_SHA="$(git -C "$WORKTREE" rev-parse HEAD)"
@@ -130,7 +142,7 @@ node -e '
     failure.closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
   });
   fs.writeFileSync(file,JSON.stringify(value));
-' "$TMP_DIR/closed-history.json" "$WORKTREE" "$EVIDENCE_HEAD"
+' "$TMP_DIR/closed-history.json" "$WORKTREE" "$CLOSURE_HEAD"
 assert_case "closed historical failures do not retrip the active circuit" 0 "$TMP_DIR/closed-history.json" "allow_normal" "null"
 
 cp "$TMP_DIR/closed-history.json" "$TMP_DIR/unverified-closure.json"
@@ -155,10 +167,23 @@ for closure_case in zero-pass draft-review; do
     const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
     value.round_control.failures[0].closed_by={kind:name==="draft-review"?"review":"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
     fs.writeFileSync(file,JSON.stringify(value));
-  ' "$TMP_DIR/$closure_case-closure.json" "$WORKTREE" "$EVIDENCE_HEAD" "$closure_case"
+  ' "$TMP_DIR/$closure_case-closure.json" "$WORKTREE" "$CLOSURE_HEAD" "$closure_case"
 done
 assert_case "zero-test PASS cannot close a failed round" 2 "$TMP_DIR/zero-pass-closure.json" "error" "null"
 assert_case "draft review with unmet checklist cannot close a failed round" 2 "$TMP_DIR/draft-review-closure.json" "error" "null"
+
+for closure_case in old-pass wrong-branch; do
+  cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-lineage.json"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,name,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$TMP_DIR/$closure_case-lineage.json" "$WORKTREE" "$closure_case" "$([ "$closure_case" = "old-pass" ] && printf '%s' "$EVIDENCE_HEAD" || printf '%s' "$CLOSURE_HEAD")"
+done
+assert_case "closure evidence must be newer than the failed-round evidence" 2 "$TMP_DIR/old-pass-lineage.json" "error" "null"
+assert_case "closure verifier must match the live worktree branch" 2 "$TMP_DIR/wrong-branch-lineage.json" "error" "null"
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/interleaved-cycle.json"
 node -e '
@@ -230,6 +255,14 @@ if node -e 'const before=require(process.argv[1]); const renamed=require(process
   echo "ok   - renaming mutable failure ids cannot mint another batch admission"
 else
   echo "NOT OK - batch admission identity changed after failure-id rename"
+  FAILURES=$((FAILURES + 1))
+fi
+
+bash "$CHECK" --round-state "$TMP_DIR/different.json" --manifest-revision 5 > "$TMP_DIR/key-normal-same-ordinal.json" 2>/dev/null
+if node -e 'const integrated=require(process.argv[1]); const normal=require(process.argv[2]); process.exit(integrated.admission_key && integrated.admission_key === normal.admission_key ? 0 : 1)' "$TMP_DIR/key-before.json" "$TMP_DIR/key-normal-same-ordinal.json"; then
+  echo "ok   - dispatch ordinal has one admission identity across modes"
+else
+  echo "NOT OK - same dispatch ordinal changed admission identity across modes"
   FAILURES=$((FAILURES + 1))
 fi
 

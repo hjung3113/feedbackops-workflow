@@ -142,7 +142,13 @@ const fs=require("fs"); const path=require("path"); const [worktree,head]=proces
 for (const issue of [307,999]) {
   const artifact={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",created_at:"2026-07-20T00:00:00Z"};
   fs.writeFileSync(path.join(worktree,".review/evidence/F-"+issue+".json"),JSON.stringify(artifact));
+  if (issue === 307) {
+    fs.writeFileSync(path.join(worktree,".review/evidence/F-307-2.json"),JSON.stringify(artifact));
+    fs.writeFileSync(path.join(worktree,".review/evidence/hard-fact.json"),JSON.stringify(artifact));
+  }
 }
+fs.writeFileSync(path.join(worktree,".review/evidence/oracle.json"),"oracle evidence\n");
+fs.writeFileSync(path.join(worktree,".review/evidence/passing.json"),"passing evidence\n");
 NODE
 git -C "$ADMIT_WT" add .review/evidence
 git -C "$ADMIT_WT" commit -qm evidence
@@ -265,6 +271,51 @@ if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admissio
   pass "git-common admission survives worktree recreation"
 else
   fail "git-common admission survives worktree recreation (ec=$ec: $(cat "$admission_recreated"))"
+fi
+
+INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-INTEGRATED-STATE.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$INTEGRATED_STATE"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const ref=(kind,name)=>{const relative=".review/evidence/"+name; const content=fs.readFileSync(path.join(worktree,relative)); return {kind,path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};};
+  const second=JSON.parse(JSON.stringify(value.round_control.failures[0])); second.id="F-2"; second.dispatch_ordinal=2; second.evidence=[ref("verify","F-307-2.json")]; value.round_control.failures.push(second);
+  value.round_control.diagnosis={trigger:"same_origin",failure_ids:["F-1","F-2"],records:[{kind:"oracle_contract_recheck",summary:"oracle checked",evidence:ref("live_probe","oracle.json")},{kind:"hard_fact",summary:"hard fact",evidence:ref("verify","hard-fact.json")},{kind:"passing_analog",summary:"passing analog",instruction:"guess_forbidden_copy_passing_analog_to_parity",evidence:ref("diff","passing.json")}],integrated_fix_batch:{dispatch_ordinal:3,failure_ids:["F-1","F-2"],status:"ready"}};
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$INTEGRATED_STATE" "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD"
+integrated_first="$TMP_ROOT/integrated-first.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_first" 2>&1
+integrated_first_ec=$?
+if [ "$integrated_first_ec" -eq 0 ] && grep -q "redispatch admission: mode=integrated_fix" "$integrated_first"; then
+  pass "first integrated fix consumes the issue singleton admission"
+else
+  fail "first integrated fix consumes the issue singleton admission (ec=$integrated_first_ec: $(cat "$integrated_first"))"
+fi
+
+SECOND_INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-SECOND-INTEGRATED-STATE.json"
+cp "$INTEGRATED_STATE" "$SECOND_INTEGRATED_STATE"
+node -e '
+  const fs=require("fs"); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8")); const third=JSON.parse(JSON.stringify(value.round_control.failures[1])); third.id="F-3"; third.dispatch_ordinal=3; value.round_control.failures.push(third);
+  value.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"]; value.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:4,failure_ids:["F-1","F-2","F-3"],status:"ready"}; fs.writeFileSync(file,JSON.stringify(value));
+' "$SECOND_INTEGRATED_STATE"
+integrated_second="$TMP_ROOT/integrated-second.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$SECOND_INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_second" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$integrated_second"; then
+  pass "a later ordinal cannot admit a second integrated fix"
+else
+  fail "a later ordinal cannot admit a second integrated fix (ec=$ec: $(cat "$integrated_second"))"
+fi
+
+NORMAL_SAME_ORDINAL_STATE="$ADMIT_WT/.review/ISSUE-307-NORMAL-SAME-ORDINAL.json"
+cp "$INTEGRATED_STATE" "$NORMAL_SAME_ORDINAL_STATE"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[1].primary_origin="test_oracle"; delete v.round_control.diagnosis; fs.writeFileSync(f,JSON.stringify(v));' "$NORMAL_SAME_ORDINAL_STATE"
+normal_same_ordinal="$TMP_ROOT/normal-same-ordinal.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$normal_same_ordinal"; then
+  pass "the same dispatch ordinal cannot replay under another mode"
+else
+  fail "the same dispatch ordinal cannot replay under another mode (ec=$ec: $(cat "$normal_same_ordinal"))"
 fi
 
 # --- poll path: a STALE RUN.json from a previous run must NOT count ---

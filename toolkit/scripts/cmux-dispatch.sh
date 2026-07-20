@@ -235,10 +235,32 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
       echo "ERROR: cannot create durable redispatch admission store" >&2
       exit 2
     fi
+    ISSUE_ADMISSION_LOCK="$ADMISSION_ROOT/.issue-${ISSUE_N}-lock"
+    if ! mkdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null; then
+      echo "ERROR: concurrent redispatch admission update for issue $ISSUE_N" >&2
+      exit 1
+    fi
     ADMISSION_DIR="$ADMISSION_ROOT/$ADMISSION_KEY"
     if ! mkdir "$ADMISSION_DIR" 2>/dev/null; then
+      rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null || true
       echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
       exit 1
+    fi
+    if [ "$ADMISSION_MODE" = "integrated_fix" ]; then
+      INTEGRATED_DIR="$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix"
+      if ! mkdir "$INTEGRATED_DIR" 2>/dev/null; then
+        rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null || true
+        echo "ERROR: integrated fix admission already consumed for issue $ISSUE_N" >&2
+        exit 1
+      fi
+    elif [ -d "$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix" ]; then
+      rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null || true
+      echo "ERROR: issue $ISSUE_N exhausted its integrated fix admission" >&2
+      exit 1
+    fi
+    if ! rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null; then
+      echo "ERROR: cannot release redispatch admission lock for issue $ISSUE_N" >&2
+      exit 2
     fi
   fi
 fi
