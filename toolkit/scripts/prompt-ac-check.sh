@@ -120,7 +120,8 @@ for (const criterion of supplied) {
   }
   suppliedIds.add(criterion.id);
 }
-if (JSON.stringify(supplied) !== JSON.stringify(criteria)) {
+if (supplied.length !== criteria.length || supplied.some((criterion, index) =>
+  criterion.id !== criteria[index].id || criterion.statement !== criteria[index].statement)) {
   result("PROMPT_AC_MISMATCH", "prompt AC block must exactly copy canonical ROUND-STATE criteria");
 }
 process.stdout.write("OK revision " + state.revision + ": prompt AC block matches canonical ROUND-STATE\n");

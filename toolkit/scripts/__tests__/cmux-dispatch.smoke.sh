@@ -616,6 +616,32 @@ else
   fail "round failure history keeps redispatch gate mandatory when RUN is absent (ec=$ec: $(cat "$admission_history_missing"))"
 fi
 
+# A bad redispatch prompt must be rejected before the durable issue/ordinal
+# admission or integrated-fix singleton is consumed, so fixing the prompt can
+# retry the same canonical admission.
+printf '%s\n' 'bad redispatch prompt' > "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt"
+admission_bad_prompt="$TMP_ROOT/admission-bad-prompt.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_bad_prompt" 2>&1
+ec=$?
+admit_common_raw="$(git -C "$ADMIT_WT" rev-parse --git-common-dir)"
+case "$admit_common_raw" in
+  /*) admit_common="$admit_common_raw" ;;
+  *) admit_common="$(cd "$ADMIT_WT/$admit_common_raw" && pwd -P)" ;;
+esac
+if [ "$ec" -eq 1 ] && grep -q "prompt AC gate denied" "$admission_bad_prompt" \
+  && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-2" ] \
+  && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/issue-307-integrated-fix" ]; then
+  pass "bad redispatch prompt leaves durable admission retryable"
+else
+  fail "bad redispatch prompt leaves durable admission retryable (ec=$ec: $(cat "$admission_bad_prompt"))"
+fi
+node - "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt" <<'NODE'
+const fs = require("fs");
+const [stateFile, promptFile] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+fs.writeFileSync(promptFile, ["worker instructions", "<!-- agent-workflow:ac-block:start -->", "```json", JSON.stringify(state.acceptance.criteria), "```", "<!-- agent-workflow:ac-block:end -->", ""].join("\n"));
+NODE
+
 admission_dry="$TMP_ROOT/admission-dry.out"
 bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_dry" 2>&1
 ec=$?
@@ -659,7 +685,12 @@ RECREATED_WT="$TMP_ROOT/wt-recreated-admission"
 git -C "$ADMIT_WT" worktree add --detach -q "$RECREATED_WT" "$ADMIT_HEAD"
 mkdir -p "$RECREATED_WT/.review"
 cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json"
-printf '%s\n' 'prompt body' > "$RECREATED_WT/.review/ISSUE-307-PROMPT.txt"
+node - "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT/.review/ISSUE-307-PROMPT.txt" <<'NODE'
+const fs = require("fs");
+const [stateFile, promptFile] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+fs.writeFileSync(promptFile, ["worker instructions", "<!-- agent-workflow:ac-block:start -->", "```json", JSON.stringify(state.acceptance.criteria), "```", "<!-- agent-workflow:ac-block:end -->", ""].join("\n"));
+NODE
 printf '%s\n' '{}' > "$RECREATED_WT/.review/ISSUE-307-RUN.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.worktree_path=process.argv[2]; fs.writeFileSync(f,JSON.stringify(v));' "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT"
 admission_recreated="$TMP_ROOT/admission-recreated.out"

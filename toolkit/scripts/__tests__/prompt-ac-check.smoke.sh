@@ -57,6 +57,9 @@ assert_case() {
 write_prompt "$TMP_DIR/happy.md" '[{"id":"AC-1","statement":"the first observable completion condition"},{"id":"AC-2","statement":"the second observable completion condition"}]'
 assert_case "exact canonical AC block passes" 0 "$TMP_DIR/happy.md" "OK revision 3: prompt AC block matches canonical ROUND-STATE"
 
+write_prompt "$TMP_DIR/key-order.md" '[{"statement":"the first observable completion condition","id":"AC-1"},{"statement":"the second observable completion condition","id":"AC-2"}]'
+assert_case "semantic object key order passes" 0 "$TMP_DIR/key-order.md" "OK revision 3: prompt AC block matches canonical ROUND-STATE"
+
 write_prompt "$TMP_DIR/missing.md" '[{"id":"AC-1","statement":"the first observable completion condition"}]'
 assert_case "missing canonical entry is rejected" 1 "$TMP_DIR/missing.md" "PROMPT_AC_MISMATCH"
 

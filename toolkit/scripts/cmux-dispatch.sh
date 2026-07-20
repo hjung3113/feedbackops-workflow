@@ -430,6 +430,18 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     echo "ERROR: redispatch admission does not match the dispatched issue and worktree" >&2
     exit 2
   fi
+
+  # Validate the worker-facing AC block after canonical redispatch admission
+  # is known, but before consuming its durable issue/ordinal admission.
+  if [ ! -x "$PROMPT_AC_CHECK" ]; then
+    echo "ERROR: prompt AC gate is missing or not executable: $PROMPT_AC_CHECK" >&2
+    exit 2
+  fi
+  if ! bash "$PROMPT_AC_CHECK" --round-state "$ABS_ROUND_STATE" --manifest-revision "$MANIFEST_REVISION" --prompt-file "$ABS_PROMPT_FILE"; then
+    echo "ERROR: prompt AC gate denied dispatch" >&2
+    exit 1
+  fi
+
   echo "cmux-dispatch: redispatch admission: mode=$ADMISSION_MODE key=$ADMISSION_KEY"
   if [ "$DRY_RUN" -eq 0 ]; then
     ADMISSION_ROOT="$GIT_COMMON_DIR/agent-workflow/redispatch-admissions"
@@ -471,9 +483,7 @@ fi
 # writes and every canonical redispatch must hand the worker its exact AC
 # block before any durable write-admission marker or cmux side effect exists.
 PROMPT_AC_REQUIRED=0
-if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
-  PROMPT_AC_REQUIRED=1
-elif [ "$INITIAL_WRITE" -eq 1 ] && { [ "$TIER" = "standard" ] || [ "$TIER" = "full_cluster" ]; }; then
+if [ "$INITIAL_WRITE" -eq 1 ] && { [ "$TIER" = "standard" ] || [ "$TIER" = "full_cluster" ]; }; then
   PROMPT_AC_REQUIRED=1
 fi
 if [ "$PROMPT_AC_REQUIRED" -eq 1 ]; then
