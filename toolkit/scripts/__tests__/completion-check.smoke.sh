@@ -51,6 +51,7 @@ node -e '
   const v = JSON.parse(fs.readFileSync(file, "utf8"));
   v.revision = 3; v.base_branch = "main"; v.base_sha = base;
   v.worktree_path = worktree; v.contract.touch_allowlist = ["allowed/**"];
+  delete v.contract.chunk_boundary;
   v.acceptance.criteria = [{id: "AC-1"}]; v.acceptance.expected_test_count = 1;
   v.contract.test_discovery_command = "printf '\''AC-1\\n'\''";
   v.decisions = []; v.commit_scope.commits = [];
@@ -61,6 +62,99 @@ if [ "$?" -eq 0 ] && node -e 'const v=require(process.argv[1]); process.exit(v.s
   echo "ok   - completion passes for allowed diff and discovered AC"
 else
   echo "NOT OK - completion happy path"
+  FAILURES=$((FAILURES + 1))
+fi
+
+cp "$TMP_DIR/state.json" "$TMP_DIR/chunk-state.json"
+node -e '
+  const fs = require("fs");
+  const file = process.argv[1];
+  const v = JSON.parse(fs.readFileSync(file, "utf8"));
+  v.contract.chunk_boundary = {
+    chunk_id: "C1",
+    typecheck_command: "true",
+    compile_consumers: ["allowed/file.txt"],
+    convention_watch: [
+      {
+        surface: "allowed-file convention",
+        trigger: ["allowed/**"],
+        expected_invariant: "the allowed file remains convention-complete",
+        owner: "REVIEWER",
+        review_by_chunk: "C1",
+        closed_by: { artifact_type: "review", checklist_item: "convention-watch:allowed-file" }
+      },
+      {
+        surface: "dormant convention",
+        trigger: ["dormant/**"],
+        expected_invariant: "dormant files remain unchanged",
+        owner: "REVIEWER",
+        review_by_chunk: "C1",
+        closed_by: { artifact_type: "review", checklist_item: "convention-watch:dormant" }
+      },
+      {
+        surface: "later-chunk convention",
+        trigger: ["allowed/**"],
+        expected_invariant: "a later chunk owns this review",
+        owner: "REVIEWER",
+        review_by_chunk: "C2",
+        closed_by: { artifact_type: "review", checklist_item: "convention-watch:later-chunk" }
+      }
+    ]
+  };
+  fs.writeFileSync(file, JSON.stringify(v));
+' "$TMP_DIR/chunk-state.json"
+( bash "$CHECK" --round-state "$TMP_DIR/chunk-state.json" --manifest-revision 3 ) > "$TMP_DIR/chunk-pass.json" 2>/dev/null
+if [ "$?" -eq 0 ] && node -e '
+  const v = require(process.argv[1]);
+  const ok = v.status === "pass"
+    && v.typecheck.command === "true"
+    && v.typecheck.exit_code === 0
+    && v.compile_consumers.length === 1
+    && v.review_obligations.length === 1
+    && v.review_obligations[0].surface === "allowed-file convention";
+  process.exit(ok ? 0 : 1);
+' "$TMP_DIR/chunk-pass.json"; then
+  echo "ok   - chunk boundary runs typecheck and emits fired review obligations only"
+else
+  echo "NOT OK - chunk boundary happy path"
+  FAILURES=$((FAILURES + 1))
+fi
+
+cp "$TMP_DIR/chunk-state.json" "$TMP_DIR/consumer-outside.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.chunk_boundary.compile_consumers=["outside/file.txt"]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/consumer-outside.json"
+assert_case "rejects compile consumer outside chunk allowlist" 1 "$TMP_DIR/consumer-outside.json" "compile_consumer_outside_chunk"
+
+cp "$TMP_DIR/chunk-state.json" "$TMP_DIR/typecheck-fail.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.chunk_boundary.typecheck_command="false"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/typecheck-fail.json"
+assert_case "rejects failed full typecheck" 1 "$TMP_DIR/typecheck-fail.json" "typecheck_failed"
+
+cp "$TMP_DIR/chunk-state.json" "$TMP_DIR/malformed-watch.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); delete v.contract.chunk_boundary.convention_watch[0].closed_by; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/malformed-watch.json"
+( bash "$CHECK" --round-state "$TMP_DIR/malformed-watch.json" --manifest-revision 3 ) > "$TMP_DIR/malformed-watch-output.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_round_state" ? 0 : 1)' "$TMP_DIR/malformed-watch-output.json"; then
+  echo "ok   - malformed convention watch fails schema validation"
+else
+  echo "NOT OK - malformed convention watch validation"
+  FAILURES=$((FAILURES + 1))
+fi
+
+cp "$TMP_DIR/chunk-state.json" "$TMP_DIR/duplicate-watch.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.chunk_boundary.convention_watch[1].surface=v.contract.chunk_boundary.convention_watch[0].surface; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/duplicate-watch.json"
+( bash "$CHECK" --round-state "$TMP_DIR/duplicate-watch.json" --manifest-revision 3 ) > "$TMP_DIR/duplicate-watch-output.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_chunk_boundary" ? 0 : 1)' "$TMP_DIR/duplicate-watch-output.json"; then
+  echo "ok   - duplicate convention watch surfaces fail closed"
+else
+  echo "NOT OK - duplicate convention watch surface validation"
+  FAILURES=$((FAILURES + 1))
+fi
+
+cp "$TMP_DIR/chunk-state.json" "$TMP_DIR/escaping-trigger.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.chunk_boundary.convention_watch[0].trigger=["../outside/**"]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/escaping-trigger.json"
+( bash "$CHECK" --round-state "$TMP_DIR/escaping-trigger.json" --manifest-revision 3 ) > "$TMP_DIR/escaping-trigger-output.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_chunk_boundary" ? 0 : 1)' "$TMP_DIR/escaping-trigger-output.json"; then
+  echo "ok   - convention watch trigger cannot escape the repository"
+else
+  echo "NOT OK - escaping convention watch trigger validation"
   FAILURES=$((FAILURES + 1))
 fi
 

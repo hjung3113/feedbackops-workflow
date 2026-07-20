@@ -15,7 +15,25 @@
     "objective": "change the shared contract without leaving compile-time consumers behind",
     "touch_allowlist": ["packages/shared/**", "apps/backend/**"],
     "verify_filter": "shared-contract",
-    "test_discovery_command": "pnpm --filter backend exec vitest --list"
+    "test_discovery_command": "pnpm --filter backend exec vitest --list",
+    "chunk_boundary": {
+      "chunk_id": "C1",
+      "typecheck_command": "pnpm -r typecheck",
+      "compile_consumers": ["apps/backend/src/voc/registry.ts"],
+      "convention_watch": [
+        {
+          "surface": "VOC status registry completeness",
+          "trigger": ["packages/shared/src/voc/**"],
+          "expected_invariant": "every VOC status has exactly one registry entry",
+          "owner": "REVIEWER",
+          "review_by_chunk": "C1",
+          "closed_by": {
+            "artifact_type": "review",
+            "checklist_item": "convention-watch:VOC status registry completeness"
+          }
+        }
+      ]
+    }
   },
   "acceptance": {
     "expected_test_count": 2,

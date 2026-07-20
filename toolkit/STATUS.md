@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.11
+## Current release: v0.12
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -15,6 +15,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
+- compile-atomic `contract.chunk_boundary` enforcement: enumerated consumers stay inside one chunk, `completion-check.sh` executes its target-native full typecheck, and only live-diff-triggered convention watches enter review;
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
@@ -100,6 +101,12 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Copy-install release checks reject Matt skills, tracker/domain/triage configuration, plans, CI, hooks, and repository evidence in target trees.
 - GitHub CI runs the release contract followed by the full product smoke suite with a clean `NODE_OPTIONS=` value.
 - The pre-separation symlink recognizer remains only as the documented `--migrate-legacy` compatibility contract; product-home schema resolution has no root-layout fallback.
+
+### v0.12 — compile-atomic chunks and triggered convention watches
+
+- Exported-contract chunks record exact compile consumers and a target-native typecheck command in canonical ROUND-STATE rather than a parallel impact manifest.
+- Completion calculation rejects consumers outside the chunk allowlist and a failed full typecheck.
+- Convention-only watches remain durable in ROUND-STATE, while only path-triggered watches assigned to the current chunk are emitted as REVIEWER obligations with declared checklist closure evidence.
 
 ## Compatibility boundary
 
