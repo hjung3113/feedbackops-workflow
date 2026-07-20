@@ -19,6 +19,8 @@ The workflow's **coordination model is reusable**, but every script is not yet t
 
 Every target must explicitly tier its initial write. Standard/Full Cluster work generates the complete canonical `ISSUE-<n>-ROUND-STATE.json`; Standard may omit optional Full Cluster structures but retains `pr_draft` and `review` pointers and must not introduce a reduced target-specific schema. Pass that artifact and its revision to `cmux-dispatch.sh`; initial admission binds it to the target issue, tier, real worktree, live HEAD, and integration-branch merge-base. Trivial initial work retains the documented `pr_draft`-only contract.
 
+Dispatch REVIEWER with `cmux-dispatch.sh --produce-review`, not the legacy liveness-only `--read-only` flag. The installed wrapper keeps reviewer commands filesystem-read-only, captures the final JSON host-side, and publishes the canonical REVIEW only after schema, issue, and live-HEAD validation. A target must not replace this with pane transcription or a second review manifest.
+
 ## Install
 
 From the toolkit repository:

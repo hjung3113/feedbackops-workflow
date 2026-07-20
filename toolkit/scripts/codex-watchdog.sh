@@ -14,6 +14,7 @@ CWD=""
 MODEL=""
 EFFORT=""
 READ_ONLY=0
+PRODUCE_REVIEW=0
 FIRST_PROGRESS_TIMEOUT=240
 STALL_TIMEOUT=180
 MAX_RETRIES=2
@@ -21,7 +22,7 @@ POLL_INTERVAL="${CODEX_WATCHDOG_POLL_INTERVAL:-15}"
 PROBE_GAP="${CODEX_WATCHDOG_PROBE_GAP:-10}"
 
 usage() {
-  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--read-only] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
+  echo "usage: codex-watchdog.sh --issue N --prompt-file F --cwd WT [--model M] [--effort E] [--read-only|--produce-review] [--first-progress-timeout seconds] [--stall-timeout seconds] [--max-retries N]" >&2
 }
 
 now() { date +%s; }
@@ -79,6 +80,7 @@ while [ $# -gt 0 ]; do
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
     --read-only) READ_ONLY=1; shift 1 ;;
+    --produce-review) PRODUCE_REVIEW=1; shift 1 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
@@ -89,6 +91,14 @@ done
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
 [ -n "$PROMPT_FILE" ] || { echo "missing --prompt-file" >&2; usage; exit 2; }
 [ -n "$CWD" ] || { echo "missing --cwd" >&2; usage; exit 2; }
+if [ "$READ_ONLY" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
+  echo "--read-only and --produce-review are mutually exclusive" >&2
+  exit 2
+fi
+if [ "$PRODUCE_REVIEW" -eq 1 ] && { [ -z "$MODEL" ] || [ -z "$EFFORT" ]; }; then
+  echo "--produce-review requires explicit --model and --effort" >&2
+  exit 2
+fi
 [ -d "$CWD" ] || { echo "cwd is not a directory: $CWD" >&2; exit 2; }
 
 # A relative --prompt-file is resolved against --cwd (the worktree), NOT the
@@ -122,11 +132,16 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   # policy cap (5.6 above medium is refused). Omitting them falls back to the
   # user's codex config default, which is NOT the workflow's role allocation —
   # pin them at dispatch.
-  if [ -n "$MODEL" ] || [ -n "$EFFORT" ] || [ "$READ_ONLY" -eq 1 ]; then
+  if [ -n "$MODEL" ] || [ -n "$EFFORT" ] || [ "$READ_ONLY" -eq 1 ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then
     set -- --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD"
     [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
     [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
-    [ "$READ_ONLY" -eq 1 ] && set -- "$@" --heartbeat-file "$CWD/.review/HEARTBEAT-ISSUE-${ISSUE_N}.json"
+    if [ "$READ_ONLY" -eq 1 ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then
+      set -- "$@" --heartbeat-file "$CWD/.review/HEARTBEAT-ISSUE-${ISSUE_N}.json"
+    fi
+    if [ "$PRODUCE_REVIEW" -eq 1 ]; then
+      set -- "$@" --produce-review
+    fi
     NODE_OPTIONS= "$CODEX_SAFE" "$@" 2>"$STDERR_LOG" &
   else
     NODE_OPTIONS= "$CODEX_SAFE" --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD" 2>"$STDERR_LOG" &

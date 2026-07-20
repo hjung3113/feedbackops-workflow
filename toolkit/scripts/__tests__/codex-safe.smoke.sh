@@ -36,6 +36,7 @@ run_nonzero_case() {
 run_exit_case "missing --issue exits 2" 2 --prompt "hello"
 run_exit_case "missing prompt exits 2" 2 --issue 33
 run_nonzero_case "unknown arg exits non-zero" --bogus
+run_exit_case "produce-review rejects defaulted effort" 2 --issue 33 --prompt "hello" --cwd "$TMP_DIR" --produce-review --model gpt-5.6-sol
 
 BIN="$TMP_DIR/bin"
 WT="$TMP_DIR/wt"

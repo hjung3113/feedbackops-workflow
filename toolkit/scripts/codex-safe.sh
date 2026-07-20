@@ -13,9 +13,12 @@ PROMPT_FILE=""
 CWD="$(pwd)"
 MODEL=""
 EFFORT=""
+EFFORT_EXPLICIT=0
 HEARTBEAT_FILE=""
 HEARTBEAT_PID=""
 HEARTBEAT_INTERVAL="${CODEX_SAFE_HEARTBEAT_INTERVAL:-20}"
+PRODUCE_REVIEW=0
+REVIEW_OUTPUT_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,8 +27,9 @@ while [[ $# -gt 0 ]]; do
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --cwd) CWD="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
-    --effort) EFFORT="$2"; shift 2 ;;
+    --effort) EFFORT="$2"; EFFORT_EXPLICIT=1; shift 2 ;;
     --heartbeat-file) HEARTBEAT_FILE="$2"; shift 2 ;;
+    --produce-review) PRODUCE_REVIEW=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -52,6 +56,10 @@ esac
 [[ -z "$PROMPT" && -z "$PROMPT_FILE" ]] && { echo "missing --prompt or --prompt-file" >&2; exit 2; }
 [[ -n "$PROMPT_FILE" ]] && PROMPT="$(cat "$PROMPT_FILE")"
 [[ -z "$PROMPT" ]] && { echo "prompt is empty (check --prompt-file content)" >&2; exit 2; }
+if [[ "$PRODUCE_REVIEW" -eq 1 ]]; then
+  [[ -n "$MODEL" && "$EFFORT_EXPLICIT" -eq 1 ]] || { echo "--produce-review requires explicit --model and --effort" >&2; exit 2; }
+  REVIEW_OUTPUT_FILE="$CWD/.review/.ISSUE-${ISSUE_N}-REVIEW.json.tmp.$$"
+fi
 
 # Stop the heartbeat ticker before any failure-path stash. The explicit
 # post-wait stop below is the normal path; this trap covers signals and shell
@@ -71,7 +79,10 @@ stop_heartbeat() {
 cleanup() {
   s=$?
   stop_heartbeat
-  if [[ $s -ne 0 ]]; then
+  if [[ "$PRODUCE_REVIEW" -eq 1 && -n "$REVIEW_OUTPUT_FILE" ]]; then
+    rm -f "$REVIEW_OUTPUT_FILE"
+  fi
+  if [[ $s -ne 0 && "$PRODUCE_REVIEW" -eq 0 ]]; then
     "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$CWD" || true
   fi
   trap - EXIT
@@ -99,11 +110,18 @@ GIT_COMMON_DIR="$(git -C "$CWD" rev-parse --git-common-dir 2>/dev/null || true)"
 if [[ -n "$GIT_COMMON_DIR" ]]; then
   GIT_COMMON_DIR="$(cd "$CWD" && cd "$GIT_COMMON_DIR" 2>/dev/null && pwd || true)"
 fi
-if [[ -n "$GIT_COMMON_DIR" ]]; then
+if [[ "$PRODUCE_REVIEW" -eq 0 && -n "$GIT_COMMON_DIR" ]]; then
   EXTRA+=( -c "sandbox_workspace_write.writable_roots=[\"$GIT_COMMON_DIR\"]" )
 fi
 
-if [[ "${#EXTRA[@]}" -gt 0 ]]; then
+if [[ "$PRODUCE_REVIEW" -eq 1 ]]; then
+  mkdir -p "$CWD/.review"
+  rm -f "$REVIEW_OUTPUT_FILE"
+  set -- codex exec --sandbox read-only --cd "$CWD" --output-last-message "$REVIEW_OUTPUT_FILE"
+  [[ -n "$MODEL" ]] && set -- "$@" -m "$MODEL"
+  [[ -n "$EFFORT" ]] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""
+  "$@" "$PROMPT" &
+elif [[ "${#EXTRA[@]}" -gt 0 ]]; then
   codex exec \
     --sandbox workspace-write \
     --cd "$CWD" \
@@ -149,4 +167,35 @@ wait "$CODEX_PID"
 CODEX_EXIT=$?
 set -e
 stop_heartbeat
+if [[ "$CODEX_EXIT" -eq 0 && "$PRODUCE_REVIEW" -eq 1 ]]; then
+  canonical_review="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"
+  if ! node - "$REVIEW_OUTPUT_FILE" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" <<'NODE'
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+const [artifactFile, schemaFile, validatorFile, issueNumber, worktree] = process.argv.slice(2);
+try {
+  const artifact = JSON.parse(fs.readFileSync(artifactFile, "utf8"));
+  const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+  const { validate } = require(validatorFile);
+  const liveHead = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const baseSchema = Object.assign({}, schema);
+  delete baseSchema.if;
+  delete baseSchema.then;
+  const invalidFailedReview = artifact.status === "fail"
+    && (!Array.isArray(artifact.findings) || artifact.findings.length < 1 || typeof artifact.patch_instructions !== "string");
+  const errors = validate(baseSchema, artifact);
+  if (errors.length || invalidFailedReview || String(artifact.issue.number) !== issueNumber || artifact.reviewed_head_sha !== liveHead) {
+    console.error(errors.join("; ") || "review issue, failed-review fields, or live HEAD mismatch");
+    process.exit(2);
+  }
+} catch (error) {
+  process.exit(2);
+}
+NODE
+  then
+    echo "ERROR: REVIEW output is not a schema-valid canonical artifact for this issue and live HEAD" >&2
+    exit 1
+  fi
+  mv "$REVIEW_OUTPUT_FILE" "$canonical_review"
+fi
 exit "$CODEX_EXIT"

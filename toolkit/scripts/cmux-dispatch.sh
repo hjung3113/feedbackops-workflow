@@ -64,13 +64,14 @@ STALL_TIMEOUT=""
 ROUND_STATE=""
 MANIFEST_REVISION=""
 READ_ONLY=0
+PRODUCE_REVIEW=0
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--tier trivial|standard|full_cluster] [--read-only] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--tier trivial|standard|full_cluster] [--read-only|--produce-review] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -124,6 +125,7 @@ while [ $# -gt 0 ]; do
     --round-state) ROUND_STATE="$2"; shift 2 ;;
     --manifest-revision) MANIFEST_REVISION="$2"; shift 2 ;;
     --read-only) READ_ONLY=1; shift 1 ;;
+    --produce-review) PRODUCE_REVIEW=1; shift 1 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -132,6 +134,14 @@ done
 
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
 [ -n "$WORKTREE" ] || { echo "missing --worktree" >&2; usage; exit 2; }
+if [ "$READ_ONLY" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
+  echo "ERROR: --read-only and --produce-review are mutually exclusive" >&2
+  exit 2
+fi
+if [ "$PRODUCE_REVIEW" -eq 1 ] && { [ -z "$MODEL" ] || [ -z "$EFFORT" ]; }; then
+  echo "ERROR: --produce-review requires explicit --model and --effort" >&2
+  exit 2
+fi
 
 [ -d "$WORKTREE" ] || { echo "ERROR: worktree does not exist: $WORKTREE" >&2; exit 2; }
 ABS_WORKTREE="$(cd "$WORKTREE" && pwd)"
@@ -178,7 +188,7 @@ WRITE_ATTEMPT_DIR="$ABS_WORKTREE/.review/.write-dispatch-issue-${ISSUE_N}-starte
 ADMISSION_KEY=""
 REDISPATCH_REQUIRED=0
 INITIAL_WRITE=0
-if [ "$READ_ONLY" -eq 0 ]; then
+if [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ]; then
   if [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
     REDISPATCH_REQUIRED=1
   elif [ -f "$DEFAULT_ROUND_STATE" ] && node -e '
@@ -213,7 +223,7 @@ if [ "$INITIAL_WRITE" -eq 1 ]; then
       ;;
   esac
 fi
-if [ "$READ_ONLY" -eq 0 ] && [ -n "$ROUND_STATE" ]; then
+if [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ] && [ -n "$ROUND_STATE" ]; then
   case "$ROUND_STATE" in
     /*) ABS_ROUND_STATE="$ROUND_STATE" ;;
     *) ABS_ROUND_STATE="$ABS_WORKTREE/$ROUND_STATE" ;;
@@ -369,7 +379,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
       echo "ERROR: concurrent write dispatch detected before launch" >&2
       exit 1
     fi
-  elif [ "$READ_ONLY" -eq 0 ] && [ ! -d "$WRITE_ATTEMPT_DIR" ]; then
+  elif [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ] && [ ! -d "$WRITE_ATTEMPT_DIR" ]; then
     if ! mkdir "$WRITE_ATTEMPT_DIR" 2>/dev/null; then
       echo "ERROR: concurrent write dispatch detected before launch" >&2
       exit 1
@@ -390,6 +400,7 @@ CMD="NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --c
 [ -n "$FIRST_PROGRESS_TIMEOUT" ] && CMD="$CMD --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
 [ -n "$STALL_TIMEOUT" ] && CMD="$CMD --stall-timeout $STALL_TIMEOUT"
 [ "$READ_ONLY" -eq 1 ] && CMD="$CMD --read-only"
+[ "$PRODUCE_REVIEW" -eq 1 ] && CMD="$CMD --produce-review"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"$CMD\""
