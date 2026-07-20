@@ -149,6 +149,7 @@ prepare_gate_fixture() {
     value.acceptance.criteria = [{id: "AC-1"}];
     value.acceptance.expected_test_count = 1;
     value.decisions = [];
+    delete value.round_control;
     value.commit_scope.commits = [];
     fs.writeFileSync(file, JSON.stringify(value));
   ' "$GATE_STATE" "$target" "$base_sha"
@@ -160,6 +161,7 @@ assert_gate_contract() {
   scripts="$2"
   ac_output="$TMP_DIR/ac-output.txt"
   completion_output="$TMP_DIR/completion-output.json"
+  redispatch_output="$TMP_DIR/redispatch-output.json"
 
   bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS" > "$ac_output" 2>/dev/null
   ac_exit=$?
@@ -182,6 +184,17 @@ assert_gate_contract() {
     ok "$label executes completion-check through product home"
   else
     not_ok "$label executes completion-check through product home"
+  fi
+
+  bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 > "$redispatch_output" 2>/dev/null
+  redispatch_exit=$?
+  if [ "$redispatch_exit" -eq 0 ] && node -e '
+    const value = require(process.argv[1]);
+    process.exit(value.decision === "allow_normal" && value.redispatch_allowed === true ? 0 : 1);
+  ' "$redispatch_output"; then
+    ok "$label executes redispatch-check through product home"
+  else
+    not_ok "$label executes redispatch-check through product home"
   fi
 }
 
@@ -258,6 +271,7 @@ assert_true "copy mode creates real project skill" test -d "$target_copy/.claude
 assert_true "copy mode skill is not a symlink" test ! -L "$target_copy/.claude/skills/agent-workflow"
 assert_true "copy mode includes install script" test -e "$target_copy/.agent-workflow/scripts/install-into.sh"
 assert_true "copy mode includes completion gate" test -e "$target_copy/.agent-workflow/scripts/completion-check.sh"
+assert_true "copy mode includes redispatch gate" test -e "$target_copy/.agent-workflow/scripts/redispatch-check.sh"
 assert_true "copy mode includes schema files" test -e "$target_copy/.agent-workflow/schemas/blocker.schema.json"
 assert_true "copy mode includes ROUND-STATE schema" test -e "$target_copy/.agent-workflow/schemas/round_state.schema.json"
 assert_true "copy mode includes dependency-free schema validator" test -e "$target_copy/.agent-workflow/scripts/lib/json-schema-subset.cjs"
@@ -265,6 +279,7 @@ assert_true "copy mode includes playbook" test -e "$target_copy/.agent-workflow/
 assert_true "installed playbook requires repository-native impact pass" grep -F -q '### Pre-scope-lock impact pass' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook requires compile-atomic chunk boundaries" grep -F -q '### Compile-atomic chunk boundary' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook limits review to triggered convention watches" grep -F -q 'Only watches triggered by the live `base_sha..HEAD` diff' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
+assert_true "installed playbook defines repeated-round circuit breaker" grep -F -q '### Repeated-round circuit breaker' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook requires ARCH feasibility evidence before decisions lock" grep -F -q '### ARCH feasibility evidence' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook provides reusable ARCH appendix row shape" grep -F -q 'concern | exact command | concise result | decision impact' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook makes criterion id the sole AC-ID authority" grep -F -q 'its `id` is the sole AC-ID authority, and its `statement` contains an explicit precondition and observable checkpoint' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"

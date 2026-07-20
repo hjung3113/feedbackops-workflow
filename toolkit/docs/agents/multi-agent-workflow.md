@@ -70,6 +70,24 @@ Each convention watch has exactly `surface`, path-glob `trigger[]`, `expected_in
 
 The watch trigger is deliberately a conservative changed-path predicate, not a shell command or semantic DSL. Mechanically enumerable registry or exhaustiveness consumers belong in `compile_consumers[]`; reserve watches for convention-only relationships. ROUND-STATE remains the only authority—do not create an impact manifest, watch registry, or reviewer-owned shadow state.
 
+### Repeated-round circuit breaker
+
+Implementation redispatch is CONDUCTOR correctness policy, not watchdog retry policy. Before every implementation redispatch, classify the failed round in canonical ROUND-STATE `round_control.failures[]` and run:
+
+```bash
+scripts/redispatch-check.sh \
+  --round-state <ISSUE-N-ROUND-STATE.json> \
+  --manifest-revision <revision>
+```
+
+Each immutable failure entry has one `primary_origin`—`environment`, `dispatch_contract`, `implementation`, `test_oracle`, `verification_harness`, or `integration_drift`—plus optional unique `secondary_origins[]`, failed AC ids, an owner, a typed next action, and evidence pointers bound to content hash and observed HEAD. Primary origin alone drives the breaker; secondary origins preserve nuance without diffusing ownership. Model or effort escalation is not an action kind and never clears a failure. Preserve failed VERIFY/REVIEW evidence at the referenced history path before a later run replaces a current artifact.
+
+The gate is biased to trip: two consecutive failures with the same primary origin, or two completed redispatches before a proposed third redispatch, returns `diagnosis_required` and forbids another normal implementation dispatch. The initial implementation is ordinal 1; ordinary redispatches are ordinals 2 and 3, so another dispatch after three recorded failures is the forbidden third redispatch. Watchdog attempts, refusal probes, RUN states, heartbeats, and process retries never increment these ordinals. An active `security_stop` returns immediately at any count.
+
+A tripped circuit admits at most one `integrated_fix` batch. ROUND-STATE diagnosis records are an ordered prefix: (1) recheck oracle and contract first, (2) capture one reproducible hard fact, and (3) identify a passing analog with the fixed `guess_forbidden_copy_passing_analog_to_parity` instruction. This means: do not guess; copy the known-green wiring to parity; if it remains red, report a blocker instead of committing another speculative patch. The optional singleton `manifest_update` permits at most one revision increment, and the singleton integrated batch must cover every open failure while retaining each failure's AC ids and evidence. Once its status is `used`, `redispatch-check.sh` returns `diagnosis_exhausted`; another implementation batch needs an explicit new decision or blocker, not an automatic redispatch.
+
+The gate is read-only and deterministic. Exit 0 allows exactly the emitted `dispatch_mode` (`normal` or `integrated_fix`); exit 1 denies dispatch with the calculated trigger and obligations; exit 2 rejects malformed, stale, contradictory, or uncheckable state. It never reads prompt prose, model telemetry, RUN/HEARTBEAT, stderr text, or pane state. ROUND-STATE remains the sole ledger and CONDUCTOR remains its sole writer.
+
 ### ARCH feasibility evidence
 
 Before ARCHITECT locks a decision for a Full Cluster change involving migrations, authorization, persistence constraints, or another repository-dependent capability, attach a feasibility appendix to the authoritative contract. It must cover the actual grants/privileges, the migration principal's capabilities, the immediately preceding migration and journal conventions, and the relevant uniqueness constraints; an inapplicable item needs an explicit reason, not an assumption.

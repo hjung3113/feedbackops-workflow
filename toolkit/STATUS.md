@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.12
+## Current release: v0.13
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -16,6 +16,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - compile-atomic `contract.chunk_boundary` enforcement: enumerated consumers stay inside one chunk, `completion-check.sh` executes its target-native full typecheck, and only live-diff-triggered convention watches enter review;
+- a read-only repeated-round circuit breaker keyed to canonical failure-origin codes, with oracle/contract-first diagnosis, immutable per-failure evidence references, one manifest update, one integrated fix batch, and security early stop;
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
@@ -108,6 +109,12 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Completion calculation rejects consumers outside the chunk allowlist and a failed full typecheck.
 - Convention-only watches remain durable in ROUND-STATE, while only path-triggered watches assigned to the current chunk are emitted as REVIEWER obligations with declared checklist closure evidence.
 
+### v0.13 — repeated-round circuit breaker
+
+- ROUND-STATE classifies every failed implementation round with one primary origin, optional secondary origins, failed AC ids, owner/action routing, and hash/HEAD-bound evidence references.
+- `redispatch-check.sh` blocks on two consecutive failures with the same primary origin or before a third redispatch, while ignoring watchdog attempts and model-tier changes.
+- A tripped circuit rechecks oracle/contract first, requires a hard fact plus passing-analog parity instruction, and permits at most one manifest increment and one integrated fix batch; security findings may stop earlier.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -135,7 +142,7 @@ The next generalization must be based on a second real target. The intended spli
 ## Open roadmap
 
 - **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
-- **P1 procedure/templates:** issues #9–#11 — circuit breaker, atomic chunks, and Standard-tier generation; #4–#6 are shipped in the reusable playbook/template contract.
+- **P1 procedure/templates:** #9 and #10 are shipped (circuit breaker and compile-atomic chunks); #11 remains the Standard-tier generation decision.
 - **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.

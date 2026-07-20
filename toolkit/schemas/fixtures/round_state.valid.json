@@ -46,6 +46,85 @@
     { "id": "D-1", "revision": 4, "status": "decided", "summary": "keep the change compile-atomic", "rationale": "partial consumers caused an extra review round" }
   ],
   "prior_findings": [],
+  "round_control": {
+    "failures": [
+      {
+        "id": "F-1",
+        "dispatch_ordinal": 1,
+        "status": "open",
+        "primary_origin": "test_oracle",
+        "secondary_origins": [],
+        "failed_ac_ids": ["AC-2"],
+        "owner": "CONDUCTOR",
+        "next_action": { "kind": "diagnosis", "summary": "recheck the oracle and contract before routing another fix" },
+        "evidence": [
+          {
+            "kind": "verify",
+            "path": ".review/history/ISSUE-188-VERIFY-F-1.json",
+            "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "head_sha": "2222222222222222222222222222222222222222"
+          }
+        ]
+      },
+      {
+        "id": "F-2",
+        "dispatch_ordinal": 2,
+        "status": "open",
+        "primary_origin": "test_oracle",
+        "secondary_origins": ["implementation"],
+        "failed_ac_ids": ["AC-2"],
+        "owner": "CONDUCTOR",
+        "next_action": { "kind": "diagnosis", "summary": "ground the next action in a hard fact and passing analog" },
+        "evidence": [
+          {
+            "kind": "verify",
+            "path": ".review/history/ISSUE-188-VERIFY-F-2.json",
+            "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "head_sha": "2222222222222222222222222222222222222222"
+          }
+        ]
+      }
+    ],
+    "diagnosis": {
+      "trigger": "same_origin",
+      "failure_ids": ["F-1", "F-2"],
+      "records": [
+        {
+          "kind": "oracle_contract_recheck",
+          "summary": "the test oracle encoded an undecided duplicate-id expectation",
+          "evidence": {
+            "kind": "live_probe",
+            "path": ".review/ISSUE-188-ORACLE-CHECK.json",
+            "content_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "head_sha": "2222222222222222222222222222222222222222"
+          }
+        },
+        {
+          "kind": "hard_fact",
+          "summary": "the passing fixture uses the canonical login helper",
+          "evidence": {
+            "kind": "verify",
+            "path": ".review/ISSUE-188-HARD-FACT.json",
+            "content_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "head_sha": "2222222222222222222222222222222222222222"
+          }
+        },
+        {
+          "kind": "passing_analog",
+          "summary": "copy the known-green fixture wiring to parity",
+          "instruction": "guess_forbidden_copy_passing_analog_to_parity",
+          "evidence": {
+            "kind": "diff",
+            "path": ".review/ISSUE-188-PASSING-ANALOG.diff",
+            "content_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "head_sha": "2222222222222222222222222222222222222222"
+          }
+        }
+      ],
+      "manifest_update": { "from_revision": 3, "to_revision": 4, "decision_id": "D-1" },
+      "integrated_fix_batch": { "dispatch_ordinal": 3, "failure_ids": ["F-1", "F-2"], "status": "ready" }
+    }
+  },
   "commit_scope": {
     "commits": [
       { "sha": "2222222222222222222222222222222222222222", "subject": "feat: update shared contract" }
