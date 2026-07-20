@@ -73,7 +73,7 @@ assert_no_maintainer_leakage() {
 prepare_gate_fixture() {
   target="$1"
   fixture="$target/.agent-workflow/schemas/fixtures/round_state.valid.json"
-  GATE_STATE="$target/.review/ROUND-STATE.json"
+  GATE_STATE="$target/.review/ISSUE-188-ROUND-STATE.json"
   GATE_TESTS="$target/.review/discovered-tests.txt"
   git init -q "$target"
   git -C "$target" config user.email smoke@example.test
@@ -97,6 +97,7 @@ prepare_gate_fixture() {
     v.decisions=[]; delete v.round_control; v.commit_scope.commits=[]; fs.writeFileSync(file,JSON.stringify(v));
   ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
+  printf '%s\n' 'implementation prompt' > "$target/.review/ISSUE-188-PROMPT.txt"
 }
 
 assert_installed_gates() {
@@ -104,6 +105,7 @@ assert_installed_gates() {
   assert_exit "$label executes ac-check" PASS bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS"
   assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
+  assert_exit "$label enforces canonical initial-write admission" PASS bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --tier full_cluster --round-state "$GATE_STATE" --manifest-revision 3 --dry-run
 }
 
 fresh="$TMP_DIR/fresh target"

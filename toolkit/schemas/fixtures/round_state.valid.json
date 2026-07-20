@@ -134,6 +134,8 @@
     { "command": "pnpm --filter backend run typecheck", "exit_code": 0, "observed_at": "2026-07-20T11:55:00Z", "summary": "no new TypeScript errors" }
   ],
   "artifact_pointers": [
+    { "artifact_type": "pr_draft", "path": ".review/ISSUE-188-PR-DRAFT.json" },
+    { "artifact_type": "review", "path": ".review/ISSUE-188-REVIEW.json" },
     { "artifact_type": "verify_result", "path": ".review/ISSUE-188-VERIFY.json", "head_sha": "2222222222222222222222222222222222222222" }
   ]
 }

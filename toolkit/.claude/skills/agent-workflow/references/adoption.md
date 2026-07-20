@@ -17,6 +17,8 @@ Read this reference only when installing or adapting the workflow to a new targe
 
 The workflow's **coordination model is reusable**, but every script is not yet target-neutral. Installation must not be described as full compatibility until the target adapters are checked.
 
+Every target must explicitly tier its initial write. Standard/Full Cluster work generates the complete canonical `ISSUE-<n>-ROUND-STATE.json`; Standard may omit optional Full Cluster structures but retains `pr_draft` and `review` pointers and must not introduce a reduced target-specific schema. Pass that artifact and its revision to `cmux-dispatch.sh`; initial admission binds it to the target issue, tier, real worktree, live HEAD, and integration-branch merge-base. Trivial initial work retains the documented `pr_draft`-only contract.
+
 ## Install
 
 From the toolkit repository:

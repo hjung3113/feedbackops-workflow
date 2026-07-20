@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.14
+## Current release: v0.15
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -14,6 +14,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - pre-review AC-ID existence checking;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
+- Standard/Full Cluster initial-write admission that requires the complete canonical ROUND-STATE from dispatch 0 and binds it to the issue, tier, revision, real worktree, live HEAD, and integration base while preserving Trivial's pr_draft-only contract;
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - compile-atomic `contract.chunk_boundary` enforcement: enumerated consumers stay inside one chunk, `completion-check.sh` executes its target-native full typecheck, and only live-diff-triggered convention watches enter review;
 - a dispatch-bound repeated-round circuit breaker keyed to canonical failure-origin codes, with live evidence validation, atomic single-use admission, oracle/contract-first diagnosis, one manifest update, one integrated fix batch, and security early stop;
@@ -124,6 +125,12 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Partial, mixed, structurally unrecognized, uncorrelated, and managed-parent or backup-parent symlink layouts fail closed. Removed `--mode`, `--force`, and `--migrate-legacy` flags only provide migration guidance.
 - Product docs and the root release contract now describe and exercise the portable installed context.
 
+### v0.15 — canonical state from initial write
+
+- Standard-tier work generates the same complete canonical ROUND-STATE used by later tiers, omitting optional Full Cluster structures instead of creating a second mini-state authority.
+- Standard/Full Cluster initial `cmux-dispatch.sh` launches and every redispatch require the canonical path plus revision; initial admission rejects malformed, inactive, wrong-issue/tier/revision/worktree/HEAD/base state and Standard state without `pr_draft` + `review` pointers before cmux starts. Trivial initial writes remain pr_draft-only.
+- The source and portable installed contracts exercise the round-0 requirement while read-only seats remain outside write admission.
+
 ## Compatibility boundary
 
 | Area | Current status |
@@ -151,7 +158,7 @@ The next generalization must be based on a second real target. The intended spli
 ## Open roadmap
 
 - **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
-- **P1 procedure/templates:** #9 and #10 are shipped (circuit breaker and compile-atomic chunks); #11 remains the Standard-tier generation decision.
+- **P1 procedure/templates:** #9, #10, and #11 are shipped (circuit breaker, compile-atomic chunks, and canonical Standard round-0 state).
 - **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
