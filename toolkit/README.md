@@ -172,7 +172,7 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
 
 인자 없는 실행과 재현 가능한 `--full-module` alias는 backend 전체 모듈을 검증합니다. 좁은 Vitest 이름/경로 필터는 명시적으로 전달할 수 있지만 Release Captain이 touched behavior 전체를 덮는지 확인해야 합니다. `prepare-verify-db.sh`는 DB 생성·migration·seed 중 하나라도 실패하면 `VERIFY_DATABASE_URL=`을 출력하지 않습니다. `VERIFY_ISSUE`가 설정된 canonical 실행은 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 모두 요구합니다. clean command는 정확히 `sentinel`과 `migration_hash`의 sanitized expected/actual 및 실제 DB role의 name/superuser 증거를 출력하며, 불일치나 superuser이면 테스트 시작 전에 중단됩니다. `--fresh`는 migration chunk·crash recovery 전용 예약 interface로, target DB lifecycle adapter가 없으면 안정된 machine code와 함께 거부됩니다.
 
-검증 실패는 기존 사람용 `FAIL:` 메시지와 함께 원인별 `VERIFY_FAILURE_JSON=` 줄을 내보냅니다. canonical VERIFY artifact의 `failures[]`, `clean_state.{sentinel,migration_hash}`, `clean_state.role`도 같은 검증 증거를 보존합니다. 입력의 추가 필드는 거부되고 artifact에는 선언된 필드만 투영됩니다. 이 값에는 URL, 비밀번호, 고객 데이터 등 비밀을 넣지 않습니다. 이름과 무관하게 probe가 확인한 superuser role은 fail-closed입니다.
+검증 실패는 기존 사람용 `FAIL:` 메시지와 함께 원인별 `VERIFY_FAILURE_JSON=` 줄을 내보냅니다. canonical VERIFY artifact의 `failures[]`, `clean_state.{sentinel,migration_hash}`, `clean_state.role`도 같은 검증 증거를 보존합니다. 같은 issue/branch/HEAD/cwd/DB에서 좁은 filter를 여러 번 실행하면 하나의 artifact `runs[]`에 순서대로 보존되며, 하나라도 FAIL이면 이후 로컬 PASS도 aggregate를 녹색으로 바꾸지 못하고 nonzero로 끝납니다. 새 HEAD는 새 aggregate를 시작하고, `runs`가 없는 이전 flat artifact만 한 번의 legacy run으로 해석됩니다. publication은 같은 디렉터리 임시 파일을 schema/semantic 검증한 뒤 원자적으로 교체하므로 실패한 실행은 기존 red evidence를 덮어쓰지 않습니다. 입력의 추가 필드는 거부되고 artifact에는 선언된 필드만 투영됩니다. 이 값에는 URL, 비밀번호, 고객 데이터 등 비밀을 넣지 않습니다. 이름과 무관하게 probe가 확인한 superuser role은 fail-closed입니다.
 
 ## 작동 방식
 
@@ -228,7 +228,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 |---|---|
 | `ISSUE-N-PR-DRAFT.json` | CODEX의 구현 handoff. 자체 테스트 주장은 참고일 뿐입니다. |
 | `ISSUE-N-REVIEW.json` | 독립 REVIEWER의 판정과 patch instruction. `--produce-review`가 검증 후 원자 게시합니다. |
-| `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거 |
+| `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거; 같은 identity의 여러 filter run은 `runs[]`에 집계 |
 | `ISSUE-N-RUN.json` | watchdog 실행 상태. 병합 증거가 아닙니다. |
 | `ISSUE-N-BLOCKER.json` | 구조화된 중단 사유와 필요한 의사결정 |
 | `HEARTBEAT-*.json` | liveness 증거. correctness 증거가 아닙니다. |

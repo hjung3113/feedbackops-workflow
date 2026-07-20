@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "artifact_type": "verify_result",
+  "producer_role": "VERIFIER",
+  "issue": 42,
+  "branch": "fix/issue-42",
+  "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "cwd": "/tmp/verify-aggregate",
+  "verify_cmd": "verify.sh surveys",
+  "db_target": { "host": "localhost", "database": "verify", "role": "fops_verifier" },
+  "clean_state": {
+    "sentinel": { "expected": "clean", "actual": "clean" },
+    "migration_hash": { "expected": "same", "actual": "same" },
+    "role": { "name": "fops_verifier", "superuser": false }
+  },
+  "verdict": { "passed": 3, "failed": 0, "pending": 0, "exit_code": 0 },
+  "classifier": "PASS",
+  "failures": [],
+  "runs": [
+    {
+      "verify_cmd": "verify.sh permissions",
+      "clean_state": {
+        "sentinel": { "expected": "clean", "actual": "clean" },
+        "migration_hash": { "expected": "same", "actual": "same" },
+        "role": { "name": "fops_verifier", "superuser": false }
+      },
+      "verdict": { "passed": 2, "failed": 1, "pending": 0, "exit_code": 1 },
+      "classifier": "FAIL",
+      "failures": [{ "code": "failed_tests", "expected": "0", "actual": "1" }],
+      "created_at": "2026-07-21T00:00:00Z"
+    },
+    {
+      "verify_cmd": "verify.sh surveys",
+      "clean_state": {
+        "sentinel": { "expected": "clean", "actual": "clean" },
+        "migration_hash": { "expected": "same", "actual": "same" },
+        "role": { "name": "fops_verifier", "superuser": false }
+      },
+      "verdict": { "passed": 3, "failed": 0, "pending": 0, "exit_code": 0 },
+      "classifier": "PASS",
+      "failures": [],
+      "created_at": "2026-07-21T00:01:00Z"
+    }
+  ],
+  "created_at": "2026-07-21T00:01:00Z"
+}

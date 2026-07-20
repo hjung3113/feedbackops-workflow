@@ -180,6 +180,9 @@ function validateEvidence(reference) {
     if (reference.kind === "blocker" && artifact.lifecycle === "superseded") {
       error("superseded_evidence_artifact", "superseded BLOCKER evidence must be ignored");
     }
+    if (reference.kind === "verify" && !validVerifyAggregate(artifact)) {
+      error("invalid_evidence_artifact", "verify evidence has an invalid aggregate");
+    }
     if (reference.kind === "review" && artifact.status === "fail"
         && (!Array.isArray(artifact.findings) || artifact.findings.length === 0 || typeof artifact.patch_instructions !== "string")) {
       error("invalid_evidence_artifact", "failed review evidence lacks findings or patch instructions");
@@ -207,6 +210,59 @@ function commandHasScope(command, scope) {
     const unquoted = token.replace(/^(["'])(.*)\1$/, "$2");
     return unquoted === scope || unquoted.endsWith("=" + scope);
   });
+}
+
+function countRunValue(run, key) {
+  return run && run.verdict && typeof run.verdict[key] === "number" && Number.isFinite(run.verdict[key])
+    ? run.verdict[key]
+    : 0;
+}
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function runFromFlatArtifact(artifact) {
+  return { verify_cmd: artifact.verify_cmd, clean_state: artifact.clean_state, verdict: artifact.verdict,
+    classifier: artifact.classifier, failures: artifact.failures, created_at: artifact.created_at };
+}
+function verifyRuns(artifact) {
+  return Object.prototype.hasOwnProperty.call(artifact, "runs") ? artifact.runs : [runFromFlatArtifact(artifact)];
+}
+function validVerifyRun(run) {
+  if (!run || typeof run !== "object" || Array.isArray(run)
+      || (run.classifier !== "PASS" && run.classifier !== "FAIL")
+      || !run.verdict || !Array.isArray(run.failures) || !run.verify_cmd || !run.created_at
+      || !Number.isInteger(run.verdict.exit_code)) return false;
+  const passed = countRunValue(run, "passed");
+  const failed = countRunValue(run, "failed");
+  return run.classifier === "PASS"
+    ? passed >= 1 && failed === 0 && run.verdict.exit_code === 0 && run.failures.length === 0
+    : failed > 0 || run.verdict.exit_code !== 0 || run.failures.length > 0;
+}
+function validVerifyAggregate(artifact) {
+  if (!Object.prototype.hasOwnProperty.call(artifact, "runs")) return true; // v1 flat artifact: one synthetic run.
+  if (!Array.isArray(artifact.runs)) return false;
+  const runs = artifact.runs;
+  if (runs.length === 0 || !runs.every(validVerifyRun)) return false;
+  const latest = runs[runs.length - 1];
+  const allPass = runs.every((run) => run.classifier === "PASS");
+  const verdict = {
+    passed: runs.reduce((total, run) => total + countRunValue(run, "passed"), 0),
+    failed: runs.reduce((total, run) => total + countRunValue(run, "failed"), 0),
+    pending: runs.reduce((total, run) => total + countRunValue(run, "pending"), 0),
+    exit_code: allPass ? 0 : 1
+  };
+  const failures = runs.reduce((all, run) => all.concat(run.failures), []);
+  return artifact.verify_cmd === latest.verify_cmd
+    && sameJson(artifact.clean_state, latest.clean_state)
+    && sameJson(artifact.verdict, verdict)
+    && artifact.classifier === (allPass ? "PASS" : "FAIL")
+    && sameJson(artifact.failures, failures)
+    && artifact.created_at === latest.created_at;
+}
+function hasMatchingPassingRun(artifact, scope) {
+  return verifyRuns(artifact).some((run) => run.classifier === "PASS"
+    && run.verdict.exit_code === 0 && run.verdict.failed === 0 && run.verdict.passed >= 1
+    && commandHasScope(run.verify_cmd, scope));
 }
 
 const control = state.round_control || { failures: [] };
@@ -284,8 +340,8 @@ for (let index = 0; index < failures.length; index += 1) {
     if (!sameMembers(failure.closed_by.closes_ac_ids, failure.failed_ac_ids)) {
       error("failure_closure_scope_mismatch", "closure evidence must cover the failure AC set exactly");
     }
-    if (failure.closed_by.kind === "verify" && !commandHasScope(closure.verify_cmd, state.contract.verify_filter)) {
-      error("failure_closure_scope_mismatch", "closure VERIFY command does not include the canonical verify filter");
+    if (failure.closed_by.kind === "verify" && !hasMatchingPassingRun(closure, state.contract.verify_filter)) {
+      error("failure_closure_scope_mismatch", "closure VERIFY has no passing run for the canonical verify filter");
     }
     if (failure.closed_by.kind === "review") {
       const checklistItem = failure.closed_by.checklist_item;

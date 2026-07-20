@@ -11,7 +11,7 @@ Read this reference only when installing or adapting the workflow to a new targe
 | Review/archive/state reconstruction | General with conventions | The target must use the documented `.review/` names and full SHAs. |
 | `prepare-worktree.sh` | Target adapter | Assumes pnpm, `.env`, and `apps/backend/.env`. |
 | `tier-probe.sh` | TypeScript adapter | Its exported-contract heuristics target TS/TSX code. |
-| `verify.sh` | FeedbackOps-style adapter | Assumes a pnpm `backend` package tested by Vitest and a target-owned clean probe producing sentinel/migration-hash JSON. |
+| `verify.sh` | FeedbackOps-style adapter | Assumes a pnpm `backend` package tested by Vitest and a target-owned clean probe producing sentinel/migration-hash JSON. Same-identity issue runs aggregate in one canonical `runs[]` artifact. |
 | `prepare-verify-db.sh` | PostgreSQL adapter | Assumes local PostgreSQL and per-issue databases. |
 | `cmux-cluster.sh` / `rebase-inflight.sh` | Convention adapter | Carry branch, pane-label, and `feature/*` assumptions. |
 

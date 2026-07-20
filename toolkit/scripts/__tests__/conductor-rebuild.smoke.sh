@@ -67,8 +67,10 @@ write_verify() {
   "verify_cmd": "verify.sh case-$issue",
   "env_profile": "scrubbed",
   "db_target": { "host": "127.0.0.1", "database": "verify_smoke", "role": "fops_app" },
+  "clean_state": { "sentinel": { "expected": "clean", "actual": "clean" }, "migration_hash": { "expected": "same", "actual": "same" }, "role": { "name": "fops_app", "superuser": false } },
   "verdict": { "passed": $passed, "failed": $failed, "pending": 0, "exit_code": $exit_code },
   "classifier": "$class",
+  "failures": [],
   "created_at": "2026-07-12T00:00:00Z"
 }
 EOF
@@ -145,6 +147,41 @@ cat > "$REVIEW/ISSUE-112-BLOCKER.json" <<EOF
 }
 EOF
 
+# C13 a forged aggregate must not advertise top-level PASS while retaining a
+# failed run. C14 is the pre-v0.19 flat artifact compatibility path.
+REPO13="$TMP_DIR/wt-113"
+mk_repo "$REPO13" "feat/113"
+SHA13="$(head_of "$REPO13")"
+write_pr 113 "feat/113" "$SHA13" "ready_for_review" "$REPO13"
+write_verify 113 "feat/113" "$SHA13" "VERIFIER" "PASS" 0 8 0 113
+node -e '
+  const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8"));
+  const failed={verify_cmd:"verify.sh failing-filter",clean_state:{sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"fops_app",superuser:false}},verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-21T00:00:00Z"};
+  const passed={...failed,verify_cmd:"verify.sh passing-filter",verdict:{passed:8,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-21T00:01:00Z"};
+  o.runs=[failed,passed]; fs.writeFileSync(f,JSON.stringify(o,null,2)+"\n");
+' "$REVIEW/ISSUE-113-VERIFY.json"
+REPO14="$TMP_DIR/wt-114"
+mk_repo "$REPO14" "feat/114"
+SHA14="$(head_of "$REPO14")"
+write_pr 114 "feat/114" "$SHA14" "ready_for_review" "$REPO14"
+write_verify 114 "feat/114" "$SHA14" "VERIFIER" "PASS" 0 5 0 114
+REPO15="$TMP_DIR/wt-115"
+mk_repo "$REPO15" "feat/115"
+SHA15="$(head_of "$REPO15")"
+write_pr 115 "feat/115" "$SHA15" "ready_for_review" "$REPO15"
+write_verify 115 "feat/115" "$SHA15" "VERIFIER" "PASS" 0 5 0 115
+node -e 'const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8")); o.runs={}; fs.writeFileSync(f,JSON.stringify(o));' "$REVIEW/ISSUE-115-VERIFY.json"
+REPO16="$TMP_DIR/wt-116"
+mk_repo "$REPO16" "feat/116"
+SHA16="$(head_of "$REPO16")"
+write_pr 116 "feat/116" "$SHA16" "ready_for_review" "$REPO16"
+write_verify 116 "feat/116" "$SHA16" "VERIFIER" "PASS" 0 5 0 116
+node -e '
+  const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8"));
+  o.runs=[{verify_cmd:o.verify_cmd,clean_state:o.clean_state,verdict:o.verdict,classifier:o.classifier,failures:o.failures,created_at:o.created_at,unexpected:"schema-invalid"}];
+  fs.writeFileSync(f,JSON.stringify(o));
+' "$REVIEW/ISSUE-116-VERIFY.json"
+
 OUT="$(bash "$REBUILD" "$REVIEW" 2>/dev/null)"
 echo "----- conductor-rebuild output -----"
 echo "$OUT"
@@ -171,6 +208,10 @@ expect_state 107 unknown "107 -> unknown (branch mismatch)"
 expect_state 109 unknown "109 -> unknown (branch-identity mismatch)"
 expect_not_state 109 verified "109 not verified (wrong branch identity)"
 expect_state 110 in_progress "110 -> in_progress"
+expect_not_state 113 verified "113 not verified when a forged aggregate top-level PASS hides a failed run"
+expect_state 114 verified "114 accepts legacy flat VERIFY artifact as one synthetic run"
+expect_not_state 115 verified "115 rejects a present-but-malformed runs property"
+expect_not_state 116 verified "116 rejects schema-invalid run fields before aggregate semantics"
 if printf '%s\n' "$OUT" | grep -q "^111"; then fail "111 must be skipped (superseded)"; else pass "111 skipped (superseded)"; fi
 if printf '%s\n' "$OUT" | grep -q "^112	blocked	missing_dependency"; then pass "112 -> blocked missing_dependency"; else fail "112 -> blocked missing_dependency"; fi
 

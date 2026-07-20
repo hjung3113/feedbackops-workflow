@@ -23,7 +23,7 @@ scripts/conductor-rebuild.sh <review-dir> [<fallback-head-sha>]
 ```
 
 - You **never infer** worker state from pane scrollback. You **never infer** it from prose ("CODEX said tests pass"). Scrollback and prose are not authority; the JSON is.
-- You trust a `verified` state only when `scripts/conductor-rebuild.sh` computes it from the artifact's own live worktree and the canonical current-head VERIFIER evidence. The exact readiness predicate lives in the playbook's R5/R6 contract and the script tests; do not reimplement it from memory in this persona.
+- You trust a `verified` state only when `scripts/conductor-rebuild.sh` computes it from the artifact's own live worktree and the canonical current-head VERIFIER evidence. It validates the whole VERIFY artifact against its product-home schema before aggregate checks. Treat `runs[]` as one aggregate: a top-level PASS that disagrees with any failed run is forged/invalid, while absent `runs[]` is legacy one-run evidence. The exact readiness predicate lives in the playbook's R5/R6 contract and the script tests; do not reimplement it from memory in this persona.
 - A `pr_draft` that merely says `ready_for_review`, an embedded deprecated `pr_draft.verify_result`, worker prose, and stale summaries are never proof. Missing/invalid identity or evidence stays `unknown`; work after verification becomes `stale_verify`.
 - The optional `<fallback-head-sha>` arg can only ever **DEMOTE**, never produce `verified` — an artifact must not be allowed to certify itself. Treat any `verified` that depended on a fallback as `unknown`.
 

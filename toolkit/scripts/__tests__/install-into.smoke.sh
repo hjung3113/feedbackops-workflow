@@ -117,6 +117,47 @@ assert_installed_gates() {
   installed_report="$target/.review/installed-verify-green.json"
   printf '%s\n' '{"numPassedTests":1,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true}' > "$installed_report"
   assert_exit "$label executes verify classifier" PASS bash "$scripts/verify.sh" --classify-json "$installed_report"
+
+  installed_bin="$target/.review/installed-verify-bin"
+  installed_clean="$target/.review/installed-clean.sh"
+  mkdir -p "$installed_bin"
+  cat > "$installed_bin/pnpm" <<'STUB'
+#!/usr/bin/env bash
+for arg in "$@"; do case "$arg" in --outputFile=*) output="${arg#--outputFile=}" ;; esac; done
+case "${PNPM_STUB_MODE:-green}" in
+  fail) printf '%s\n' '{"numPassedTests":0,"numFailedTests":1,"numPendingTests":0,"numFailedTestSuites":0,"success":false}' > "$output"; exit 1 ;;
+  *) printf '%s\n' '{"numPassedTests":1,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true}' > "$output"; exit 0 ;;
+esac
+STUB
+  chmod +x "$installed_bin/pnpm"
+  cat > "$installed_clean" <<'CLEAN'
+#!/usr/bin/env bash
+printf '%s\n' '{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"same","actual":"same"}],"role":{"name":"fops_app","superuser":false}}'
+CLEAN
+  chmod +x "$installed_clean"
+  ( cd "$target" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="sh '$installed_clean'" VERIFY_ISSUE=189 PNPM_STUB_MODE=fail VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$installed_bin:$PATH" bash "$scripts/verify.sh" permissions ) >/dev/null 2>&1
+  installed_first_ec=$?
+  ( cd "$target" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="sh '$installed_clean'" VERIFY_ISSUE=189 PNPM_STUB_MODE=green VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$installed_bin:$PATH" bash "$scripts/verify.sh" surveys ) >/dev/null 2>&1
+  installed_second_ec=$?
+  if [ "$installed_first_ec" -eq 1 ] && [ "$installed_second_ec" -eq 1 ] && node -e 'const o=require(process.argv[1]); process.exit(Array.isArray(o.runs)&&o.runs.length===2&&o.classifier==="FAIL"&&o.runs[1].classifier==="PASS" ? 0 : 1)' "$target/.review/ISSUE-189-VERIFY.json"; then
+    ok "$label installed verify preserves a red-latched aggregate"
+  else
+    not_ok "$label installed verify preserves a red-latched aggregate"
+  fi
+  ( cd "$target" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="sh '$installed_clean'" VERIFY_ISSUE=190 PNPM_STUB_MODE=green VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$installed_bin:$PATH" bash "$scripts/verify.sh" installed-conductor ) >/dev/null 2>&1
+  installed_conductor_verify_ec=$?
+  installed_branch="$(git -C "$target" rev-parse --abbrev-ref HEAD)"
+  installed_head="$(git -C "$target" rev-parse HEAD)"
+  node - "$target/.review/ISSUE-190-PR-DRAFT.json" "$target" "$installed_branch" "$installed_head" <<'NODE'
+const fs=require("fs"); const [file,worktree,branch,head]=process.argv.slice(2);
+fs.writeFileSync(file,JSON.stringify({schema_version:"1",artifact_type:"pr_draft",lifecycle:"active",producer_role:"CODEX",issue:{number:190,title:"installed conductor schema"},branch,base_sha:head,head_sha:head,files_touched:[{path:"allowed/file.txt",change:"edit"}],verify_cmd:"verify.sh installed-conductor",status:"ready_for_review",worktree_path:worktree}));
+NODE
+  installed_conductor_out="$(bash "$scripts/conductor-rebuild.sh" "$target/.review" 2>/dev/null)"
+  if [ "$installed_conductor_verify_ec" -eq 0 ] && printf '%s\n' "$installed_conductor_out" | grep -q '^190	verified'; then
+    ok "$label installed conductor resolves its sibling VERIFY schema"
+  else
+    not_ok "$label installed conductor resolves its sibling VERIFY schema"
+  fi
   assert_exit "$label executes ac-check" PASS bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS"
   assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3

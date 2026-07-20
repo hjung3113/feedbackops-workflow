@@ -17,6 +17,19 @@
 # Exit 0 (reporting tool). bash-3.2-compatible.
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
+SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+VERIFY_SCHEMA=""
+if [ -r "$PRODUCT_HOME_LIB" ] && [ -r "$SCHEMA_VALIDATOR" ]; then
+  . "$PRODUCT_HOME_LIB"
+  PRODUCT_ROOT="$(agent_workflow_product_root "$SCRIPT_DIR")"
+  SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT" 2>/dev/null || printf '')"
+  if [ -n "$SCHEMA_DIR" ] && [ -r "$SCHEMA_DIR/verify.schema.json" ]; then
+    VERIFY_SCHEMA="$SCHEMA_DIR/verify.schema.json"
+  fi
+fi
+
 REVIEW_DIR="${1:-}"
 FALLBACK_HEAD="${2:-}"
 
@@ -62,6 +75,41 @@ parse_verify_artifact() {
     try { o = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); }
     catch (e) { process.exit(2); }
     if (!o || typeof o !== "object" || Array.isArray(o)) process.exit(2);
+    let schema, validate;
+    try {
+      schema = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+      ({ validate } = require(process.argv[3]));
+    } catch (e) { process.exit(3); }
+    if (validate(schema, o).length) process.exit(3);
+    const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+    const count = (value, key) => value && typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : 0;
+    function validRun(run) {
+      if (!run || typeof run !== "object" || Array.isArray(run)
+          || (run.classifier !== "PASS" && run.classifier !== "FAIL")
+          || !run.verdict || !Array.isArray(run.failures) || !run.verify_cmd || !run.created_at) return false;
+      const passed = count(run.verdict, "passed");
+      const failed = count(run.verdict, "failed");
+      if (!Number.isInteger(run.verdict.exit_code)) return false;
+      return run.classifier === "PASS"
+        ? passed >= 1 && failed === 0 && run.verdict.exit_code === 0 && run.failures.length === 0
+        : failed > 0 || run.verdict.exit_code !== 0 || run.failures.length > 0;
+    }
+    if (Object.prototype.hasOwnProperty.call(o, "runs")) {
+      if (!Array.isArray(o.runs)) process.exit(3);
+      if (o.runs.length === 0 || !o.runs.every(validRun)) process.exit(3);
+      const latest = o.runs[o.runs.length - 1];
+      const allPass = o.runs.every((run) => run.classifier === "PASS");
+      const expectedVerdict = {
+        passed: o.runs.reduce((total, run) => total + count(run.verdict, "passed"), 0),
+        failed: o.runs.reduce((total, run) => total + count(run.verdict, "failed"), 0),
+        pending: o.runs.reduce((total, run) => total + count(run.verdict, "pending"), 0),
+        exit_code: allPass ? 0 : 1
+      };
+      const expectedFailures = o.runs.reduce((all, run) => all.concat(run.failures), []);
+      if (o.verify_cmd !== latest.verify_cmd || !sameJson(o.clean_state, latest.clean_state)
+          || !sameJson(o.verdict, expectedVerdict) || o.classifier !== (allPass ? "PASS" : "FAIL")
+          || !sameJson(o.failures, expectedFailures) || o.created_at !== latest.created_at) process.exit(3);
+    }
     function get(path) {
       let v = o;
       for (let i = 0; i < path.length; i++) {
@@ -83,7 +131,7 @@ parse_verify_artifact() {
       get(["verify_cmd"])
     ];
     process.stdout.write(values.join("\t"));
-  ' "$1" 2>/dev/null
+  ' "$1" "$VERIFY_SCHEMA" "$SCHEMA_VALIDATOR" 2>/dev/null
 }
 
 process_blocker() {

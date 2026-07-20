@@ -314,6 +314,50 @@ assert_case "closure evidence must be newer than the failed-round evidence" 2 "$
 assert_case "closure verifier must match the live worktree branch" 2 "$TMP_DIR/wrong-branch-lineage.json" "error" "null"
 assert_case "closure verifier must run the canonical verification scope" 2 "$TMP_DIR/unrelated-pass-lineage.json" "error" "null"
 
+node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path");
+const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
+const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
+const failed={verify_cmd:"smoke verify --filter shared-contract",clean_state,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-20T00:02:00Z"};
+const passed={verify_cmd:"smoke verify --filter unrelated",clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:03:00Z"};
+// This is intentionally forged: legacy top-level checks say PASS and name the
+// required scope, but no passing run actually covers that scope.
+const forged={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:passed.created_at,runs:[failed,passed]};
+fs.writeFileSync(path.join(root,"aggregate-unmatched.json"),JSON.stringify(forged));
+NODE
+cp "$TMP_DIR/closed-history.json" "$TMP_DIR/aggregate-unmatched-closure.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+  const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const relative=".review/evidence/aggregate-unmatched.json"; const content=fs.readFileSync(path.join(worktree,relative));
+  value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$TMP_DIR/aggregate-unmatched-closure.json" "$WORKTREE" "$CLOSURE_HEAD"
+assert_case "closure requires a matching passing run, not a forged aggregate command" 2 "$TMP_DIR/aggregate-unmatched-closure.json" "error" "null"
+
+node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path");
+const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
+const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
+const matching={verify_cmd:"smoke verify --filter shared-contract",clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:04:00Z"};
+const later={verify_cmd:"smoke verify --filter another-scope",clean_state,verdict:{passed:2,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:05:00Z"};
+const aggregate={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:later.verify_cmd,db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:3,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:later.created_at,runs:[matching,later]};
+fs.writeFileSync(path.join(root,"aggregate-matched.json"),JSON.stringify(aggregate));
+fs.writeFileSync(path.join(root,"aggregate-malformed-runs.json"),JSON.stringify({...aggregate,runs:{}}));
+NODE
+for aggregate_case in aggregate-matched aggregate-malformed-runs; do
+  cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$aggregate_case-closure.json"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,name]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$TMP_DIR/$aggregate_case-closure.json" "$WORKTREE" "$CLOSURE_HEAD" "$aggregate_case"
+done
+assert_case "valid all-PASS aggregate closes through an earlier matching run" 0 "$TMP_DIR/aggregate-matched-closure.json" "allow_normal" "null"
+assert_case "present-but-malformed aggregate runs are rejected" 2 "$TMP_DIR/aggregate-malformed-runs-closure.json" "error" "null"
+
 cp "$TMP_DIR/same.json" "$TMP_DIR/interleaved-cycle.json"
 node -e '
   const fs=require("fs"); const source=require(process.argv[2]); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8"));

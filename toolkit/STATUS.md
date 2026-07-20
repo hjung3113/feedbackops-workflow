@@ -4,6 +4,12 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 ## Current release: v0.19
 
+## Next: unreleased canonical VERIFY aggregate
+
+- Canonical `ISSUE-N-VERIFY.json` now optionally retains ordered `runs[]` for repeated same-identity verifier runs. Its top-level verdict is validated as the derived aggregate, so a prior FAIL cannot be overwritten into false readiness by a later narrow-filter PASS. Only an absent `runs` property is legacy; a present malformed value is rejected.
+- A later locally-green run returns nonzero while that aggregate remains red; a new HEAD begins a new aggregate. Legacy flat v1 artifacts remain accepted as one synthetic run.
+- CONDUCTOR reconstruction schema-validates the complete canonical VERIFY from its source/installed product home before aggregate checks, while redispatch closure validation rejects forged aggregate top-level claims. A VERIFY closure needs a matching passing run for `contract.verify_filter`, not merely a top-level command string. Canonical publication validates a same-directory temporary file before atomic replacement, preserving prior evidence on publication failure.
+
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
 - isolated worktree preparation and visible cmux dispatch, with a retained atomic launch runner so cmux receives only a short relative command even when the watchdog argv contains deep paths;

@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
 
 function count(data, key) {
   const value = data && data[key];
@@ -100,6 +101,86 @@ function projectCleanState(clean) {
   };
 }
 
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function runFromArtifact(artifact) {
+  return {
+    verify_cmd: artifact.verify_cmd,
+    clean_state: artifact.clean_state,
+    verdict: artifact.verdict,
+    classifier: artifact.classifier,
+    failures: artifact.failures,
+    created_at: artifact.created_at,
+  };
+}
+
+function sameIdentity(left, right) {
+  return left.issue === right.issue
+    && left.branch === right.branch
+    && left.head_sha === right.head_sha
+    && left.cwd === right.cwd
+    && sameJson(left.db_target, right.db_target);
+}
+
+function aggregateArtifact(current, runs) {
+  const latest = runs[runs.length - 1];
+  const allPass = runs.every((run) => run.classifier === "PASS");
+  const aggregate = {
+    ...current,
+    verify_cmd: latest.verify_cmd,
+    clean_state: latest.clean_state,
+    verdict: {
+      passed: runs.reduce((total, run) => total + count(run.verdict, "passed"), 0),
+      failed: runs.reduce((total, run) => total + count(run.verdict, "failed"), 0),
+      pending: runs.reduce((total, run) => total + count(run.verdict, "pending"), 0),
+      exit_code: allPass ? 0 : 1,
+    },
+    classifier: allPass ? "PASS" : "FAIL",
+    failures: runs.reduce((all, run) => all.concat(run.failures), []),
+    created_at: latest.created_at,
+    runs,
+  };
+  return aggregate;
+}
+
+function appendRun(existing, current) {
+  if (!existing || !sameIdentity(existing, current)) {
+    return aggregateArtifact(current, [runFromArtifact(current)]);
+  }
+  const priorRuns = Array.isArray(existing.runs) ? existing.runs : [runFromArtifact(existing)];
+  return aggregateArtifact(current, priorRuns.concat([runFromArtifact(current)]));
+}
+
+function validRun(run) {
+  if (!run || typeof run !== "object" || Array.isArray(run)
+      || (run.classifier !== "PASS" && run.classifier !== "FAIL")
+      || !run.verdict || typeof run.verdict !== "object"
+      || !Array.isArray(run.failures) || !run.verify_cmd || !run.created_at) return false;
+  const passed = count(run.verdict, "passed");
+  const failed = count(run.verdict, "failed");
+  const exitCode = run.verdict.exit_code;
+  if (!Number.isInteger(exitCode)) return false;
+  if (run.classifier === "PASS") {
+    return passed >= 1 && failed === 0 && exitCode === 0 && run.failures.length === 0;
+  }
+  return failed > 0 || exitCode !== 0 || run.failures.length > 0;
+}
+
+function validAggregate(artifact) {
+  if (!Object.prototype.hasOwnProperty.call(artifact, "runs")) return true; // v1 flat artifact: synthetic one-run legacy input.
+  if (!Array.isArray(artifact.runs)) return false;
+  if (artifact.runs.length === 0 || !artifact.runs.every(validRun)) return false;
+  const expected = aggregateArtifact({...artifact, runs: undefined}, artifact.runs);
+  return artifact.verify_cmd === expected.verify_cmd
+    && sameJson(artifact.clean_state, expected.clean_state)
+    && sameJson(artifact.verdict, expected.verdict)
+    && artifact.classifier === expected.classifier
+    && sameJson(artifact.failures, expected.failures)
+    && artifact.created_at === expected.created_at;
+}
+
 function buildArtifact(data, env, reportReadFailure) {
   const parsedExitCode = Number.parseInt(env.VERIFY_ARTIFACT_EXIT_CODE, 10) || 0;
   const classification = reportReadFailure
@@ -144,7 +225,8 @@ function validArtifact(artifact) {
     && (artifact.classifier === "PASS" || artifact.classifier === "FAIL")
     && Boolean(artifact.head_sha)
     && artifact.verdict
-    && typeof artifact.verdict === "object";
+    && typeof artifact.verdict === "object"
+    && validAggregate(artifact);
 }
 
 function main(argv, env) {
@@ -180,8 +262,44 @@ function main(argv, env) {
     } catch (error) {
       readFailure = reportFailure(error);
     }
-    const artifact = buildArtifact(data, env, readFailure);
-    fs.writeFileSync(env.VERIFY_ARTIFACT_PATH, `${JSON.stringify(artifact, null, 2)}\n`);
+    const current = buildArtifact(data, env, readFailure);
+    let artifact = current;
+    if (fs.existsSync(env.VERIFY_ARTIFACT_PATH)) {
+      let existing;
+      try {
+        existing = JSON.parse(fs.readFileSync(env.VERIFY_ARTIFACT_PATH, "utf8"));
+      } catch (error) {
+        throw new Error(`cannot append to existing canonical VERIFY artifact: ${error.message}`);
+      }
+      if (!validArtifact(existing)) {
+        throw new Error("cannot append to an invalid canonical VERIFY artifact");
+      }
+      artifact = appendRun(existing, current);
+    } else {
+      artifact = appendRun(null, current);
+    }
+    const artifactPath = env.VERIFY_ARTIFACT_PATH;
+    const temporaryPath = path.join(path.dirname(artifactPath),
+      `.${path.basename(artifactPath)}.tmp-${process.pid}-${Date.now()}`);
+    try {
+      fs.writeFileSync(temporaryPath, `${JSON.stringify(artifact, null, 2)}\n`);
+      const schemaPath = argv[3];
+      const validatorPath = argv[4];
+      if (!schemaPath || !validatorPath) throw new Error("schema and validator are required for canonical artifact publication");
+      const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+      const { validate } = require(validatorPath);
+      const temporaryArtifact = JSON.parse(fs.readFileSync(temporaryPath, "utf8"));
+      if (!validArtifact(temporaryArtifact) || validate(schema, temporaryArtifact).length !== 0) {
+        throw new Error("temporary canonical VERIFY artifact failed validation");
+      }
+      if (env.VERIFY_ARTIFACT_TEST_FAIL_BEFORE_RENAME === "1") {
+        throw new Error("test-injected failure before atomic rename");
+      }
+      fs.renameSync(temporaryPath, artifactPath);
+    } catch (error) {
+      try { fs.unlinkSync(temporaryPath); } catch (unlinkError) { /* best-effort temporary cleanup */ }
+      throw error;
+    }
     return 0;
   }
 
@@ -190,6 +308,12 @@ function main(argv, env) {
     const schema = JSON.parse(fs.readFileSync(argv[4], "utf8"));
     const { validate } = require(argv[5]);
     return validArtifact(artifact) && validate(schema, artifact).length === 0 ? 0 : 1;
+  }
+
+  if (command === "aggregate-exit-code") {
+    const artifact = JSON.parse(fs.readFileSync(argv[3], "utf8"));
+    if (!validArtifact(artifact)) return 2;
+    return artifact.classifier === "PASS" ? 0 : 1;
   }
 
   if (command === "failure") {
@@ -241,7 +365,7 @@ function main(argv, env) {
     return 0;
   }
 
-  console.error("usage: verify-result.cjs classify <report-file> <vitest-exit-code> | clean <probe-file> <url-role> | write-artifact | validate-artifact <artifact-file> <schema> <validator> | failure <code> <expected> <actual>");
+  console.error("usage: verify-result.cjs classify <report-file> <vitest-exit-code> | clean <probe-file> <url-role> | write-artifact <schema> <validator> | validate-artifact <artifact-file> <schema> <validator> | aggregate-exit-code <artifact-file> | failure <code> <expected> <actual>");
   return 2;
 }
 
