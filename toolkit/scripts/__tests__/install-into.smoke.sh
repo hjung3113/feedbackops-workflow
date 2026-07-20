@@ -304,6 +304,7 @@ assert_installed_gates "portable install" "$fresh"
 assert_true "README documents copy-only install" grep -F -q 'self-contained' "$PRODUCT_ROOT/README.md"
 assert_true "README documents explicit upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/README.md"
 assert_true "adoption guide documents upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
+assert_true "installed skill routes dispatch liveness rules" grep -F -q 'Preserve its direct exit code' "$fresh/.claude/skills/agent-workflow/SKILL.md"
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then

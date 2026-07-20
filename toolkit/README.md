@@ -109,6 +109,8 @@ CONDUCTOR는 Standard/Full Cluster 최초 write 전에 `schemas/round_state.sche
 
 읽기·사고 중심 작업은 파일 변경이 없어도 stall로 오판하지 않도록 liveness 옵션 `--read-only`를 추가합니다. 이 옵션만으로 Codex filesystem sandbox가 read-only가 되지는 않습니다. REVIEWER는 명시적 `--model`·`--effort`와 함께 `--produce-review`를 사용합니다. 이 모드는 Codex를 실제 `read-only` sandbox에서 실행하고 최종 JSON을 host-side에서 schema·issue·live HEAD와 대조한 뒤에만 canonical `.review/ISSUE-N-REVIEW.json`으로 원자 게시합니다. 긴 ARCH/리뷰 시트는 필요할 때 `--first-progress-timeout`과 `--stall-timeout`을 명시하세요.
 
+디스패치 오퍼레이터 규칙은 [플레이북의 dispatch liveness 절](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules)을 따릅니다. 디스패치 명령의 exit code를 파이프에 숨기지 말고, 현재 시도보다 fresh한 `mtime + started_at`의 RUN/BLOCKER만 받아들이며, `status:"exited"`를 작업 완료로 해석하지 않습니다. sol/medium은 hard failure가 없다면 수동 개입 전 최소 8분을 허용하고, 애매하면 프로세스 부재·filesystem/heartbeat·stderr 성장을 함께 확인합니다. 최종 완료는 live HEAD에 묶인 canonical REVIEW/VERIFY로만 판정합니다.
+
 `codex exec`를 직접 실행하거나 `cmux workspace create --command ...`를 손으로 조립하는 경로는 지원하지 않습니다.
 
 ### 5. 리뷰 전 AC-ID 검사
