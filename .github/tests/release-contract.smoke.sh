@@ -161,6 +161,7 @@ assert_contains "root README routes to product README" 'toolkit/README.md' "$REP
 assert_contains "trial log remains marked historical" 'Historical record' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "trial log preserves dated legacy evidence" 'feature/31-idem-audit-assertion' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "product instructions forbid duplicate authority" 'Do not recreate an `agent-workflow` authority outside this product root.' "$PRODUCT_ROOT/AGENTS.md"
+assert_contains "source dispatch requires canonical initial state" 'initial write requires --round-state and --manifest-revision' "$PRODUCT_ROOT/scripts/cmux-dispatch.sh"
 assert_exists "product Claude pointer" "$PRODUCT_ROOT/CLAUDE.md"
 assert_contains "root instructions identify Matt development skills" 'Matt Pocock skills under `.agents/skills/`' "$REPOSITORY_ROOT/AGENTS.md"
 
@@ -315,6 +316,7 @@ assert_command "copy scripts are not symlinked to source" test ! -L "$copy_targe
 assert_command "copy schemas are not symlinked to source" test ! -L "$copy_target/.agent-workflow/schemas"
 assert_command "copy docs are not symlinked to source" test ! -L "$copy_target/.agent-workflow/docs/agents"
 assert_command "copy skill is not symlinked to source" test ! -L "$copy_target/.claude/skills/agent-workflow"
+assert_contains "copy preserves canonical initial-state admission" 'initial write requires --round-state and --manifest-revision' "$copy_target/.agent-workflow/scripts/cmux-dispatch.sh"
 printf '%s\n' '[source-only](../../../README.md)' \
   > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
 assert_rejects "installed target-owned Markdown link fails" 'escapes its documented context' \

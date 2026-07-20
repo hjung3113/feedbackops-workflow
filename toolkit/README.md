@@ -9,6 +9,7 @@ cmux × Claude × Codex 작업을 **분리된 워크트리, 구조화된 산출�
 ## 핵심 특성
 
 - **보이는 디스패치** — `cmux-dispatch.sh`가 워크스페이스, cwd, prompt, 모델, liveness 예산을 하나의 경로로 고정합니다.
+- **0라운드 계약 고정** — Standard/Full Cluster 최초 write 전부터 canonical ROUND-STATE를 생성하고 issue·revision·worktree·HEAD·base에 결속합니다. Trivial은 pr_draft-only입니다.
 - **샌드박스 경계** — 구현자 Codex는 `workspace-write` 안에서 실행되며 DB·네트워크 검증은 호스트의 VERIFIER가 담당합니다.
 - **false-green 방지** — 전체 skip, 0 tests, 스위트 초기화 실패, 잘못된 DB, 증거 산출물 누락을 성공으로 처리하지 않습니다.
 - **독립 완료 계산** — CONDUCTOR가 worker prose나 `RUN.json` 대신 live `base..HEAD` diff와 target-native test discovery를 계약과 대조합니다.
@@ -93,11 +94,16 @@ scripts/prepare-worktree.sh ../wt-123 --env-profile ../env/issue-123.env
 NODE_OPTIONS= scripts/cmux-dispatch.sh \
   --issue 123 \
   --worktree ../wt-123 \
+  --tier standard \
   --prompt-file ../wt-123/.review/ISSUE-123-PROMPT.txt \
+  --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
+  --manifest-revision 1 \
   --name issue-123-impl \
   --model gpt-5.6-terra \
   --effort medium
 ```
+
+CONDUCTOR는 Standard/Full Cluster 최초 write 전에 `schemas/round_state.schema.json` 전체를 만족하는 canonical ROUND-STATE를 생성합니다. Standard 티어도 별도 mini-state를 만들지 않으며, 선택적인 Full Cluster 필드는 생략하되 `pr_draft`와 `review` 아티팩트 포인터를 유지하고 같은 파일을 이후 에스컬레이션에서 확장합니다. 최초 디스패치는 명시적 `--tier`가 필요하며 active lifecycle, schema, issue, tier, manifest revision, 실제 worktree, live HEAD, base freshness가 일치하지 않으면 cmux를 시작하기 전에 거부됩니다. Trivial 최초 write는 `--tier trivial`을 명시하고 기존 `pr_draft`-only 계약을 유지합니다.
 
 `gpt-5.6-terra`는 현재 운영 환경의 구현 모델 alias입니다. 다른 계정·머신에서는 플레이북의 capability ordering을 유지하는 명시적 모델을 preflight한 뒤 사용하세요. `--model`을 생략해 글로벌 기본값으로 fallback하지 마세요.
 

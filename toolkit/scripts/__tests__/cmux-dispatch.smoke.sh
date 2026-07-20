@@ -17,6 +17,37 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 FAILURES=0
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
+make_round_state() {
+  issue="$1"
+  worktree="$2"
+  revision="$3"
+  output="$4"
+  cp "$ROOT/schemas/fixtures/round_state.valid.json" "$output"
+  node - "$output" "$issue" "$worktree" "$revision" <<'NODE'
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+const [file, issue, worktree, revision] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+const head = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const branch = execFileSync("git", ["-C", worktree, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
+state.issue = { number: Number(issue), title: "standard round-0 smoke" };
+state.tier = { name: "standard", rationale: "single-module behavior change" };
+state.revision = Number(revision);
+state.base_branch = branch;
+state.base_sha = head;
+state.head_sha = head;
+state.worktree_path = fs.realpathSync(worktree);
+state.decisions = [];
+state.prior_findings = [];
+state.live_probes = [];
+state.artifact_pointers = [
+  { artifact_type: "pr_draft", path: `.review/ISSUE-${issue}-PR-DRAFT.json` },
+  { artifact_type: "review", path: `.review/ISSUE-${issue}-REVIEW.json` }
+];
+delete state.round_control;
+fs.writeFileSync(file, JSON.stringify(state, null, 2) + "\n");
+NODE
+}
 
 # --- setup: a real git worktree with a prompt file ---
 WT="$TMP_ROOT/wt"
@@ -24,6 +55,108 @@ mkdir -p "$WT/.review"
 git init -q "$WT"
 git -C "$WT" -c user.name="Smoke Test" -c user.email="smoke@example.test" commit --allow-empty -q -m "init"
 printf '%s\n' "prompt body" > "$WT/.review/ISSUE-301-PROMPT.txt"
+
+# --- initial writes require the canonical round-0 contract ---
+stderr_file="$TMP_ROOT/missing-initial-round-state.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "initial write requires --round-state and --manifest-revision" "$stderr_file"; then
+  pass "initial write refuses dispatch without canonical ROUND-STATE"
+else
+  fail "initial write refuses dispatch without canonical ROUND-STATE (ec=$ec: $(cat "$stderr_file"))"
+fi
+INITIAL_STATE="$WT/.review/ISSUE-301-ROUND-STATE.json"
+make_round_state 301 "$WT" 1 "$INITIAL_STATE"
+VALID_INITIAL_STATE="$TMP_ROOT/valid-initial-state.json"
+cp "$INITIAL_STATE" "$VALID_INITIAL_STATE"
+printf '%s\n' '{}' > "$INITIAL_STATE"
+stderr_file="$TMP_ROOT/malformed-initial-round-state.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "initial ROUND-STATE admission denied" "$stderr_file"; then
+  pass "initial write rejects a malformed ROUND-STATE"
+else
+  fail "initial write rejects a malformed ROUND-STATE (ec=$ec: $(cat "$stderr_file"))"
+fi
+make_round_state 999 "$WT" 2 "$INITIAL_STATE"
+stderr_file="$TMP_ROOT/wrong-initial-identity.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "initial ROUND-STATE admission denied" "$stderr_file"; then
+  pass "initial write binds ROUND-STATE to issue and manifest revision"
+else
+  fail "initial write binds ROUND-STATE to issue and manifest revision (ec=$ec: $(cat "$stderr_file"))"
+fi
+cp "$VALID_INITIAL_STATE" "$INITIAL_STATE"
+node - "$INITIAL_STATE" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+state.head_sha = "0000000000000000000000000000000000000000";
+fs.writeFileSync(file, JSON.stringify(state));
+NODE
+stderr_file="$TMP_ROOT/wrong-initial-head.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "initial ROUND-STATE admission denied" "$stderr_file"; then
+  pass "initial write binds ROUND-STATE to the live worktree HEAD"
+else
+  fail "initial write binds ROUND-STATE to the live worktree HEAD (ec=$ec: $(cat "$stderr_file"))"
+fi
+cp "$VALID_INITIAL_STATE" "$INITIAL_STATE"
+node - "$INITIAL_STATE" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+state.base_sha = "0000000000000000000000000000000000000000";
+fs.writeFileSync(file, JSON.stringify(state));
+NODE
+stderr_file="$TMP_ROOT/stale-initial-base.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "initial ROUND-STATE admission denied" "$stderr_file"; then
+  pass "initial write rejects a stale ROUND-STATE base"
+else
+  fail "initial write rejects a stale ROUND-STATE base (ec=$ec: $(cat "$stderr_file"))"
+fi
+NONCANONICAL_INITIAL_STATE="$TMP_ROOT/noncanonical-initial-state.json"
+cp "$VALID_INITIAL_STATE" "$INITIAL_STATE"
+cp "$VALID_INITIAL_STATE" "$NONCANONICAL_INITIAL_STATE"
+stderr_file="$TMP_ROOT/noncanonical-initial-state.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$NONCANONICAL_INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "canonical path" "$stderr_file"; then
+  pass "initial write rejects a second ROUND-STATE authority"
+else
+  fail "initial write rejects a second ROUND-STATE authority (ec=$ec: $(cat "$stderr_file"))"
+fi
+
+cp "$VALID_INITIAL_STATE" "$INITIAL_STATE"
+node - "$INITIAL_STATE" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+state.artifact_pointers = [];
+fs.writeFileSync(file, JSON.stringify(state));
+NODE
+stderr_file="$TMP_ROOT/missing-standard-pointers.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "pr_draft and review pointers must be retained" "$stderr_file"; then
+  pass "Standard round-0 state requires pr_draft and review pointers"
+else
+  fail "Standard round-0 state requires pr_draft and review pointers (ec=$ec: $(cat "$stderr_file"))"
+fi
+cp "$VALID_INITIAL_STATE" "$INITIAL_STATE"
+
+trivial_out="$TMP_ROOT/trivial-initial.out"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$trivial_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ]; then
+  pass "Trivial initial write keeps its pr_draft-only contract"
+else
+  fail "Trivial initial write keeps its pr_draft-only contract (ec=$ec: $(cat "$trivial_out"))"
+fi
 
 # --- missing worktree ---
 NOT_A_DIR="$TMP_ROOT/does-not-exist"
@@ -64,7 +197,7 @@ fi
 
 # --- dry-run happy path ---
 out_file="$TMP_ROOT/dry-run.stdout"
-bash "$DISPATCH" --issue 301 --worktree "$WT" --dry-run >"$out_file" 2>&1
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >"$out_file" 2>&1
 ec=$?
 printed="$(cat "$out_file")"
 if [ "$ec" -eq 0 ]; then pass "dry-run exits 0"; else fail "dry-run exits 0 (got $ec)"; fi
@@ -121,12 +254,31 @@ echo "CMUX WAS CALLED" >&2
 exit 1
 EOF
 chmod +x "$BIN/cmux"
-PATH="$BIN:$PATH" bash "$DISPATCH" --issue 301 --worktree "$WT" --dry-run >/dev/null 2>"$TMP_ROOT/no-call.stderr"
+PATH="$BIN:$PATH" bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$TMP_ROOT/no-call.stderr"
 ec=$?
 if [ "$ec" -eq 0 ] && ! grep -q "CMUX WAS CALLED" "$TMP_ROOT/no-call.stderr"; then
   pass "dry-run never invokes cmux"
 else
   fail "dry-run never invokes cmux"
+fi
+
+# A read-only seat writes RUN.json but must remain outside the implementation
+# circuit; the first later write is still an initial write.
+READ_THEN_WRITE_WT="$TMP_ROOT/wt-read-then-write"
+mkdir -p "$READ_THEN_WRITE_WT/.review"
+git init -q "$READ_THEN_WRITE_WT"
+git -C "$READ_THEN_WRITE_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+printf '%s\n' 'prompt body' > "$READ_THEN_WRITE_WT/.review/ISSUE-309-PROMPT.txt"
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":309,"attempt":1,"started_at":"2026-07-20T10:00:00Z","updated_at":"2026-07-20T10:00:00Z","status":"exited","exit_code":0}' > "$READ_THEN_WRITE_WT/.review/ISSUE-309-RUN.json"
+READ_THEN_WRITE_STATE="$READ_THEN_WRITE_WT/.review/ISSUE-309-ROUND-STATE.json"
+make_round_state 309 "$READ_THEN_WRITE_WT" 1 "$READ_THEN_WRITE_STATE"
+read_then_write_out="$TMP_ROOT/read-then-write.out"
+bash "$DISPATCH" --issue 309 --worktree "$READ_THEN_WRITE_WT" --tier standard --round-state "$READ_THEN_WRITE_STATE" --manifest-revision 1 --dry-run >"$read_then_write_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ]; then
+  pass "read-only RUN.json does not turn the first write into redispatch"
+else
+  fail "read-only RUN.json does not turn the first write into redispatch (ec=$ec: $(cat "$read_then_write_out"))"
 fi
 
 # --- write-capable same-issue redispatch is gate-bound and single-use ---
@@ -165,6 +317,8 @@ node -e '
   value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"implementation",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"implementation_fix",summary:"apply the classified fix"},evidence:[{kind:"verify",path:evidencePath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:process.argv[4]}]}]};
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT" "$ADMIT_HEAD" "$ADMIT_EVIDENCE_HEAD"
+VALID_ADMIT_STATE="$TMP_ROOT/valid-admit-state.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$VALID_ADMIT_STATE"
 
 cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json"
 node -e '
@@ -183,9 +337,30 @@ else
   fail "write redispatch requires canonical round-control input (ec=$ec: $(cat "$admission_missing"))"
 fi
 
-admission_wrong_issue="$TMP_ROOT/admission-wrong-issue.out"
-bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_issue" 2>&1
+POINTERLESS_ADMIT_STATE="$TMP_ROOT/pointerless-admit-state.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$POINTERLESS_ADMIT_STATE"
+node - "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const state = JSON.parse(fs.readFileSync(file, "utf8"));
+state.artifact_pointers = [];
+fs.writeFileSync(file, JSON.stringify(state));
+NODE
+pointerless_redispatch_out="$TMP_ROOT/pointerless-redispatch.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$pointerless_redispatch_out" 2>&1
 ec=$?
+cp "$POINTERLESS_ADMIT_STATE" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+if [ "$ec" -eq 2 ] && grep -q "pr_draft and review pointers must be retained" "$pointerless_redispatch_out"; then
+  pass "redispatch retains Standard pr_draft and review pointers"
+else
+  fail "redispatch retains Standard pr_draft and review pointers (ec=$ec: $(cat "$pointerless_redispatch_out"))"
+fi
+
+admission_wrong_issue="$TMP_ROOT/admission-wrong-issue.out"
+cp "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_issue" 2>&1
+ec=$?
+cp "$VALID_ADMIT_STATE" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 if [ "$ec" -eq 2 ] && grep -q "does not match the dispatched issue and worktree" "$admission_wrong_issue"; then
   pass "redispatch admission is bound to the CLI issue"
 else
@@ -198,8 +373,9 @@ git init -q "$OTHER_WT"
 git -C "$OTHER_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
 printf '%s\n' 'prompt body' > "$OTHER_WT/.review/ISSUE-307-PROMPT.txt"
 printf '%s\n' '{}' > "$OTHER_WT/.review/ISSUE-307-RUN.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$OTHER_WT/.review/ISSUE-307-ROUND-STATE.json"
 admission_wrong_worktree="$TMP_ROOT/admission-wrong-worktree.out"
-bash "$DISPATCH" --issue 307 --worktree "$OTHER_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_worktree" 2>&1
+bash "$DISPATCH" --issue 307 --worktree "$OTHER_WT" --round-state "$OTHER_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_worktree" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q "does not match the dispatched issue and worktree" "$admission_wrong_worktree"; then
   pass "redispatch admission is bound to the CLI worktree"
@@ -273,8 +449,18 @@ else
   fail "git-common admission survives worktree recreation (ec=$ec: $(cat "$admission_recreated"))"
 fi
 
-INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-INTEGRATED-STATE.json"
-cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$INTEGRATED_STATE"
+NONCANONICAL_REDISPATCH_STATE="$TMP_ROOT/noncanonical-redispatch-state.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$NONCANONICAL_REDISPATCH_STATE"
+noncanonical_redispatch_out="$TMP_ROOT/noncanonical-redispatch.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NONCANONICAL_REDISPATCH_STATE" --manifest-revision 6 --dry-run >"$noncanonical_redispatch_out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "canonical path" "$noncanonical_redispatch_out"; then
+  pass "redispatch extends the same canonical ROUND-STATE"
+else
+  fail "redispatch extends the same canonical ROUND-STATE (ec=$ec: $(cat "$noncanonical_redispatch_out"))"
+fi
+
+INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 node -e '
   const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
   const ref=(kind,name)=>{const relative=".review/evidence/"+name; const content=fs.readFileSync(path.join(worktree,relative)); return {kind,path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};};
@@ -282,6 +468,8 @@ node -e '
   value.round_control.diagnosis={trigger:"same_origin",failure_ids:["F-1","F-2"],records:[{kind:"oracle_contract_recheck",summary:"oracle checked",evidence:ref("live_probe","oracle.json")},{kind:"hard_fact",summary:"hard fact",evidence:ref("verify","hard-fact.json")},{kind:"passing_analog",summary:"passing analog",instruction:"guess_forbidden_copy_passing_analog_to_parity",evidence:ref("diff","passing.json")}],integrated_fix_batch:{dispatch_ordinal:3,failure_ids:["F-1","F-2"],status:"ready"}};
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$INTEGRATED_STATE" "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD"
+INTEGRATED_READY_SNAPSHOT="$TMP_ROOT/integrated-ready-snapshot.json"
+cp "$INTEGRATED_STATE" "$INTEGRATED_READY_SNAPSHOT"
 integrated_first="$TMP_ROOT/integrated-first.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_first" 2>&1
 integrated_first_ec=$?
@@ -291,8 +479,7 @@ else
   fail "first integrated fix consumes the issue singleton admission (ec=$integrated_first_ec: $(cat "$integrated_first"))"
 fi
 
-SECOND_INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-SECOND-INTEGRATED-STATE.json"
-cp "$INTEGRATED_STATE" "$SECOND_INTEGRATED_STATE"
+SECOND_INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 node -e '
   const fs=require("fs"); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8")); const third=JSON.parse(JSON.stringify(value.round_control.failures[1])); third.id="F-3"; third.dispatch_ordinal=3; value.round_control.failures.push(third);
   value.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"]; value.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:4,failure_ids:["F-1","F-2","F-3"],status:"ready"}; fs.writeFileSync(file,JSON.stringify(value));
@@ -306,8 +493,8 @@ else
   fail "a later ordinal cannot admit a second integrated fix (ec=$ec: $(cat "$integrated_second"))"
 fi
 
-NORMAL_SAME_ORDINAL_STATE="$ADMIT_WT/.review/ISSUE-307-NORMAL-SAME-ORDINAL.json"
-cp "$INTEGRATED_STATE" "$NORMAL_SAME_ORDINAL_STATE"
+NORMAL_SAME_ORDINAL_STATE="$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+cp "$INTEGRATED_READY_SNAPSHOT" "$NORMAL_SAME_ORDINAL_STATE"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[1].primary_origin="test_oracle"; v.round_control.failures[1].next_action.kind="oracle_fix"; delete v.round_control.diagnosis; fs.writeFileSync(f,JSON.stringify(v));' "$NORMAL_SAME_ORDINAL_STATE"
 normal_same_ordinal="$TMP_ROOT/normal-same-ordinal.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
@@ -389,6 +576,8 @@ fi
 # no pre-existing artifact: a newly appearing RUN.json is still accepted
 # (regression guard on the fresh-first-dispatch path).
 printf '%s\n' "prompt body" > "$STALE_WT/.review/ISSUE-306-PROMPT.txt"
+INITIAL_306_STATE="$STALE_WT/.review/ISSUE-306-ROUND-STATE.json"
+make_round_state 306 "$STALE_WT" 1 "$INITIAL_306_STATE"
 FRESH306_BIN="$TMP_ROOT/bin-fresh306-cmux"
 mkdir -p "$FRESH306_BIN"
 cat > "$FRESH306_BIN/cmux" <<EOF
@@ -398,7 +587,7 @@ exit 0
 EOF
 chmod +x "$FRESH306_BIN/cmux"
 first_out="$TMP_ROOT/first-dispatch.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$FRESH306_BIN:$PATH" bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --poll-timeout 5 >"$first_out" 2>&1
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$FRESH306_BIN:$PATH" bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --tier standard --round-state "$INITIAL_306_STATE" --manifest-revision 1 --poll-timeout 5 >"$first_out" 2>&1
 ec=$?
 if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$first_out"; then
   pass "first dispatch with no pre-existing artifact still accepts a new RUN.json"
@@ -421,6 +610,8 @@ mkdir -p "$RACE_WT/.review"
 git init -q "$RACE_WT"
 git -C "$RACE_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
 printf '%s\n' 'prompt body' > "$RACE_WT/.review/ISSUE-308-PROMPT.txt"
+INITIAL_308_STATE="$RACE_WT/.review/ISSUE-308-ROUND-STATE.json"
+make_round_state 308 "$RACE_WT" 1 "$INITIAL_308_STATE"
 RACE_BIN="$TMP_ROOT/bin-race-cmux"
 mkdir -p "$RACE_BIN"
 cat > "$RACE_BIN/cmux" <<EOF
@@ -429,9 +620,9 @@ printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":308,"at
 exit 0
 EOF
 chmod +x "$RACE_BIN/cmux"
-CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --poll-timeout 3 >"$TMP_ROOT/race-one.out" 2>&1 &
+CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --tier standard --round-state "$INITIAL_308_STATE" --manifest-revision 1 --poll-timeout 3 >"$TMP_ROOT/race-one.out" 2>&1 &
 race_one_pid=$!
-CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --poll-timeout 3 >"$TMP_ROOT/race-two.out" 2>&1 &
+CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --tier standard --round-state "$INITIAL_308_STATE" --manifest-revision 1 --poll-timeout 3 >"$TMP_ROOT/race-two.out" 2>&1 &
 race_two_pid=$!
 wait "$race_one_pid"; race_one_ec=$?
 wait "$race_two_pid"; race_two_ec=$?

@@ -26,8 +26,12 @@
 # Usage:
 #   scripts/cmux-dispatch.sh --issue <N> --worktree <path> \
 #     [--prompt-file <p>] [--name <workspace-name>] \
+#     [--tier trivial|standard|full_cluster] \
 #     [--round-state <json> --manifest-revision <n>] \
 #     [--poll-timeout <secs>] [--dry-run]
+#   Initial writes require an explicit tier. Standard/Full Cluster initial
+#   writes and every redispatch require canonical ROUND-STATE + revision;
+#   Trivial initial writes retain the pr_draft-only contract.
 #
 # Defaults:
 #   --prompt-file    <worktree>/.review/ISSUE-<N>-PROMPT.txt
@@ -45,6 +49,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCHDOG="$SCRIPT_DIR/codex-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
+ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
+SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 
 ISSUE_N=""
 WORKTREE=""
@@ -52,6 +58,7 @@ PROMPT_FILE=""
 WS_NAME=""
 MODEL=""
 EFFORT=""
+TIER=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
 ROUND_STATE=""
@@ -63,7 +70,7 @@ POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--read-only] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--tier trivial|standard|full_cluster] [--read-only] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -85,6 +92,24 @@ file_started_at() {
   node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).started_at || "unknown")); } catch (e) { process.stdout.write("unknown"); }' "$1" 2>/dev/null
 }
 
+require_standard_artifact_pointers() {
+  node - "$1" <<'NODE'
+const fs = require("fs");
+try {
+  const state = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  const pointerTypes = new Set((state.artifact_pointers || []).map(pointer => pointer.artifact_type));
+  if (!pointerTypes.has("pr_draft") || !pointerTypes.has("review")) process.exit(2);
+} catch (error) {
+  process.exit(2);
+}
+NODE
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: ROUND-STATE admission denied: pr_draft and review pointers must be retained" >&2
+    return 2
+  fi
+  return 0
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --issue) ISSUE_N="$2"; shift 2 ;;
@@ -93,6 +118,7 @@ while [ $# -gt 0 ]; do
     --name) WS_NAME="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --tier) TIER="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
     --round-state) ROUND_STATE="$2"; shift 2 ;;
@@ -153,7 +179,7 @@ ADMISSION_KEY=""
 REDISPATCH_REQUIRED=0
 INITIAL_WRITE=0
 if [ "$READ_ONLY" -eq 0 ]; then
-  if [ -f "$RUN_FILE" ] || [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
+  if [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
     REDISPATCH_REQUIRED=1
   elif [ -f "$DEFAULT_ROUND_STATE" ] && node -e '
     try {
@@ -167,15 +193,85 @@ if [ "$READ_ONLY" -eq 0 ]; then
     INITIAL_WRITE=1
   fi
 fi
+if [ "$INITIAL_WRITE" -eq 1 ]; then
+  case "$TIER" in
+    trivial)
+      if [ -n "$ROUND_STATE" ] || [ -n "$MANIFEST_REVISION" ]; then
+        echo "ERROR: Trivial initial write uses the pr_draft-only contract, not ROUND-STATE" >&2
+        exit 2
+      fi
+      ;;
+    standard|full_cluster)
+      if [ -z "$ROUND_STATE" ] || [ -z "$MANIFEST_REVISION" ]; then
+        echo "ERROR: $TIER initial write requires --round-state and --manifest-revision" >&2
+        exit 2
+      fi
+      ;;
+    *)
+      echo "ERROR: initial write requires --tier trivial|standard|full_cluster" >&2
+      exit 2
+      ;;
+  esac
+fi
+if [ "$READ_ONLY" -eq 0 ] && [ -n "$ROUND_STATE" ]; then
+  case "$ROUND_STATE" in
+    /*) ABS_ROUND_STATE="$ROUND_STATE" ;;
+    *) ABS_ROUND_STATE="$ABS_WORKTREE/$ROUND_STATE" ;;
+  esac
+  if [ ! -r "$ABS_ROUND_STATE" ]; then
+    echo "ERROR: ROUND-STATE admission denied: canonical input is unreadable" >&2
+    exit 2
+  fi
+  node - "$ABS_ROUND_STATE" "$DEFAULT_ROUND_STATE" <<'NODE'
+const fs = require("fs");
+const [supplied, canonical] = process.argv.slice(2);
+try {
+  if (fs.realpathSync(supplied) !== fs.realpathSync(canonical)) process.exit(2);
+} catch (error) {
+  process.exit(2);
+}
+NODE
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: ROUND-STATE admission denied: use canonical path $DEFAULT_ROUND_STATE" >&2
+    exit 2
+  fi
+fi
+if [ "$INITIAL_WRITE" -eq 1 ] && [ "$TIER" != "trivial" ]; then
+  if [ ! -r "$ROUND_STATE_SCHEMA" ] || [ ! -r "$SCHEMA_VALIDATOR" ]; then
+    echo "ERROR: initial ROUND-STATE admission denied: schema validator is unreadable" >&2
+    exit 2
+  fi
+  node - "$ABS_ROUND_STATE" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$MANIFEST_REVISION" "$ABS_WORKTREE" "$TIER" <<'NODE'
+const fs = require("fs");
+const { execFileSync } = require("child_process");
+const [stateFile, schemaFile, validatorFile, issueNumber, manifestRevision, worktree, tier] = process.argv.slice(2);
+try {
+  const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+  const { validate } = require(validatorFile);
+  if (validate(schema, state).length || state.lifecycle !== "active") process.exit(2);
+  if (String(state.issue.number) !== issueNumber || String(state.revision) !== manifestRevision) process.exit(2);
+  if (state.tier.name !== tier) process.exit(2);
+  if (fs.realpathSync(state.worktree_path) !== fs.realpathSync(worktree)) process.exit(2);
+  const liveHead = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  if (state.head_sha !== liveHead) process.exit(2);
+  const liveBase = execFileSync("git", ["-C", worktree, "merge-base", "HEAD", state.base_branch], { encoding: "utf8" }).trim();
+  if (state.base_sha !== liveBase) process.exit(2);
+} catch (error) {
+  process.exit(2);
+}
+NODE
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: initial ROUND-STATE admission denied: schema or lifecycle is invalid" >&2
+    exit 2
+  fi
+  require_standard_artifact_pointers "$ABS_ROUND_STATE" || exit $?
+fi
 if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
   if [ -z "$ROUND_STATE" ] || [ -z "$MANIFEST_REVISION" ]; then
     echo "ERROR: write redispatch requires --round-state and --manifest-revision" >&2
     exit 2
   fi
-  case "$ROUND_STATE" in
-    /*) ABS_ROUND_STATE="$ROUND_STATE" ;;
-    *) ABS_ROUND_STATE="$ABS_WORKTREE/$ROUND_STATE" ;;
-  esac
   if [ ! -x "$REDISPATCH_CHECK" ]; then
     echo "ERROR: redispatch gate is missing or not executable: $REDISPATCH_CHECK" >&2
     exit 2
@@ -186,6 +282,7 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     echo "ERROR: redispatch gate denied: $ADMISSION_JSON" >&2
     exit "$ADMISSION_EXIT"
   fi
+  require_standard_artifact_pointers "$ABS_ROUND_STATE" || exit $?
   ADMISSION_FIELDS="$(node -e '
     try {
       const value=JSON.parse(process.argv[1]);
