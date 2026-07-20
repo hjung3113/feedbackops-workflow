@@ -49,8 +49,10 @@ const verifyFail={...verifyPass,verdict:{passed:0,failed:1,pending:0,exit_code:1
 for (const name of ["F-1","F-2","F-3"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyFail));
 for (const name of ["F-1-closed","F-2-closed","hard-fact"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"wrong-issue.json"),JSON.stringify({...verifyFail,issue:999}));
+fs.writeFileSync(path.join(root,"zero-pass.json"),JSON.stringify({...verifyPass,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
 const review={schema_version:"1",artifact_type:"review",lifecycle:"final",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"security review",met:true}]};
 fs.writeFileSync(path.join(root,"security.json"),JSON.stringify(review));
+fs.writeFileSync(path.join(root,"draft-review.json"),JSON.stringify({...review,lifecycle:"draft",checklist:[{item:"unfinished review",met:false}]}));
 fs.writeFileSync(path.join(root,"oracle.json"),"oracle evidence\n");
 fs.writeFileSync(path.join(root,"passing-analog.json"),"passing analog evidence\n");
 fs.writeFileSync(path.join(root,"plain.json"),"not a verifier artifact\n");
@@ -145,6 +147,19 @@ node -e '
 ' "$TMP_DIR/plain-closure.json" "$WORKTREE" "$EVIDENCE_HEAD"
 assert_case "closure labels cannot turn plain text into verifier evidence" 2 "$TMP_DIR/plain-closure.json" "error" "null"
 
+for closure_case in zero-pass draft-review; do
+  cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-closure.json"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,name]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    value.round_control.failures[0].closed_by={kind:name==="draft-review"?"review":"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$TMP_DIR/$closure_case-closure.json" "$WORKTREE" "$EVIDENCE_HEAD" "$closure_case"
+done
+assert_case "zero-test PASS cannot close a failed round" 2 "$TMP_DIR/zero-pass-closure.json" "error" "null"
+assert_case "draft review with unmet checklist cannot close a failed round" 2 "$TMP_DIR/draft-review-closure.json" "error" "null"
+
 cp "$TMP_DIR/same.json" "$TMP_DIR/interleaved-cycle.json"
 node -e '
   const fs=require("fs"); const source=require(process.argv[2]); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8"));
@@ -199,6 +214,22 @@ if node -e 'const before=require(process.argv[1]); const after=require(process.a
   echo "ok   - manifest revision changes cannot mint a second integrated-batch admission"
 else
   echo "NOT OK - integrated-batch admission identity changed across manifest revision"
+  FAILURES=$((FAILURES + 1))
+fi
+
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/integrated-renamed.json"
+node -e '
+  const fs=require("fs"); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  value.round_control.failures.forEach((failure,index)=>{failure.id="RENAMED-"+(index+1);});
+  value.round_control.diagnosis.failure_ids=["RENAMED-1","RENAMED-2"];
+  value.round_control.diagnosis.integrated_fix_batch.failure_ids=["RENAMED-1","RENAMED-2"];
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$TMP_DIR/integrated-renamed.json"
+bash "$CHECK" --round-state "$TMP_DIR/integrated-renamed.json" --manifest-revision 5 > "$TMP_DIR/key-renamed.json" 2>/dev/null
+if node -e 'const before=require(process.argv[1]); const renamed=require(process.argv[2]); process.exit(before.admission_key && before.admission_key === renamed.admission_key ? 0 : 1)' "$TMP_DIR/key-before.json" "$TMP_DIR/key-renamed.json"; then
+  echo "ok   - renaming mutable failure ids cannot mint another batch admission"
+else
+  echo "NOT OK - batch admission identity changed after failure-id rename"
   FAILURES=$((FAILURES + 1))
 fi
 

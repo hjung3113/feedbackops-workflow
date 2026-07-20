@@ -251,6 +251,22 @@ else
   fail "manifest revision bump cannot replay a consumed redispatch admission (ec=$ec: $(cat "$admission_revision_bump"))"
 fi
 
+RECREATED_WT="$TMP_ROOT/wt-recreated-admission"
+git -C "$ADMIT_WT" worktree add --detach -q "$RECREATED_WT" "$ADMIT_HEAD"
+mkdir -p "$RECREATED_WT/.review"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json"
+printf '%s\n' 'prompt body' > "$RECREATED_WT/.review/ISSUE-307-PROMPT.txt"
+printf '%s\n' '{}' > "$RECREATED_WT/.review/ISSUE-307-RUN.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.worktree_path=process.argv[2]; fs.writeFileSync(f,JSON.stringify(v));' "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT"
+admission_recreated="$TMP_ROOT/admission-recreated.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECREATED_WT" --round-state "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_recreated" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_recreated"; then
+  pass "git-common admission survives worktree recreation"
+else
+  fail "git-common admission survives worktree recreation (ec=$ec: $(cat "$admission_recreated"))"
+fi
+
 # --- poll path: a STALE RUN.json from a previous run must NOT count ---
 # First production use hit this: re-dispatch of the same issue found the
 # previous run's status:"exited" RUN.json and reported success immediately,
@@ -347,6 +363,34 @@ if [ "$ec" -eq 2 ] && grep -q "redispatch requires --round-state" "$attempt_mark
   pass "pre-launch write marker keeps a pre-RUN failure visible"
 else
   fail "pre-launch write marker keeps a pre-RUN failure visible (ec=$ec: $(cat "$attempt_marker_out"))"
+fi
+
+RACE_WT="$TMP_ROOT/wt-initial-race"
+mkdir -p "$RACE_WT/.review"
+git init -q "$RACE_WT"
+git -C "$RACE_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+printf '%s\n' 'prompt body' > "$RACE_WT/.review/ISSUE-308-PROMPT.txt"
+RACE_BIN="$TMP_ROOT/bin-race-cmux"
+mkdir -p "$RACE_BIN"
+cat > "$RACE_BIN/cmux" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":308,"attempt":1,"started_at":"2026-07-20T11:00:00Z","updated_at":"2026-07-20T11:00:00Z","status":"running"}' > "$RACE_WT/.review/ISSUE-308-RUN.json"
+exit 0
+EOF
+chmod +x "$RACE_BIN/cmux"
+CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --poll-timeout 3 >"$TMP_ROOT/race-one.out" 2>&1 &
+race_one_pid=$!
+CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --poll-timeout 3 >"$TMP_ROOT/race-two.out" 2>&1 &
+race_two_pid=$!
+wait "$race_one_pid"; race_one_ec=$?
+wait "$race_two_pid"; race_two_ec=$?
+race_successes=0
+[ "$race_one_ec" -eq 0 ] && race_successes=$((race_successes + 1))
+[ "$race_two_ec" -eq 0 ] && race_successes=$((race_successes + 1))
+if [ "$race_successes" -eq 1 ] && { grep -q "concurrent write dispatch" "$TMP_ROOT/race-one.out" || grep -q "concurrent write dispatch" "$TMP_ROOT/race-two.out"; }; then
+  pass "concurrent first writes atomically admit exactly one launch"
+else
+  fail "concurrent first writes atomically admit exactly one launch (one=$race_one_ec two=$race_two_ec)"
 fi
 
 # --- codex-watchdog.sh: relative --prompt-file resolves against --cwd ---

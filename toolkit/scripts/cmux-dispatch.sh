@@ -60,6 +60,7 @@ READ_ONLY=0
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
+PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
 
 usage() {
   echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--read-only] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
@@ -113,6 +114,11 @@ if ! git -C "$ABS_WORKTREE" rev-parse --git-dir >/dev/null 2>&1; then
   echo "ERROR: not a git worktree (git rev-parse --git-dir failed): $ABS_WORKTREE" >&2
   exit 2
 fi
+GIT_COMMON_RAW="$(git -C "$ABS_WORKTREE" rev-parse --git-common-dir)"
+case "$GIT_COMMON_RAW" in
+  /*) GIT_COMMON_DIR="$GIT_COMMON_RAW" ;;
+  *) GIT_COMMON_DIR="$(cd "$ABS_WORKTREE/$GIT_COMMON_RAW" && pwd -P)" ;;
+esac
 
 [ -n "$PROMPT_FILE" ] || PROMPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-PROMPT.txt"
 case "$PROMPT_FILE" in
@@ -145,6 +151,7 @@ WRITE_ATTEMPT_DIR="$ABS_WORKTREE/.review/.write-dispatch-issue-${ISSUE_N}-starte
 # outside this circuit.
 ADMISSION_KEY=""
 REDISPATCH_REQUIRED=0
+INITIAL_WRITE=0
 if [ "$READ_ONLY" -eq 0 ]; then
   if [ -f "$RUN_FILE" ] || [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
     REDISPATCH_REQUIRED=1
@@ -155,6 +162,9 @@ if [ "$READ_ONLY" -eq 0 ]; then
     } catch (e) { process.exit(1); }
   ' "$DEFAULT_ROUND_STATE"; then
     REDISPATCH_REQUIRED=1
+  fi
+  if [ "$REDISPATCH_REQUIRED" -eq 0 ]; then
+    INITIAL_WRITE=1
   fi
 fi
 if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
@@ -220,7 +230,12 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
   fi
   echo "cmux-dispatch: redispatch admission: mode=$ADMISSION_MODE key=$ADMISSION_KEY"
   if [ "$DRY_RUN" -eq 0 ]; then
-    ADMISSION_DIR="$ABS_WORKTREE/.review/.redispatch-admission-$ADMISSION_KEY"
+    ADMISSION_ROOT="$GIT_COMMON_DIR/agent-workflow/redispatch-admissions"
+    if ! mkdir -p "$ADMISSION_ROOT" 2>/dev/null; then
+      echo "ERROR: cannot create durable redispatch admission store" >&2
+      exit 2
+    fi
+    ADMISSION_DIR="$ADMISSION_ROOT/$ADMISSION_KEY"
     if ! mkdir "$ADMISSION_DIR" 2>/dev/null; then
       echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
       exit 1
@@ -229,7 +244,13 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
 fi
 
 if [ "$DRY_RUN" -eq 0 ]; then
-  if [ "$READ_ONLY" -eq 0 ] && [ ! -d "$WRITE_ATTEMPT_DIR" ]; then
+  if [ "$INITIAL_WRITE" -eq 1 ]; then
+    [ "$PRE_MARKER_DELAY" = "0" ] || sleep "$PRE_MARKER_DELAY"
+    if ! mkdir "$WRITE_ATTEMPT_DIR" 2>/dev/null; then
+      echo "ERROR: concurrent write dispatch detected before launch" >&2
+      exit 1
+    fi
+  elif [ "$READ_ONLY" -eq 0 ] && [ ! -d "$WRITE_ATTEMPT_DIR" ]; then
     if ! mkdir "$WRITE_ATTEMPT_DIR" 2>/dev/null; then
       echo "ERROR: concurrent write dispatch detected before launch" >&2
       exit 1

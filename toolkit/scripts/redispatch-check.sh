@@ -217,8 +217,10 @@ for (let index = 0; index < failures.length; index += 1) {
     }
     const closure = validateEvidence(failure.closed_by);
     const closurePassed = failure.closed_by.kind === "verify"
-      ? closure.classifier === "PASS" && closure.verdict.exit_code === 0 && closure.verdict.failed === 0
-      : closure.status === "pass";
+      ? closure.classifier === "PASS" && closure.verdict.exit_code === 0
+        && closure.verdict.failed === 0 && closure.verdict.passed >= 1
+      : closure.lifecycle === "final" && closure.status === "pass"
+        && closure.checklist.every((item) => item.met === true);
     if (!closurePassed) {
       error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
     }
@@ -241,12 +243,6 @@ const redispatchesCompleted = Math.max(0, activeFailures.length - 1);
 
 function decision(name, allowed, mode, trigger, obligations, exitCode) {
   const nextOrdinal = failures.length + 1;
-  const admissionIdentity = crypto.createHash("sha256").update(JSON.stringify({
-    issue: state.issue.number,
-    failure_ids: activeFailures.map((failure) => failure.id),
-    dispatch_ordinal: nextOrdinal,
-    mode
-  })).digest("hex").slice(0, 24);
   write({
     decision: name,
     redispatch_allowed: allowed,
@@ -254,7 +250,7 @@ function decision(name, allowed, mode, trigger, obligations, exitCode) {
     same_origin_streak: sameOriginStreak,
     redispatches_completed: redispatchesCompleted,
     classified_failures: activeFailures.length,
-    admission_key: allowed ? `issue-${state.issue.number}-dispatch-${nextOrdinal}-${mode}-${admissionIdentity}` : null,
+    admission_key: allowed ? `issue-${state.issue.number}-dispatch-${nextOrdinal}-${mode}` : null,
     issue_number: state.issue.number,
     worktree_path: worktreeRoot,
     trigger,
