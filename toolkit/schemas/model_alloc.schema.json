@@ -23,7 +23,15 @@
       },
       "additionalProperties": false
     },
-    "allow_review_below_implementation": { "type": "boolean" }
+    "allow_review_below_implementation": { "type": "boolean" },
+    "prompt_authoring": {
+      "type": "object",
+      "required": ["target_tokens"],
+      "properties": {
+        "target_tokens": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false,
   "definitions": {

@@ -52,7 +52,7 @@ node -e '
   v.revision = 3; v.base_branch = "main"; v.base_sha = base;
   v.worktree_path = worktree; v.contract.touch_allowlist = ["allowed/**"];
   delete v.contract.chunk_boundary;
-  v.acceptance.criteria = [{id: "AC-1"}]; v.acceptance.expected_test_count = 1;
+  v.acceptance.criteria = [{id: "AC-1", statement: "the test discovery exposes AC-1"}]; v.acceptance.expected_test_count = 1;
   v.contract.test_discovery_command = "printf '\''AC-1\\n'\''";
   v.decisions = []; v.commit_scope.commits = [];
   fs.writeFileSync(file, JSON.stringify(v));

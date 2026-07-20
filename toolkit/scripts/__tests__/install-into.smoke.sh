@@ -97,7 +97,7 @@ prepare_gate_fixture() {
     const fs=require("fs"); const [file,root,base,head]=process.argv.slice(1); const v=JSON.parse(fs.readFileSync(file,"utf8"));
     v.revision=3; v.base_branch="main"; v.base_sha=base; v.head_sha=head; v.worktree_path=root;
     v.contract.touch_allowlist=["allowed/**"]; v.contract.test_discovery_command="printf '\''AC-1\\n'\''";
-    delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1"}]; v.acceptance.expected_test_count=1;
+    delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1",statement:"the installed gate discovers AC-1"}]; v.acceptance.expected_test_count=1;
     v.decisions=[]; delete v.round_control; v.commit_scope.commits=[]; fs.writeFileSync(file,JSON.stringify(v));
   ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
   node -e '
@@ -110,7 +110,7 @@ prepare_gate_fixture() {
     const supersededState=JSON.parse(JSON.stringify(value)); supersededState.round_control.failures[0].evidence[0].path=supersededPath; supersededState.round_control.failures[0].evidence[0].content_sha256=crypto.createHash("sha256").update(supersededContent).digest("hex"); fs.writeFileSync(supersededDestination,JSON.stringify(supersededState));
   ' "$GATE_STATE" "$GATE_BLOCKER_STATE" "$GATE_SUPERSEDED_BLOCKER_STATE" "$target" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
-  printf '%s\n' 'implementation prompt' > "$target/.review/ISSUE-188-PROMPT.txt"
+  printf '%s\n' 'implementation prompt' '<!-- agent-workflow:ac-block:start -->' '```json' '[{"id":"AC-1","statement":"the installed gate discovers AC-1"}]' '```' '<!-- agent-workflow:ac-block:end -->' > "$target/.review/ISSUE-188-PROMPT.md"
 }
 
 assert_installed_gates() {

@@ -34,7 +34,7 @@
 #   Trivial initial writes retain the pr_draft-only contract.
 #
 # Defaults:
-#   --prompt-file    <worktree>/.review/ISSUE-<N>-PROMPT.txt
+#   --prompt-file    <worktree>/.review/ISSUE-<N>-PROMPT.md
 #   --name           codex-<N>
 #   --poll-timeout   300   (poll interval 5s; CMUX_DISPATCH_POLL_INTERVAL overrides, test seam)
 #
@@ -54,6 +54,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCHDOG="$SCRIPT_DIR/codex-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
+PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 
@@ -242,7 +243,15 @@ case "$GIT_COMMON_RAW" in
   *) GIT_COMMON_DIR="$(cd "$ABS_WORKTREE/$GIT_COMMON_RAW" && pwd -P)" ;;
 esac
 
-[ -n "$PROMPT_FILE" ] || PROMPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-PROMPT.txt"
+if [ -z "$PROMPT_FILE" ]; then
+  PROMPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-PROMPT.md"
+  # Compatibility only: existing operators may still have a pre-v0.20 .txt
+  # prompt. New CONDUCTOR authoring writes .md; an explicit --prompt-file is
+  # always authoritative.
+  if [ ! -f "$PROMPT_FILE" ] && [ -f "$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-PROMPT.txt" ]; then
+    PROMPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-PROMPT.txt"
+  fi
+fi
 case "$PROMPT_FILE" in
   /*) ABS_PROMPT_FILE="$PROMPT_FILE" ;;
   *) ABS_PROMPT_FILE="$ABS_WORKTREE/$PROMPT_FILE" ;;
@@ -421,6 +430,18 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     echo "ERROR: redispatch admission does not match the dispatched issue and worktree" >&2
     exit 2
   fi
+
+  # Validate the worker-facing AC block after canonical redispatch admission
+  # is known, but before consuming its durable issue/ordinal admission.
+  if [ ! -x "$PROMPT_AC_CHECK" ]; then
+    echo "ERROR: prompt AC gate is missing or not executable: $PROMPT_AC_CHECK" >&2
+    exit 2
+  fi
+  if ! bash "$PROMPT_AC_CHECK" --round-state "$ABS_ROUND_STATE" --manifest-revision "$MANIFEST_REVISION" --prompt-file "$ABS_PROMPT_FILE"; then
+    echo "ERROR: prompt AC gate denied dispatch" >&2
+    exit 1
+  fi
+
   echo "cmux-dispatch: redispatch admission: mode=$ADMISSION_MODE key=$ADMISSION_KEY"
   if [ "$DRY_RUN" -eq 0 ]; then
     ADMISSION_ROOT="$GIT_COMMON_DIR/agent-workflow/redispatch-admissions"
@@ -455,6 +476,24 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
       echo "ERROR: cannot release redispatch admission lock for issue $ISSUE_N" >&2
       exit 2
     fi
+  fi
+fi
+
+# The canonical ROUND-STATE is the only AC wording authority. Standard/Full
+# writes and every canonical redispatch must hand the worker its exact AC
+# block before any durable write-admission marker or cmux side effect exists.
+PROMPT_AC_REQUIRED=0
+if [ "$INITIAL_WRITE" -eq 1 ] && { [ "$TIER" = "standard" ] || [ "$TIER" = "full_cluster" ]; }; then
+  PROMPT_AC_REQUIRED=1
+fi
+if [ "$PROMPT_AC_REQUIRED" -eq 1 ]; then
+  if [ ! -x "$PROMPT_AC_CHECK" ]; then
+    echo "ERROR: prompt AC gate is missing or not executable: $PROMPT_AC_CHECK" >&2
+    exit 2
+  fi
+  if ! bash "$PROMPT_AC_CHECK" --round-state "$ABS_ROUND_STATE" --manifest-revision "$MANIFEST_REVISION" --prompt-file "$ABS_PROMPT_FILE"; then
+    echo "ERROR: prompt AC gate denied dispatch" >&2
+    exit 1
   fi
 fi
 
