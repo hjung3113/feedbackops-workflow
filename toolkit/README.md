@@ -169,9 +169,9 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
   .agent-workflow/scripts/verify.sh
 ```
 
-인자 없는 실행과 재현 가능한 `--full-module` alias는 backend 전체 모듈을 검증합니다. 좁은 Vitest 이름/경로 필터는 명시적으로 전달할 수 있지만 Release Captain이 touched behavior 전체를 덮는지 확인해야 합니다. `prepare-verify-db.sh`는 DB 생성·migration·seed 중 하나라도 실패하면 `VERIFY_DATABASE_URL=`을 출력하지 않습니다. `VERIFY_ISSUE`가 설정된 canonical 실행은 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 모두 요구합니다. clean command는 정확히 `sentinel`과 `migration_hash`의 sanitized expected/actual JSON을 출력하며, 불일치 시 테스트 시작 전에 중단됩니다. `--fresh`는 migration chunk·crash recovery 전용 예약 interface로, target DB lifecycle adapter가 없으면 안정된 machine code와 함께 거부됩니다.
+인자 없는 실행과 재현 가능한 `--full-module` alias는 backend 전체 모듈을 검증합니다. 좁은 Vitest 이름/경로 필터는 명시적으로 전달할 수 있지만 Release Captain이 touched behavior 전체를 덮는지 확인해야 합니다. `prepare-verify-db.sh`는 DB 생성·migration·seed 중 하나라도 실패하면 `VERIFY_DATABASE_URL=`을 출력하지 않습니다. `VERIFY_ISSUE`가 설정된 canonical 실행은 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 모두 요구합니다. clean command는 정확히 `sentinel`과 `migration_hash`의 sanitized expected/actual 및 실제 DB role의 name/superuser 증거를 출력하며, 불일치나 superuser이면 테스트 시작 전에 중단됩니다. `--fresh`는 migration chunk·crash recovery 전용 예약 interface로, target DB lifecycle adapter가 없으면 안정된 machine code와 함께 거부됩니다.
 
-검증 실패는 기존 사람용 `FAIL:` 메시지와 함께 원인별 `VERIFY_FAILURE_JSON=` 줄을 내보냅니다. canonical VERIFY artifact의 `failures[]`와 `clean_state.checks[]`도 같은 `code`/`expected`/`actual` 구조를 사용합니다. 이 값에는 URL, 비밀번호, 고객 데이터 등 비밀을 넣지 않습니다. `postgres` superuser URL은 경고가 아니라 fail-closed입니다.
+검증 실패는 기존 사람용 `FAIL:` 메시지와 함께 원인별 `VERIFY_FAILURE_JSON=` 줄을 내보냅니다. canonical VERIFY artifact의 `failures[]`, `clean_state.{sentinel,migration_hash}`, `clean_state.role`도 같은 검증 증거를 보존합니다. 입력의 추가 필드는 거부되고 artifact에는 선언된 필드만 투영됩니다. 이 값에는 URL, 비밀번호, 고객 데이터 등 비밀을 넣지 않습니다. 이름과 무관하게 probe가 확인한 superuser role은 fail-closed입니다.
 
 ## 작동 방식
 

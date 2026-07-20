@@ -29,6 +29,8 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERIFY_RESULT="$SCRIPT_DIR/lib/verify-result.cjs"
+VERIFY_SCHEMA="$SCRIPT_DIR/../schemas/verify.schema.json"
+SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 
 usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
@@ -63,7 +65,7 @@ run_clean_preflight() {
     VERIFY_CLEAN_RESULT_PATH=""
     return 1
   fi
-  node "$VERIFY_RESULT" clean "$VERIFY_CLEAN_RESULT_PATH"
+  node "$VERIFY_RESULT" clean "$VERIFY_CLEAN_RESULT_PATH" "$DB_ROLE"
   clean_result_ec=$?
   if [ "$clean_result_ec" -ne 0 ]; then
     rm -f "$VERIFY_CLEAN_RESULT_PATH"
@@ -193,7 +195,7 @@ emit_verify_artifact() {
     return 1
   }
 
-  node "$VERIFY_RESULT" validate-artifact "$artifact_path" >/dev/null 2>&1 || {
+  node "$VERIFY_RESULT" validate-artifact "$artifact_path" "$VERIFY_SCHEMA" "$SCHEMA_VALIDATOR" >/dev/null 2>&1 || {
     echo "FAIL: wrote invalid verify artifact: $artifact_path" >&2
     emit_machine_failure "artifact_validation" "valid canonical VERIFY artifact" "invalid"
     return 1
@@ -306,6 +308,13 @@ main() {
 
   parse_db_url "${DATABASE_URL:-}"
   if [ -n "${DATABASE_URL+x}" ] && [ -n "$DATABASE_URL" ]; then
+    case "$DB_ROLE" in
+      *%*)
+        echo "FAIL: encoded database role cannot be verified safely" >&2
+        emit_machine_failure "database_role_encoding" "plain role identity" "$DB_ROLE"
+        exit 3
+        ;;
+    esac
     if [ "$DB_ROLE" = "postgres" ]; then
       echo "FAIL: refusing to verify as superuser role 'postgres' — use a low-privilege role (e.g. fops_app) via VERIFY_DATABASE_URL" >&2
       emit_machine_failure "privileged_database_role" "non-superuser role" "postgres"

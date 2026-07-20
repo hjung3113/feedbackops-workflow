@@ -82,9 +82,29 @@ function publicFailures(failures) {
   return failures.map(({ code, expected, actual }) => ({ code, expected, actual }));
 }
 
-function buildArtifact(data, env) {
+function reportFailure(error) {
+  return {
+    code: error.failureCode || "invalid_report",
+    expected: "parseable JSON object",
+    actual: error.actual || "unreadable",
+  };
+}
+
+function projectCleanState(clean) {
+  const byCode = Object.fromEntries(clean.checks.map((check) => [check.code, check]));
+  const project = (check) => ({ expected: check.expected, actual: check.actual });
+  return {
+    sentinel: project(byCode.sentinel),
+    migration_hash: project(byCode.migration_hash),
+    role: { name: clean.role.name, superuser: clean.role.superuser },
+  };
+}
+
+function buildArtifact(data, env, reportReadFailure) {
   const parsedExitCode = Number.parseInt(env.VERIFY_ARTIFACT_EXIT_CODE, 10) || 0;
-  const classification = classify(data, parsedExitCode);
+  const classification = reportReadFailure
+    ? { failures: [reportReadFailure] }
+    : classify(data, parsedExitCode);
   const artifact = {
     schema_version: "1",
     artifact_type: "verify_result",
@@ -113,7 +133,7 @@ function buildArtifact(data, env) {
   if (env.CODEX_VERSION) artifact.producer_version = `codex/${env.CODEX_VERSION}`;
   if (env.VERIFY_ARTIFACT_CLEAN_RESULT) {
     const clean = JSON.parse(fs.readFileSync(env.VERIFY_ARTIFACT_CLEAN_RESULT, "utf8"));
-    artifact.clean_state = { checks: clean.checks };
+    artifact.clean_state = projectCleanState(clean);
   }
   return artifact;
 }
@@ -137,7 +157,7 @@ function main(argv, env) {
     try {
       data = readReport(reportPath);
     } catch (error) {
-      const failure = { code: error.failureCode || "invalid_report", expected: "parseable JSON object", actual: error.actual || "unreadable" };
+      const failure = reportFailure(error);
       console.error(`FAIL: ${error.message}`);
       console.error(`VERIFY_FAILURE_JSON=${JSON.stringify({ failures: [failure] })}`);
       return 1;
@@ -154,19 +174,22 @@ function main(argv, env) {
 
   if (command === "write-artifact") {
     let data = {};
+    let readFailure;
     try {
       data = readReport(env.VERIFY_ARTIFACT_REPORT);
-    } catch (_) {
-      data = {};
+    } catch (error) {
+      readFailure = reportFailure(error);
     }
-    const artifact = buildArtifact(data, env);
+    const artifact = buildArtifact(data, env, readFailure);
     fs.writeFileSync(env.VERIFY_ARTIFACT_PATH, `${JSON.stringify(artifact, null, 2)}\n`);
     return 0;
   }
 
   if (command === "validate-artifact") {
     const artifact = JSON.parse(fs.readFileSync(argv[3], "utf8"));
-    return validArtifact(artifact) ? 0 : 1;
+    const schema = JSON.parse(fs.readFileSync(argv[4], "utf8"));
+    const { validate } = require(argv[5]);
+    return validArtifact(artifact) && validate(schema, artifact).length === 0 ? 0 : 1;
   }
 
   if (command === "failure") {
@@ -184,18 +207,30 @@ function main(argv, env) {
       console.error(`VERIFY_FAILURE_JSON=${JSON.stringify({ failures: [{ code: "clean_probe_invalid", expected: "clean probe JSON", actual: "unparseable" }] })}`);
       return 2;
     }
+    const topLevelKeys = clean && typeof clean === "object" ? Object.keys(clean).sort() : [];
     const checks = clean && Array.isArray(clean.checks) ? clean.checks : [];
     const codes = checks.map((check) => check && check.code).sort();
-    const validShape = codes.length === 2
+    const validShape = topLevelKeys.join(",") === "checks,role"
+      && codes.length === 2
       && codes[0] === "migration_hash"
       && codes[1] === "sentinel"
-      && checks.every((check) => typeof check.expected === "string" && typeof check.actual === "string");
+      && checks.every((check) => check && Object.keys(check).sort().join(",") === "actual,code,expected"
+        && typeof check.expected === "string" && typeof check.actual === "string")
+      && clean.role && Object.keys(clean.role).sort().join(",") === "name,superuser"
+      && typeof clean.role.name === "string" && typeof clean.role.superuser === "boolean";
     if (!validShape) {
-      console.error("FAIL: clean probe must provide exactly sentinel and migration_hash checks");
-      console.error(`VERIFY_FAILURE_JSON=${JSON.stringify({ failures: [{ code: "clean_probe_invalid", expected: "sentinel and migration_hash checks", actual: codes.join(",") || "missing" }] })}`);
+      console.error("FAIL: clean probe must provide exact role evidence plus sentinel and migration_hash checks");
+      console.error(`VERIFY_FAILURE_JSON=${JSON.stringify({ failures: [{ code: "clean_probe_invalid", expected: "exact role, sentinel, and migration_hash shape", actual: topLevelKeys.join(",") || "missing" }] })}`);
       return 2;
     }
-    const failures = checks.filter((check) => check.expected !== check.actual);
+    const expectedRole = argv[4] || "";
+    const failures = publicFailures(checks.filter((check) => check.expected !== check.actual));
+    if (clean.role.name !== expectedRole) {
+      failures.push({ code: "database_role_identity", expected: expectedRole, actual: clean.role.name });
+    }
+    if (clean.role.superuser) {
+      failures.push({ code: "privileged_database_role", expected: "false", actual: "true" });
+    }
     if (failures.length > 0) {
       console.error("FAIL: verification database is dirty");
       console.error(`VERIFY_FAILURE_JSON=${JSON.stringify({ failures })}`);
@@ -205,7 +240,7 @@ function main(argv, env) {
     return 0;
   }
 
-  console.error("usage: verify-result.cjs classify <report-file> <vitest-exit-code> | clean <probe-file> | write-artifact | validate-artifact <artifact-file> | failure <code> <expected> <actual>");
+  console.error("usage: verify-result.cjs classify <report-file> <vitest-exit-code> | clean <probe-file> <url-role> | write-artifact | validate-artifact <artifact-file> <schema> <validator> | failure <code> <expected> <actual>");
   return 2;
 }
 

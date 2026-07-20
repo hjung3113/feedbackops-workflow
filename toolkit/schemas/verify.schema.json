@@ -3,7 +3,7 @@
   "title": "Verify Result Artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "cwd", "verify_cmd", "db_target", "verdict", "classifier", "created_at"],
+  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "cwd", "verify_cmd", "db_target", "clean_state", "verdict", "classifier", "failures", "created_at"],
   "properties": {
     "schema_version": { "const": "1" },
     "artifact_type": { "const": "verify_result" },
@@ -53,20 +53,33 @@
     "clean_state": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["checks"],
+      "required": ["sentinel", "migration_hash", "role"],
       "properties": {
-        "checks": {
-          "type": "array",
-          "minItems": 2,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["code", "expected", "actual"],
-            "properties": {
-              "code": { "enum": ["sentinel", "migration_hash"] },
-              "expected": { "type": "string" },
-              "actual": { "type": "string" }
-            }
+        "sentinel": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected", "actual"],
+          "properties": {
+            "expected": { "type": "string" },
+            "actual": { "type": "string" }
+          }
+        },
+        "migration_hash": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected", "actual"],
+          "properties": {
+            "expected": { "type": "string" },
+            "actual": { "type": "string" }
+          }
+        },
+        "role": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "superuser"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "superuser": { "const": false }
           }
         }
       }

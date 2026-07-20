@@ -40,7 +40,7 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 
 ### v0.18 — verifier clean-state and machine failures
 
-- Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks; dirty or invalid state aborts before Vitest, and passing evidence is embedded in the existing VERIFY artifact.
+- Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, and passing evidence is embedded in the existing VERIFY artifact.
 - Every classifier failure exposes typed machine data, and failed canonical artifacts retain the same `code`/`expected`/`actual` records. Existing human diagnostics remain available.
 - No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `--fresh` is a stable reserved refusal until a target DB lifecycle adapter owns rebuild/drop behavior.
 - `verify.sh` remains the sole operator interface while `scripts/lib/verify-result.cjs` owns result classification, clean-probe validation, and VERIFY payload construction.

@@ -173,6 +173,10 @@ case "${PNPM_STUB_MODE:-green}" in
     printf '%s\n' '{"numPassedTests":2,"numFailedTests":1,"numPendingTests":0,"numFailedTestSuites":0,"success":false,"testResults":[{"status":"failed"}]}' > "$out"
     exit 1
     ;;
+  malformed)
+    printf '%s\n' '{not json' > "$out"
+    exit 1
+    ;;
 esac
 exit 2
 STUB
@@ -180,7 +184,7 @@ STUB
 }
 
 CLEAN_PROBE="$TMP_DIR/clean-probe.sh"
-printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"sha256:expected","actual":"sha256:expected"}]}'\''' > "$CLEAN_PROBE"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"sha256:expected","actual":"sha256:expected"}],"role":{"name":"fops_app","superuser":false}}'\''' > "$CLEAN_PROBE"
 chmod +x "$CLEAN_PROBE"
 
 run_filter_case() {
@@ -214,7 +218,7 @@ run_filter_case() {
 run_filter_case "green-artifact-write-failure-exits-5" 5 "file" "green" 1
 run_filter_case "green-artifact-write-success-exits-0" 0 "dir" "green" 2
 if [ -f "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" ]; then
-  node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(o.artifact_type!=="verify_result"||o.producer_role!=="VERIFIER"||o.classifier!=="PASS"||!o.verdict||o.verdict.passed!==3||!o.clean_state||o.clean_state.checks.length!==2) process.exit(1);' "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" >/dev/null 2>&1
+  node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(o.artifact_type!=="verify_result"||o.producer_role!=="VERIFIER"||o.classifier!=="PASS"||!o.verdict||o.verdict.passed!==3||!o.clean_state||o.clean_state.sentinel.actual!=="clean"||o.clean_state.migration_hash.actual!=="sha256:expected"||o.clean_state.role.superuser!==false) process.exit(1);' "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" >/dev/null 2>&1
   if [ "$?" -eq 0 ]; then echo "ok   - green artifact has required verifier fields"; else echo "NOT OK - green artifact has required verifier fields"; FAILURES=$((FAILURES + 1)); fi
 else
   echo "NOT OK - green artifact exists"
@@ -229,6 +233,16 @@ if node -e '
   echo "ok   - failed artifact records typed expected/actual failures"
 else
   echo "NOT OK - failed artifact records typed expected/actual failures"
+  FAILURES=$((FAILURES + 1))
+fi
+run_filter_case "invalid-report-retains-machine-failure" 1 "dir" "malformed" 5
+if node -e '
+  const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  if(o.failures.length!==1||o.failures[0].code!=="invalid_report"||o.failures[0].expected!=="parseable JSON object"||o.failures[0].actual!=="unparseable") process.exit(1);
+' "$TMP_DIR/filter-invalid-report-retains-machine-failure/.review/ISSUE-5-VERIFY.json" >/dev/null 2>&1; then
+  echo "ok   - invalid report failure is retained in canonical evidence"
+else
+  echo "NOT OK - invalid report failure is retained in canonical evidence"
   FAILURES=$((FAILURES + 1))
 fi
 run_filter_case "fail-artifact-write-failure-preserves-classifier" 1 "file" "fail" 3
@@ -247,7 +261,7 @@ else
 fi
 
 DIRTY_PROBE="$TMP_DIR/dirty-probe.sh"
-printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"dirty"},{"code":"migration_hash","expected":"sha256:expected","actual":"sha256:actual"}]}'\''' > "$DIRTY_PROBE"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"dirty"},{"code":"migration_hash","expected":"sha256:expected","actual":"sha256:actual"}],"role":{"name":"fops_app","superuser":false}}'\''' > "$DIRTY_PROBE"
 chmod +x "$DIRTY_PROBE"
 dirty_err="$TMP_DIR/dirty.stderr"
 VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$DIRTY_PROBE" bash "$VERIFY" --verify-clean >/dev/null 2>"$dirty_err"
@@ -256,6 +270,32 @@ if [ "$ec" -eq 1 ] && grep -F -q '"code":"sentinel","expected":"clean","actual":
   echo "ok   - --verify-clean rejects dirty state with typed differences"
 else
   echo "NOT OK - --verify-clean rejects dirty state with typed differences (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+LEAK_PROBE="$TMP_DIR/leak-probe.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"clean","credential":"secret"},{"code":"migration_hash","expected":"same","actual":"same"}],"role":{"name":"fops_app","superuser":false}}'\''' > "$LEAK_PROBE"
+chmod +x "$LEAK_PROBE"
+leak_err="$TMP_DIR/leak.stderr"
+VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$LEAK_PROBE" bash "$VERIFY" --verify-clean >/dev/null 2>"$leak_err"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -F -q '"code":"clean_probe_invalid"' "$leak_err" && ! grep -F -q 'secret' "$leak_err"; then
+  echo "ok   - clean probe rejects undeclared fields without echoing them"
+else
+  echo "NOT OK - clean probe rejects undeclared fields without echoing them (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+SUPERUSER_PROBE="$TMP_DIR/superuser-probe.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"same","actual":"same"}],"role":{"name":"custom_admin","superuser":true}}'\''' > "$SUPERUSER_PROBE"
+chmod +x "$SUPERUSER_PROBE"
+custom_superuser_err="$TMP_DIR/custom-superuser.stderr"
+VERIFY_DATABASE_URL="postgres://custom_admin@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$SUPERUSER_PROBE" bash "$VERIFY" --verify-clean >/dev/null 2>"$custom_superuser_err"
+ec=$?
+if [ "$ec" -eq 1 ] && grep -F -q '"code":"privileged_database_role","expected":"false","actual":"true"' "$custom_superuser_err"; then
+  echo "ok   - target privilege evidence rejects custom superusers"
+else
+  echo "NOT OK - target privilege evidence rejects custom superusers (got $ec)"
   FAILURES=$((FAILURES + 1))
 fi
 
@@ -375,6 +415,22 @@ run_parse_db_case() {
 run_parse_db_case "parse localhost url" "postgres://fops_app:secretpass@localhost:5432/feedbackops?sslmode=disable" "localhost	feedbackops	fops_app"
 run_parse_db_case "parse ipv4 url" "postgres://fops_app@127.0.0.1/verify_smoke" "127.0.0.1	verify_smoke	fops_app"
 run_parse_db_case "parse bracketed ipv6 url" "postgres://fops_app:secretpass@[::1]:5432/verify_ipv6" "[::1]	verify_ipv6	fops_app"
+
+echo "--- verify schema clean-state contract ---"
+SCHEMA_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+if node -e '
+  const fs=require("fs"); const {validate}=require(process.argv[1]);
+  const schema=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
+  const valid=JSON.parse(fs.readFileSync(process.argv[3],"utf8"));
+  const missing=JSON.parse(fs.readFileSync(process.argv[4],"utf8"));
+  const extra=JSON.parse(fs.readFileSync(process.argv[5],"utf8"));
+  if(validate(schema,valid).length!==0||validate(schema,missing).length===0||validate(schema,extra).length===0) process.exit(1);
+' "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$SCHEMA_ROOT/schemas/verify.schema.json" "$SCHEMA_ROOT/schemas/fixtures/verify.valid.json" "$SCHEMA_ROOT/schemas/fixtures/verify.clean_state_missing.invalid.json" "$SCHEMA_ROOT/schemas/fixtures/verify.clean_state_extra.invalid.json"; then
+  echo "ok   - schema requires exact canonical clean-state fields"
+else
+  echo "NOT OK - schema requires exact canonical clean-state fields"
+  FAILURES=$((FAILURES + 1))
+fi
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then

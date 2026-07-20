@@ -44,8 +44,9 @@ EVIDENCE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 node - "$WORKTREE" "$EVIDENCE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path");
 const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
-const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:00:00Z"};
-const verifyFail={...verifyPass,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL"};
+const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:00:00Z"};
+const verifyFail={...verifyPass,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}]};
 for (const name of ["F-1","F-2","F-3"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyFail));
 fs.writeFileSync(path.join(root,"hard-fact.json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"old-pass.json"),JSON.stringify(verifyPass));
@@ -63,7 +64,7 @@ CLOSURE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path");
 const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
-const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:01:00Z"};
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state:{sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:01:00Z"};
 for (const name of ["F-1-closed","F-2-closed"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"wrong-branch.json"),JSON.stringify({...verifyPass,branch:"other"}));
 fs.writeFileSync(path.join(root,"unrelated-pass.json"),JSON.stringify({...verifyPass,verify_cmd:"smoke verify --filter unrelated"}));
