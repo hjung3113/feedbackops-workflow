@@ -113,23 +113,25 @@ For every live or repository observation, record the exact command and a concise
 
 Use one appendix row per concern: `concern | exact command | concise result | decision impact`. The four required concerns are `grants/privileges`, `migration principal capability`, `prior migration/journal convention`, and `relevant uniqueness constraint`; the exact command/result pair is copied into `live_probes[]`, not a new artifact field.
 
-## Model Allocation — role × model map, dynamic by tier
+## Model Allocation — project-owned defaults with evidence-gated adaptation
 
-The current operator profile exposes suffixed OpenAI 5.6 aliases: **`gpt-5.6-sol` (top, heavy reasoning) > `gpt-5.6-terra` (everyday implementation) > `gpt-5.6-luna` (light/mechanical)**. These are environment capabilities, not portable toolkit dependencies. On a new machine/account, preflight the intended aliases and substitute an explicitly pinned ladder with the same capability ordering. The operator currently keeps fast mode off; that preference lives in machine config and is not installed by this repository.
+The installed `.agent-workflow/model-alloc.json` is the project-owned allocation contract; its schema is `schemas/model_alloc.schema.json`. The default table carries `source: "livebench"` and `release: "2026-06-25"` alongside the capability and price data, so a benchmark refresh replaces data rather than dispatch code. Missing project config safely uses the toolkit default; malformed existing config fails closed. Fresh install seeds the file and `--upgrade` preserves it (with a warning rather than an implicit migration).
 
-| Role | Claude side | OpenAI side (codex) |
-|---|---|---|
-| CONDUCTOR | session model (Fable/Opus) | — |
-| ARCHITECT / adversarial co-design | Opus or Fable | `gpt-5.6-sol` medium, read-only (thinking-heavy) |
-| CODEX implementation | — | `gpt-5.6-terra` medium (fast off) |
-| REVIEWER (code, clean context) | Fable/Opus alternative | one tier above implementer: `gpt-5.6-sol` medium (fast off) |
-| VERIFIER | pane script; Sonnet subagent for log triage | — |
-| VISUAL-REVIEWER | Opus | — |
-| Scoping / utility subagents | Haiku / Sonnet | `gpt-5.6-luna` low for mechanical edits |
+| Role | Default allocation |
+|---|---|
+| CONDUCTOR | Opus medium |
+| ARCHITECT / adversarial co-design | terra medium; sol medium for exported-contract decisions |
+| CODEX implementation | terra low; luna low only for small trivial touch sets |
+| REVIEWER / VISUAL-REVIEWER | Opus medium; visual recheck may use Sonnet high |
+| Final exported-contract gate | sol medium |
+| VERIFIER log classification / mechanical edits | luna medium / luna low |
+| Fable 5 | not allocated |
 
-Dynamic selection by risk tier: **Trivial** → impl `gpt-5.6-luna` low (no REVIEWER on this tier). **Standard** → impl `gpt-5.6-terra` medium, review `gpt-5.6-sol` medium. **Full Cluster** → design `gpt-5.6-sol`; impl `gpt-5.6-terra` medium; review `gpt-5.6-sol` medium + Fable/Opus clean-context final pass for shared-contract chunks.
+`scripts/model-alloc.sh --role implementation|reviewer [--evidence <canonical-json>]` emits JSON with implementation, review, contract-gate model/effort values and rationale. Its evidence must explicitly contain changed lines, file count, review round, prior findings, blocker state, and touch set. Without it the script makes **no adaptive change**; with it, an exported contract or blocker/two findings promotes implementation to terra medium, a small one-file touch can use luna low, and a re-review lowers review effort before changing models. The allocation uses Agentic Coding for implementation and static Coding + Reasoning for review/contract decisions; benchmark scores guide ordering, not hard telemetry thresholds.
 
-Invariants: review model ≥ one tier above implementation model, never same-or-lower. **Pin the model explicitly on every dispatch** (`--model <X> --effort medium`, forwarded by `cmux-dispatch.sh` to `codex-safe.sh`) — omitting it silently runs the config default instead of the tier you selected. On a model refusal, move only to another preflight-validated explicit model that preserves the role ordering; never fall back by omitting `--model`. `codex-safe.sh` enforces the 5.6 effort cap (max medium).
+`cmux-dispatch.sh --allocate --allocator-role implementation` parses and validates allocation before any marker, runner, or cmux side effect, then forwards only the explicit `gpt-*` implementation pair to `codex-safe.sh`. v1 auto-dispatch is deliberately **Codex-executor only**: it never forwards Opus, Fable, or another Claude role through Codex. REVIEWER remains a fresh external clean-context seat. Direct dispatches must remain explicitly pinned; on refusal select another preflight-validated explicit model, never omit `--model`.
+
+`codex-safe.sh` permits 5.6 `low`, `medium`, and `high`, pins omitted 5.6 effort to medium, and refuses `xhigh` and `max`.
 
 Before a bulk parallel dispatch, preflight-probe the pinned model once so a 400 surfaces on one cheap call instead of on every worker:
 
@@ -142,6 +144,7 @@ Workload scaling (v1): review depth scales with the actual diff — ≤~50 chang
 ## Non-Negotiable Rules
 
 - **Implementation is separate from review and verification.** The same agent/session must not implement and then approve or verify its own work. Re-review uses a new clean context.
+- **Clean context is non-negotiable; review capability is a default preference.** Default review allocation is at least as capable as implementation, but a project may explicitly relax that preference in its model-allocation config and the allocation rationale records the warning.
 - **Do not run two workspace-write Codex jobs in the same repo at the same time.** `codex-safe.sh` stashes partial work on failure; concurrent jobs in one checkout can race on stash state. Parallel implementation requires separate prepared worktrees.
 - **Clear `NODE_OPTIONS=` before codex/node dispatch and verification.** cmux or shell preloads can leak `--require` instrumentation into codex/vitest children. `verify.sh` uses an explicit env allowlist, but operators should still dispatch with a clean `NODE_OPTIONS`.
 

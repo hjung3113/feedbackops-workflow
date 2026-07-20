@@ -63,6 +63,9 @@ PROMPT_FILE=""
 WS_NAME=""
 MODEL=""
 EFFORT=""
+ALLOCATE=0
+ALLOCATOR_ROLE=""
+ALLOC_EVIDENCE=""
 TIER=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
@@ -76,7 +79,7 @@ POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--tier trivial|standard|full_cluster] [--read-only|--produce-review] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -160,6 +163,9 @@ while [ $# -gt 0 ]; do
     --name) WS_NAME="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     --effort) EFFORT="$2"; shift 2 ;;
+    --allocate) ALLOCATE=1; shift 1 ;;
+    --allocator-role) ALLOCATOR_ROLE="$2"; shift 2 ;;
+    --alloc-evidence) ALLOC_EVIDENCE="$2"; shift 2 ;;
     --tier) TIER="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
@@ -175,6 +181,18 @@ done
 
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
 [ -n "$WORKTREE" ] || { echo "missing --worktree" >&2; usage; exit 2; }
+if [ "$ALLOCATE" -eq 1 ] && { [ -n "$MODEL" ] || [ -n "$EFFORT" ]; }; then
+  echo "ERROR: --allocate cannot be combined with --model or --effort" >&2
+  exit 2
+fi
+if [ "$ALLOCATE" -eq 1 ] && [ "$ALLOCATOR_ROLE" != "implementation" ]; then
+  echo "ERROR: v1 auto-dispatch supports only the Codex implementation allocator role" >&2
+  exit 2
+fi
+if [ "$ALLOCATE" -eq 0 ] && { [ -n "$ALLOCATOR_ROLE" ] || [ -n "$ALLOC_EVIDENCE" ]; }; then
+  echo "ERROR: --allocator-role and --alloc-evidence require --allocate" >&2
+  exit 2
+fi
 if [ "$READ_ONLY" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
   echo "ERROR: --read-only and --produce-review are mutually exclusive" >&2
   exit 2
@@ -186,6 +204,33 @@ fi
 
 [ -d "$WORKTREE" ] || { echo "ERROR: worktree does not exist: $WORKTREE" >&2; exit 2; }
 ABS_WORKTREE="$(cd "$WORKTREE" && pwd)"
+
+# Allocation is a pure preflight. Parse and validate it before write-admission
+# markers, launch runners, or cmux side effects. v1 deliberately forwards only
+# a Codex/OpenAI implementation allocation; external Opus/Fable roles remain
+# manually dispatched clean-context seats.
+if [ "$ALLOCATE" -eq 1 ]; then
+  MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
+  [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
+  ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
+  if [ -f "$ALLOC_CONFIG" ]; then
+    if [ -n "$ALLOC_EVIDENCE" ]; then
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+    else
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+    fi
+  else
+    if [ -n "$ALLOC_EVIDENCE" ]; then
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+    else
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+    fi
+  fi
+  ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.impl_model !== "string" || !/^(low|medium|high)$/.test(v.impl_effort)) process.exit(2); process.stdout.write(v.impl_model + "\t" + v.impl_effort); } catch (e) { process.exit(2); }' "$ALLOC_JSON")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
+  oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
+  MODEL="${1:-}"; EFFORT="${2:-}"
+  case "$MODEL" in gpt-*) ;; *) echo "ERROR: allocator returned a non-Codex model; refusing dispatch" >&2; exit 2 ;; esac
+fi
 
 if ! git -C "$ABS_WORKTREE" rev-parse --git-dir >/dev/null 2>&1; then
   echo "ERROR: not a git worktree (git rev-parse --git-dir failed): $ABS_WORKTREE" >&2

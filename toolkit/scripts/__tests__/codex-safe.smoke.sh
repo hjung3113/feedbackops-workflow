@@ -136,10 +136,19 @@ run_ticker_case "signal ticker cleanup" 30 1
 
 CODEX_STUB_ARGS="$TMP_DIR/high.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6 --effort high >/dev/null 2>&1
 high_ec=$?
-if [ "$high_ec" -eq 2 ] && [ ! -f "$TMP_DIR/high.args" ]; then
-  echo "ok   - gpt-5.6 high effort refused before codex call"
+if [ "$high_ec" -eq 0 ] && grep -q 'model_reasoning_effort="high"' "$TMP_DIR/high.args"; then
+  echo "ok   - gpt-5.6 high effort reaches codex explicitly"
 else
-  echo "NOT OK - gpt-5.6 high effort refused before codex call (exit $high_ec)"
+  echo "NOT OK - gpt-5.6 high effort reaches codex explicitly (exit $high_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+CODEX_STUB_ARGS="$TMP_DIR/xhigh.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6 --effort xhigh >/dev/null 2>&1
+xhigh_ec=$?
+if [ "$xhigh_ec" -eq 2 ] && [ ! -f "$TMP_DIR/xhigh.args" ]; then
+  echo "ok   - gpt-5.6 xhigh effort refused before codex call"
+else
+  echo "NOT OK - gpt-5.6 xhigh effort refused before codex call (exit $xhigh_ec)"
   FAILURES=$((FAILURES + 1))
 fi
 

@@ -56,6 +56,25 @@ git init -q "$WT"
 git -C "$WT" -c user.name="Smoke Test" -c user.email="smoke@example.test" commit --allow-empty -q -m "init"
 printf '%s\n' "prompt body" > "$WT/.review/ISSUE-301-PROMPT.txt"
 
+# Allocation is validated before any marker or cmux side effect. Only the
+# Codex implementation allocation may be auto-forwarded; Opus/Fable never is.
+alloc_out="$TMP_ROOT/allocator-dry-run.out"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --allocate --allocator-role implementation --dry-run >"$alloc_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-terra --effort low' "$alloc_out"; then
+  pass "implementation allocation forwards an explicit Codex model"
+else
+  fail "implementation allocation forwards an explicit Codex model (ec=$ec: $(cat "$alloc_out"))"
+fi
+bad_alloc_out="$TMP_ROOT/allocator-review.stderr"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --allocate --allocator-role reviewer --dry-run >/dev/null 2>"$bad_alloc_out"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "Codex implementation" "$bad_alloc_out"; then
+  pass "allocator refuses to forward a non-Codex reviewer model"
+else
+  fail "allocator refuses to forward a non-Codex reviewer model (ec=$ec: $(cat "$bad_alloc_out"))"
+fi
+
 # --- initial writes require the canonical round-0 contract ---
 stderr_file="$TMP_ROOT/missing-initial-round-state.stderr"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --dry-run >/dev/null 2>"$stderr_file"
