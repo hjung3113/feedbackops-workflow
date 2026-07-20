@@ -162,6 +162,163 @@
         }
       }
     },
+    "round_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failures"],
+      "properties": {
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "dispatch_ordinal", "status", "primary_origin", "secondary_origins", "failed_ac_ids", "owner", "next_action", "evidence"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "dispatch_ordinal": { "type": "integer", "minimum": 1 },
+              "status": { "enum": ["open", "closed"] },
+              "primary_origin": { "enum": ["environment", "dispatch_contract", "implementation", "test_oracle", "verification_harness", "integration_drift"] },
+              "secondary_origins": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "enum": ["environment", "dispatch_contract", "implementation", "test_oracle", "verification_harness", "integration_drift"] }
+              },
+              "failed_ac_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "owner": { "type": "string", "minLength": 1 },
+              "next_action": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "summary"],
+                "properties": {
+                  "kind": { "enum": ["environment_fix", "contract_fix", "implementation_fix", "oracle_fix", "harness_fix", "integration_fix", "diagnosis"] },
+                  "summary": { "type": "string", "minLength": 1 }
+                }
+              },
+              "evidence": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "path", "content_sha256", "head_sha"],
+                  "properties": {
+                    "kind": { "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"] },
+                    "path": { "type": "string", "minLength": 1 },
+                    "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+                  }
+                }
+              },
+              "closed_by": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "path", "content_sha256", "head_sha", "closes_ac_ids"],
+                "properties": {
+                  "kind": { "enum": ["verify", "review"] },
+                  "path": { "type": "string", "minLength": 1 },
+                  "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+                  "closes_ac_ids": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "checklist_item": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "security_stop": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["active", "finding_id", "evidence"],
+          "properties": {
+            "active": { "type": "boolean" },
+            "finding_id": { "type": "string", "minLength": 1 },
+            "evidence": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "path", "content_sha256", "head_sha"],
+              "properties": {
+                "kind": { "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"] },
+                "path": { "type": "string", "minLength": 1 },
+                "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+              }
+            }
+          }
+        },
+        "diagnosis": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["trigger", "failure_ids", "records"],
+          "properties": {
+            "trigger": { "enum": ["same_origin", "third_redispatch"] },
+            "failure_ids": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "summary", "evidence"],
+                "properties": {
+                  "kind": { "enum": ["oracle_contract_recheck", "hard_fact", "passing_analog"] },
+                  "summary": { "type": "string", "minLength": 1 },
+                  "instruction": { "const": "guess_forbidden_copy_passing_analog_to_parity" },
+                  "evidence": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "path", "content_sha256", "head_sha"],
+                    "properties": {
+                      "kind": { "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"] },
+                      "path": { "type": "string", "minLength": 1 },
+                      "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                      "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+                    }
+                  }
+                }
+              }
+            },
+            "manifest_update": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["from_revision", "to_revision", "decision_id"],
+              "properties": {
+                "from_revision": { "type": "integer", "minimum": 1 },
+                "to_revision": { "type": "integer", "minimum": 2 },
+                "decision_id": { "type": "string", "minLength": 1 }
+              }
+            },
+            "integrated_fix_batch": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["dispatch_ordinal", "failure_ids", "status"],
+              "properties": {
+                "dispatch_ordinal": { "type": "integer", "minimum": 2 },
+                "failure_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "status": { "enum": ["ready", "used"] }
+              }
+            }
+          }
+        }
+      }
+    },
     "commit_scope": {
       "type": "object",
       "additionalProperties": false,

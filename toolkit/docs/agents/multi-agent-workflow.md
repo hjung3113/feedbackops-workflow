@@ -70,6 +70,38 @@ Each convention watch has exactly `surface`, path-glob `trigger[]`, `expected_in
 
 The watch trigger is deliberately a conservative changed-path predicate, not a shell command or semantic DSL. Mechanically enumerable registry or exhaustiveness consumers belong in `compile_consumers[]`; reserve watches for convention-only relationships. ROUND-STATE remains the only authority—do not create an impact manifest, watch registry, or reviewer-owned shadow state.
 
+### Repeated-round circuit breaker
+
+Implementation redispatch is CONDUCTOR correctness policy, not watchdog retry policy. Before every implementation redispatch, classify the failed round in canonical ROUND-STATE `round_control.failures[]` and run:
+
+```bash
+scripts/redispatch-check.sh \
+  --round-state <ISSUE-N-ROUND-STATE.json> \
+  --manifest-revision <revision>
+```
+
+For the actual write-capable redispatch, pass the same inputs to the mandatory entry point:
+
+```bash
+scripts/cmux-dispatch.sh \
+  --issue <N> \
+  --worktree <worktree> \
+  --round-state <ISSUE-N-ROUND-STATE.json> \
+  --manifest-revision <revision> \
+  --model <pinned-model> \
+  --effort <pinned-effort>
+```
+
+Every write launch atomically acquires a pre-cmux attempt marker, so concurrent initial launches admit exactly one process and a crash before RUN/BLOCKER creation cannot make the next launch look initial. When that marker, a same-issue RUN/BLOCKER, or canonical failure history exists, `cmux-dispatch.sh` refuses write dispatch without state/revision inputs. It executes `redispatch-check.sh` immediately before cmux creation, requires at least one classified active failure, binds the result's issue and real worktree to the CLI target, and atomically creates an immutable issue/ordinal admission directory under the Git common dir. Every mode competes for the same ordinal; integrated fix also acquires an issue-wide singleton, so no later ordinal can admit a second batch. Excluding mutable revision, mode, and failure IDs prevents replay after edits, while the common-dir location survives worktree recreation. A crash after consumption requires investigation and a new classified failure or explicit blocker rather than deleting the marker. `--dry-run` evaluates but never consumes admission. Read-only seats remain outside the implementation circuit.
+
+Each immutable failure entry has one `primary_origin`—`environment`, `dispatch_contract`, `implementation`, `test_oracle`, `verification_harness`, or `integration_drift`—plus optional unique `secondary_origins[]`, failed AC ids, an owner, a typed next action, and evidence pointers bound to content hash and observed HEAD. Non-diagnosis routing is fixed respectively to `environment_fix`, `contract_fix`, `implementation_fix`, `oracle_fix`, `harness_fix`, or `integration_fix`; model escalation is never a remedy. `diagnosis` is only dispatch-admissible after the circuit trips; below threshold it returns `routing_required` until concrete origin-compatible action is selected. Preserve failed VERIFY/REVIEW evidence before a later run replaces it. The gate validates artifact schema, hash, issue, HEAD, and a coherent failing verdict: VERIFY requires `classifier:FAIL` plus nonzero exit or positive failed count; REVIEW requires `fail` or `blocked`. Changing a failure to `closed` requires `closed_by.closes_ac_ids` to equal that failure's AC set. VERIFY closure must contain canonical `contract.verify_filter` as a command token; REVIEW closure uses exact `failure:<id>:<comma-separated-ac-ids>` checklist identity. The PASS HEAD strictly descends from every failed artifact HEAD, remains an ancestor of live HEAD, and VERIFY matches the live branch. This prevents unrelated, stale, or sibling-branch PASS evidence from resetting the active sequence.
+
+The gate trips over one explicit active cycle: verified-closed history must be a prefix, followed by the contiguous open-failure suffix. Interleaved open/closed entries are invalid rather than being filtered into false consecutiveness. Two consecutive open failures with the same primary origin, or two completed redispatches before a proposed third redispatch, returns `diagnosis_required` and forbids another normal implementation dispatch. The initial implementation is ordinal 1; ordinary redispatches are ordinals 2 and 3, so another dispatch after three active recorded failures is the forbidden third redispatch. Watchdog attempts, refusal probes, RUN states, heartbeats, and process retries never increment these ordinals. An active `security_stop` returns immediately at any count.
+
+A tripped circuit admits at most one `integrated_fix` batch. ROUND-STATE diagnosis records are an ordered prefix: (1) recheck oracle and contract first, (2) capture one reproducible hard fact, and (3) identify a passing analog with the fixed `guess_forbidden_copy_passing_analog_to_parity` instruction. This means: do not guess; copy the known-green wiring to parity; if it remains red, report a blocker instead of committing another speculative patch. The optional singleton `manifest_update` permits at most one revision increment and its `to_revision` must equal the current ROUND-STATE revision. The singleton integrated batch must cover every open failure while retaining each failure's AC ids and evidence. `cmux-dispatch.sh` consumes its admission key atomically before launch; once the batch status is `used`, `redispatch-check.sh` also returns `diagnosis_exhausted`. Another implementation batch needs an explicit new decision or blocker, not an automatic redispatch.
+
+The gate is read-only and deterministic. Exit 0 allows exactly the emitted `dispatch_mode` (`normal` or `integrated_fix`); exit 1 denies dispatch with the calculated trigger and obligations; exit 2 rejects malformed, stale, contradictory, or uncheckable state. It never reads prompt prose, model telemetry, RUN/HEARTBEAT, stderr text, or pane state. ROUND-STATE remains the sole ledger and CONDUCTOR remains its sole writer.
+
 ### ARCH feasibility evidence
 
 Before ARCHITECT locks a decision for a Full Cluster change involving migrations, authorization, persistence constraints, or another repository-dependent capability, attach a feasibility appendix to the authoritative contract. It must cover the actual grants/privileges, the migration principal's capabilities, the immediately preceding migration and journal conventions, and the relevant uniqueness constraints; an inapplicable item needs an explicit reason, not an assumption.

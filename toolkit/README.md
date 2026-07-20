@@ -15,6 +15,7 @@ cmux × Claude × Codex 작업을 **분리된 워크트리, 구조화된 산출�
 - **병렬 격리** — 작업별 워크트리와 일회성 DB를 사용해 파일·스키마·락 간섭을 막습니다.
 - **디스크가 정본** — CONDUCTOR는 대화 메모리가 아니라 `.review/*.json`만으로 상태를 복원합니다.
 - **컴파일 원자 계약 스코프** — exported-contract 변경은 scope lock 전에 target-native 소비자를 열거해 같은 청크에 포함하고, 구현 후 전체 typecheck를 실행하며, 현재 diff가 trigger한 convention watch만 리뷰 범위에 넣습니다.
+- **반복 라운드 서킷브레이커** — 실패마다 primary origin·소유자·증거를 남기고, 동일 origin 2연속 또는 세 번째 redispatch 전에 구현 재디스패치를 차단해 oracle/contract 우선 진단과 단일 통합 수정 배치로 전환합니다.
 - **macOS Bash 3.2 호환** — 주요 계약은 오프라인 smoke로 검증하고 GitHub Actions에서도 실행합니다.
 
 ## 빠른 시작
@@ -121,6 +122,20 @@ scripts/completion-check.sh \
 
 `base_sha..HEAD`의 모든 변경 경로는 `contract.touch_allowlist`에 들어가야 하고, 모든 AC-ID는 target-native `contract.test_discovery_command`의 실제 출력에서 발견되어야 합니다. 이 명령은 declared worktree에서 직접 실행되며, 출력의 non-empty record 수는 canonical `acceptance.expected_test_count`와 정확히 같아야 합니다. 불일치는 `mismatches` 배열을 가진 JSON으로 출력되며 exit 1로 리뷰를 hard-stop합니다. 입력·신선도·discovery 실행 오류도 stable error code가 든 JSON으로 exit 2를 반환합니다. discovery 명령은 target profile의 책임이며 core는 Vitest를 가정하지 않습니다.
 
+### 5.6 구현 재디스패치 검사
+
+실패한 구현 라운드를 다시 보낼 때는 ROUND-STATE `round_control.failures[]`에 primary origin, secondary origin, 실패 AC, 소유자/다음 행동, hash·HEAD에 묶인 증거를 먼저 기록합니다.
+
+```bash
+scripts/redispatch-check.sh \
+  --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
+  --manifest-revision 4
+```
+
+gate는 선언된 worktree의 live HEAD와 증거 파일의 실제 hash를 검증합니다. VERIFY/REVIEW 포인터는 artifact schema, issue, observed HEAD와 모순 없는 실패 verdict까지 대조하고 origin별 fix action도 고정합니다. closure는 정확한 실패 AC 집합과 canonical verify filter 또는 REVIEW checklist item을 닫아야 하며, 실패 증거보다 뒤이고 live HEAD 계보 안에 있는 동일 브랜치의 PASS만 인정합니다. closed history는 active open cycle 앞의 prefix여야 합니다. 실제 write redispatch는 `cmux-dispatch.sh`에도 같은 `--round-state`와 `--manifest-revision`을 전달해야 합니다. dispatch 직전에 CLI issue/worktree와 admission identity를 다시 대조하고 immutable issue/ordinal admission을 Git common dir에서 원자적으로 한 번 소비합니다. integrated fix는 이슈 전체 singleton도 소비하므로 mode·revision·failure ID 변경이나 worktree 재생성으로 재사용할 수 없습니다. 모든 write launch는 cmux 전에 attempt marker를 원자적으로 획득해 pre-RUN 실패와 동시 최초 실행도 제어합니다. `--dry-run`은 검사만 하고 소비하지 않으며 `--read-only` 좌석은 구현 회로 밖입니다.
+
+동일 primary origin이 2회 연속이거나 이미 2회의 redispatch가 실패했다면 정상 구현 재디스패치를 거부합니다. 이때 oracle/contract 재검 → 하드 팩트 → 통과 analog 배관 parity 순서로 진단한 뒤 하나의 integrated fix batch만 허용합니다. `decision`, `dispatch_mode`, `trigger`, `obligations`가 JSON으로 나오며 exit 0만 해당 mode의 디스패치를 허용합니다. 보안 finding은 더 일찍 중단할 수 있고, watchdog retry·RUN/HEARTBEAT·모델 승격은 이 카운터나 진단 의무를 바꾸지 않습니다.
+
 Full Cluster의 migration·권한·저장 제약 결정은 ARCH 확정 전에 feasibility appendix를 남깁니다. 실제 grant/privilege, migration principal capability, 직전 migration/journal 관례, 관련 uniqueness constraint를 확인한 정확한 명령과 간결한 결과는 기존 ROUND-STATE `live_probes[]`에 기록하며, 관측 불가나 불가능한 capability는 구현 추측이 아니라 blocker/결정으로 처리합니다.
 
 모든 테스트 matrix 행은 canonical ROUND-STATE `acceptance.criteria[]` 항목이며 AC-ID의 유일한 정본은 `id`입니다. 각 `statement`에는 명시적 precondition과 관측 가능한 checkpoint를 inline으로 적고, privacy 경계 행에만 positive field allowlist assertion을 추가합니다; 외부 인용은 이 필수 inline 내용의 정본을 대체할 수 없으며, privacy 적용 여부가 모호할 때만 이를 명시합니다.
@@ -178,6 +193,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 | `codex-safe.sh` | Codex 샌드박스·cwd·모델 effort 경계, 최소 Git metadata 쓰기 권한, 실패 시 partial stash |
 | `ac-check.sh` | ROUND-STATE revision과 AC-ID 발견 여부를 검사하는 pre-review gate |
 | `completion-check.sh` | live diff·test discovery·compile consumer·전체 typecheck·trigger된 review obligation을 ROUND-STATE에 독립 대조 |
+| `redispatch-check.sh` | ROUND-STATE 실패 origin 이력에서 정상 재디스패치·진단·단일 통합 수정·보안 중단을 결정 |
 | `verify.sh` | Vitest JSON 분류, DB 경계, typecheck baseline, canonical VERIFY 산출물 |
 | `conductor-rebuild.sh` | `.review/*.json`에서 현재 클러스터 상태 복원 |
 | `artifact-fresh.sh` / `review-archive.sh` | 산출물 신선도 검사와 병합 후 아카이브 |

@@ -8,6 +8,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DISPATCH="$SCRIPT_DIR/../cmux-dispatch.sh"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 TMP_ROOT="$(mktemp -d)"
@@ -128,6 +129,195 @@ else
   fail "dry-run never invokes cmux"
 fi
 
+# --- write-capable same-issue redispatch is gate-bound and single-use ---
+ADMIT_WT="$TMP_ROOT/wt-admission"
+mkdir -p "$ADMIT_WT/.review/evidence"
+git init -q "$ADMIT_WT"
+git -C "$ADMIT_WT" config user.email smoke@example.test
+git -C "$ADMIT_WT" config user.name smoke
+git -C "$ADMIT_WT" commit --allow-empty -qm baseline
+ADMIT_EVIDENCE_HEAD="$(git -C "$ADMIT_WT" rev-parse HEAD)"
+node - "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path"); const [worktree,head]=process.argv.slice(2);
+for (const issue of [307,999]) {
+  const artifact={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",created_at:"2026-07-20T00:00:00Z"};
+  fs.writeFileSync(path.join(worktree,".review/evidence/F-"+issue+".json"),JSON.stringify(artifact));
+  if (issue === 307) {
+    fs.writeFileSync(path.join(worktree,".review/evidence/F-307-2.json"),JSON.stringify(artifact));
+    fs.writeFileSync(path.join(worktree,".review/evidence/hard-fact.json"),JSON.stringify(artifact));
+  }
+}
+fs.writeFileSync(path.join(worktree,".review/evidence/oracle.json"),"oracle evidence\n");
+fs.writeFileSync(path.join(worktree,".review/evidence/passing.json"),"passing evidence\n");
+NODE
+git -C "$ADMIT_WT" add .review/evidence
+git -C "$ADMIT_WT" commit -qm evidence
+git -C "$ADMIT_WT" branch -M main
+ADMIT_HEAD="$(git -C "$ADMIT_WT" rev-parse HEAD)"
+printf '%s\n' 'prompt body' > "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt"
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":307,"attempt":1,"started_at":"2026-07-13T00:00:00Z","updated_at":"2026-07-13T00:00:00Z","status":"exited","exit_code":1}' > "$ADMIT_WT/.review/ISSUE-307-RUN.json"
+cp "$ROOT/schemas/fixtures/round_state.valid.json" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+  const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const evidencePath=".review/evidence/F-307.json"; const content=fs.readFileSync(path.join(worktree,evidencePath));
+  value.issue={number:307,title:"redispatch admission"}; value.revision=5; value.base_branch="main"; value.base_sha=head; value.head_sha=head; value.worktree_path=worktree;
+  value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"implementation",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"implementation_fix",summary:"apply the classified fix"},evidence:[{kind:"verify",path:evidencePath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:process.argv[4]}]}]};
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT" "$ADMIT_HEAD" "$ADMIT_EVIDENCE_HEAD"
+
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const [file,worktree]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const evidencePath=".review/evidence/F-999.json"; const content=fs.readFileSync(path.join(worktree,evidencePath)); value.issue={number:999,title:"other issue"};
+  value.round_control.failures[0].evidence[0].path=evidencePath; value.round_control.failures[0].evidence[0].content_sha256=crypto.createHash("sha256").update(content).digest("hex");
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json" "$ADMIT_WT"
+
+admission_missing="$TMP_ROOT/admission-missing.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --dry-run >"$admission_missing" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "redispatch requires --round-state" "$admission_missing"; then
+  pass "write redispatch requires canonical round-control input"
+else
+  fail "write redispatch requires canonical round-control input (ec=$ec: $(cat "$admission_missing"))"
+fi
+
+admission_wrong_issue="$TMP_ROOT/admission-wrong-issue.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_issue" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "does not match the dispatched issue and worktree" "$admission_wrong_issue"; then
+  pass "redispatch admission is bound to the CLI issue"
+else
+  fail "redispatch admission is bound to the CLI issue (ec=$ec: $(cat "$admission_wrong_issue"))"
+fi
+
+OTHER_WT="$TMP_ROOT/wt-other-admission"
+mkdir -p "$OTHER_WT/.review"
+git init -q "$OTHER_WT"
+git -C "$OTHER_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+printf '%s\n' 'prompt body' > "$OTHER_WT/.review/ISSUE-307-PROMPT.txt"
+printf '%s\n' '{}' > "$OTHER_WT/.review/ISSUE-307-RUN.json"
+admission_wrong_worktree="$TMP_ROOT/admission-wrong-worktree.out"
+bash "$DISPATCH" --issue 307 --worktree "$OTHER_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_worktree" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "does not match the dispatched issue and worktree" "$admission_wrong_worktree"; then
+  pass "redispatch admission is bound to the CLI worktree"
+else
+  fail "redispatch admission is bound to the CLI worktree (ec=$ec: $(cat "$admission_wrong_worktree"))"
+fi
+
+mv "$ADMIT_WT/.review/ISSUE-307-RUN.json" "$ADMIT_WT/.review/ISSUE-307-RUN.saved"
+admission_history_missing="$TMP_ROOT/admission-history-missing.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --dry-run >"$admission_history_missing" 2>&1
+ec=$?
+mv "$ADMIT_WT/.review/ISSUE-307-RUN.saved" "$ADMIT_WT/.review/ISSUE-307-RUN.json"
+if [ "$ec" -eq 2 ] && grep -q "redispatch requires --round-state" "$admission_history_missing"; then
+  pass "round failure history keeps redispatch gate mandatory when RUN is absent"
+else
+  fail "round failure history keeps redispatch gate mandatory when RUN is absent (ec=$ec: $(cat "$admission_history_missing"))"
+fi
+
+admission_dry="$TMP_ROOT/admission-dry.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_dry" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && grep -q "redispatch admission: mode=normal" "$admission_dry" && ! find "$ADMIT_WT/.review" -maxdepth 1 -type d -name '.redispatch-admission-*' | grep -q .; then
+  pass "dry-run checks redispatch policy without consuming admission"
+else
+  fail "dry-run checks redispatch policy without consuming admission (ec=$ec: $(cat "$admission_dry"))"
+fi
+
+ADMIT_BIN="$TMP_ROOT/bin-admission-cmux"
+mkdir -p "$ADMIT_BIN"
+cat > "$ADMIT_BIN/cmux" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":307,"attempt":2,"started_at":"2026-07-20T10:00:00Z","updated_at":"2026-07-20T10:00:00Z","status":"running"}' > "$ADMIT_WT/.review/ISSUE-307-RUN.json"
+exit 0
+EOF
+chmod +x "$ADMIT_BIN/cmux"
+admission_first="$TMP_ROOT/admission-first.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_first" 2>&1
+first_ec=$?
+admission_second="$TMP_ROOT/admission-second.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_second" 2>&1
+second_ec=$?
+if [ "$first_ec" -eq 0 ] && [ "$second_ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_second"; then
+  pass "write redispatch admission is atomically single-use"
+else
+  fail "write redispatch admission is atomically single-use (first=$first_ec second=$second_ec: $(cat "$admission_second"))"
+fi
+
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.revision=6; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+admission_revision_bump="$TMP_ROOT/admission-revision-bump.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_revision_bump" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_revision_bump"; then
+  pass "manifest revision bump cannot replay a consumed redispatch admission"
+else
+  fail "manifest revision bump cannot replay a consumed redispatch admission (ec=$ec: $(cat "$admission_revision_bump"))"
+fi
+
+RECREATED_WT="$TMP_ROOT/wt-recreated-admission"
+git -C "$ADMIT_WT" worktree add --detach -q "$RECREATED_WT" "$ADMIT_HEAD"
+mkdir -p "$RECREATED_WT/.review"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json"
+printf '%s\n' 'prompt body' > "$RECREATED_WT/.review/ISSUE-307-PROMPT.txt"
+printf '%s\n' '{}' > "$RECREATED_WT/.review/ISSUE-307-RUN.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.worktree_path=process.argv[2]; fs.writeFileSync(f,JSON.stringify(v));' "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT"
+admission_recreated="$TMP_ROOT/admission-recreated.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECREATED_WT" --round-state "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_recreated" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_recreated"; then
+  pass "git-common admission survives worktree recreation"
+else
+  fail "git-common admission survives worktree recreation (ec=$ec: $(cat "$admission_recreated"))"
+fi
+
+INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-INTEGRATED-STATE.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$INTEGRATED_STATE"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const ref=(kind,name)=>{const relative=".review/evidence/"+name; const content=fs.readFileSync(path.join(worktree,relative)); return {kind,path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};};
+  const second=JSON.parse(JSON.stringify(value.round_control.failures[0])); second.id="F-2"; second.dispatch_ordinal=2; second.evidence=[ref("verify","F-307-2.json")]; value.round_control.failures.push(second);
+  value.round_control.diagnosis={trigger:"same_origin",failure_ids:["F-1","F-2"],records:[{kind:"oracle_contract_recheck",summary:"oracle checked",evidence:ref("live_probe","oracle.json")},{kind:"hard_fact",summary:"hard fact",evidence:ref("verify","hard-fact.json")},{kind:"passing_analog",summary:"passing analog",instruction:"guess_forbidden_copy_passing_analog_to_parity",evidence:ref("diff","passing.json")}],integrated_fix_batch:{dispatch_ordinal:3,failure_ids:["F-1","F-2"],status:"ready"}};
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$INTEGRATED_STATE" "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD"
+integrated_first="$TMP_ROOT/integrated-first.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_first" 2>&1
+integrated_first_ec=$?
+if [ "$integrated_first_ec" -eq 0 ] && grep -q "redispatch admission: mode=integrated_fix" "$integrated_first"; then
+  pass "first integrated fix consumes the issue singleton admission"
+else
+  fail "first integrated fix consumes the issue singleton admission (ec=$integrated_first_ec: $(cat "$integrated_first"))"
+fi
+
+SECOND_INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-SECOND-INTEGRATED-STATE.json"
+cp "$INTEGRATED_STATE" "$SECOND_INTEGRATED_STATE"
+node -e '
+  const fs=require("fs"); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8")); const third=JSON.parse(JSON.stringify(value.round_control.failures[1])); third.id="F-3"; third.dispatch_ordinal=3; value.round_control.failures.push(third);
+  value.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"]; value.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:4,failure_ids:["F-1","F-2","F-3"],status:"ready"}; fs.writeFileSync(file,JSON.stringify(value));
+' "$SECOND_INTEGRATED_STATE"
+integrated_second="$TMP_ROOT/integrated-second.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$SECOND_INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_second" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$integrated_second"; then
+  pass "a later ordinal cannot admit a second integrated fix"
+else
+  fail "a later ordinal cannot admit a second integrated fix (ec=$ec: $(cat "$integrated_second"))"
+fi
+
+NORMAL_SAME_ORDINAL_STATE="$ADMIT_WT/.review/ISSUE-307-NORMAL-SAME-ORDINAL.json"
+cp "$INTEGRATED_STATE" "$NORMAL_SAME_ORDINAL_STATE"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[1].primary_origin="test_oracle"; v.round_control.failures[1].next_action.kind="oracle_fix"; delete v.round_control.diagnosis; fs.writeFileSync(f,JSON.stringify(v));' "$NORMAL_SAME_ORDINAL_STATE"
+normal_same_ordinal="$TMP_ROOT/normal-same-ordinal.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$normal_same_ordinal"; then
+  pass "the same dispatch ordinal cannot replay under another mode"
+else
+  fail "the same dispatch ordinal cannot replay under another mode (ec=$ec: $(cat "$normal_same_ordinal"))"
+fi
+
 # --- poll path: a STALE RUN.json from a previous run must NOT count ---
 # First production use hit this: re-dispatch of the same issue found the
 # previous run's status:"exited" RUN.json and reported success immediately,
@@ -151,7 +341,7 @@ exit 0
 EOF
 chmod +x "$NOOP_BIN/cmux"
 stale_out="$TMP_ROOT/stale-timeout.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --poll-timeout 2 >"$stale_out" 2>&1
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --read-only --poll-timeout 2 >"$stale_out" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ]; then
   pass "stale RUN.json alone is not accepted (dispatch times out non-zero)"
@@ -175,7 +365,7 @@ exit 0
 EOF
 chmod +x "$FRESH_BIN/cmux"
 fresh_out="$TMP_ROOT/fresh-accept.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$FRESH_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --poll-timeout 5 >"$fresh_out" 2>&1
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$FRESH_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --read-only --poll-timeout 5 >"$fresh_out" 2>&1
 ec=$?
 if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$fresh_out" && grep -q "status=running" "$fresh_out"; then
   pass "fresh RUN.json (new started_at) is accepted after a stale one"
@@ -188,7 +378,7 @@ printf '%s\n' '{"artifact_type":"blocker","issue":305,"reason_code":"tier_escala
 touch -t 202607130000 "$STALE_WT/.review/ISSUE-305-BLOCKER.json" 2>/dev/null || true
 printf '%s\n' "prompt body" > "$STALE_WT/.review/ISSUE-305-PROMPT.txt"
 blocker_out="$TMP_ROOT/stale-blocker.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 305 --worktree "$STALE_WT" --poll-timeout 2 >"$blocker_out" 2>&1
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 305 --worktree "$STALE_WT" --read-only --poll-timeout 2 >"$blocker_out" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ] && grep -q "waiting past stale BLOCKER.json" "$blocker_out"; then
   pass "stale BLOCKER.json alone is not accepted"
@@ -214,6 +404,44 @@ if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$first_out"; then
   pass "first dispatch with no pre-existing artifact still accepts a new RUN.json"
 else
   fail "first dispatch with no pre-existing artifact still accepts a new RUN.json (ec=$ec: $(cat "$first_out"))"
+fi
+
+rm "$STALE_WT/.review/ISSUE-306-RUN.json"
+attempt_marker_out="$TMP_ROOT/write-attempt-marker.out"
+bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --dry-run >"$attempt_marker_out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "redispatch requires --round-state" "$attempt_marker_out"; then
+  pass "pre-launch write marker keeps a pre-RUN failure visible"
+else
+  fail "pre-launch write marker keeps a pre-RUN failure visible (ec=$ec: $(cat "$attempt_marker_out"))"
+fi
+
+RACE_WT="$TMP_ROOT/wt-initial-race"
+mkdir -p "$RACE_WT/.review"
+git init -q "$RACE_WT"
+git -C "$RACE_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+printf '%s\n' 'prompt body' > "$RACE_WT/.review/ISSUE-308-PROMPT.txt"
+RACE_BIN="$TMP_ROOT/bin-race-cmux"
+mkdir -p "$RACE_BIN"
+cat > "$RACE_BIN/cmux" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":308,"attempt":1,"started_at":"2026-07-20T11:00:00Z","updated_at":"2026-07-20T11:00:00Z","status":"running"}' > "$RACE_WT/.review/ISSUE-308-RUN.json"
+exit 0
+EOF
+chmod +x "$RACE_BIN/cmux"
+CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --poll-timeout 3 >"$TMP_ROOT/race-one.out" 2>&1 &
+race_one_pid=$!
+CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --poll-timeout 3 >"$TMP_ROOT/race-two.out" 2>&1 &
+race_two_pid=$!
+wait "$race_one_pid"; race_one_ec=$?
+wait "$race_two_pid"; race_two_ec=$?
+race_successes=0
+[ "$race_one_ec" -eq 0 ] && race_successes=$((race_successes + 1))
+[ "$race_two_ec" -eq 0 ] && race_successes=$((race_successes + 1))
+if [ "$race_successes" -eq 1 ] && { grep -q "concurrent write dispatch" "$TMP_ROOT/race-one.out" || grep -q "concurrent write dispatch" "$TMP_ROOT/race-two.out"; }; then
+  pass "concurrent first writes atomically admit exactly one launch"
+else
+  fail "concurrent first writes atomically admit exactly one launch (one=$race_one_ec two=$race_two_ec)"
 fi
 
 # --- codex-watchdog.sh: relative --prompt-file resolves against --cwd ---
