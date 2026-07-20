@@ -4,6 +4,12 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 ## Current release: v0.19
 
+## Next: unreleased canonical VERIFY aggregate
+
+- Canonical `ISSUE-N-VERIFY.json` now optionally retains ordered `runs[]` for repeated same-identity verifier runs. Its top-level verdict is validated as the derived aggregate, so a prior FAIL cannot be overwritten into false readiness by a later narrow-filter PASS. Only an absent `runs` property is legacy; a present malformed value is rejected.
+- A later locally-green run returns nonzero while that aggregate remains red; a new HEAD begins a new aggregate. Legacy flat v1 artifacts remain accepted as one synthetic run.
+- CONDUCTOR reconstruction schema-validates the complete canonical VERIFY from its source/installed product home before aggregate checks, while redispatch closure validation rejects forged aggregate top-level claims. A VERIFY closure needs a matching passing run for `contract.verify_filter`, not merely a top-level command string. Canonical publication validates a same-directory temporary file before atomic replacement, preserving prior evidence on publication failure.
+
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
 - isolated worktree preparation and visible cmux dispatch, with a retained atomic launch runner so cmux receives only a short relative command even when the watchdog argv contains deep paths;
@@ -20,6 +26,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - compile-atomic `contract.chunk_boundary` enforcement: enumerated consumers stay inside one chunk, `completion-check.sh` executes its target-native full typecheck, and only live-diff-triggered convention watches enter review;
 - a dispatch-bound repeated-round circuit breaker keyed to canonical failure-origin codes, with live evidence validation, atomic single-use admission, oracle/contract-first diagnosis, one manifest update, one integrated fix batch, and security early stop;
+- a narrow `dispatch_contract` scoped-abort admission: a canonical BLOCKER can supply the sole failed-round evidence only after schema, issue, hash, referenced-commit, and producer-observed `head_sha` equality validation, while every other origin remains VERIFY/REVIEW-bound;
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
@@ -43,10 +50,18 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 - `cmux-dispatch.sh` atomically records a launch-unique worktree-local executable runner before cmux creation. The runner preserves the fully quoted watchdog argv and clears `NODE_OPTIONS`, while cmux receives only `bash .review/ISSUE-N-launch.<unique>/launch.sh` under its mandatory workspace cwd. Concurrent same-issue seats cannot overwrite one another before asynchronous execution.
 - Each runner remains available for asynchronous startup and pre-RUN failures, and dispatch output identifies its exact path. Operators diagnose silent panes with `cmux read-screen --workspace <name> --scrollback --lines <N>`; `dquote>` and `heredoc>` are shell-transport evidence, not completion or liveness evidence.
 
+### v0.19 — dispatch-contract scoped abort evidence
+
+- `redispatch-check.sh` validates canonical BLOCKER schema and issue identity in addition to content hash and referenced commit checks, then requires its embedded producer-observed `head_sha` to equal the evidence reference.
+- BLOCKER lifecycle is fail-closed for admission: only `active` and `final` are consumable, while `superseded` returns the stable `superseded_evidence_artifact` machine error.
+- Only a `dispatch_contract` failure routed to `contract_fix` may use that BLOCKER as its sole failed-round evidence; the artifact union remains available elsewhere but does not weaken other origins' VERIFY/REVIEW requirement.
+- Migration: pre-v0.19 BLOCKER artifacts without `head_sha` remain historical display evidence but are not redispatch-admissible; regenerate them at the observed commit instead of copying or relabeling stale evidence.
+
 ### v0.18 — verifier clean-state and machine failures
 
 - Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, and passing evidence is embedded in the existing VERIFY artifact.
 - Every classifier failure exposes typed machine data, and failed canonical artifacts retain the same `code`/`expected`/`actual` records. Existing human diagnostics remain available.
+- REVIEW closure admission now documents and independently checks `lifecycle:"final"`, `status:"pass"`, and an all-met checklist; its existing `failure_closure_not_verified` machine code carries a stable predicate detail for lifecycle, status, or checklist failure.
 - No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `--fresh` is a stable reserved refusal until a target DB lifecycle adapter owns rebuild/drop behavior.
 - `verify.sh` remains the sole operator interface while `scripts/lib/verify-result.cjs` owns result classification, clean-probe validation, and VERIFY payload construction.
 

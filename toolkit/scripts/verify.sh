@@ -189,7 +189,7 @@ emit_verify_artifact() {
   VERIFY_ARTIFACT_CREATED_AT="$created_at" \
   VERIFY_ARTIFACT_REPORT="$report" \
   VERIFY_ARTIFACT_CLEAN_RESULT="${VERIFY_CLEAN_RESULT_PATH:-}" \
-  node "$VERIFY_RESULT" write-artifact || {
+  node "$VERIFY_RESULT" write-artifact "$VERIFY_SCHEMA" "$SCHEMA_VALIDATOR" || {
     echo "FAIL: unable to write verify artifact: $artifact_path" >&2
     emit_machine_failure "artifact_write" "valid canonical VERIFY artifact" "write failed"
     return 1
@@ -200,6 +200,14 @@ emit_verify_artifact() {
     emit_machine_failure "artifact_validation" "valid canonical VERIFY artifact" "invalid"
     return 1
   }
+
+  node "$VERIFY_RESULT" aggregate-exit-code "$artifact_path" >/dev/null 2>&1
+  VERIFY_ARTIFACT_AGGREGATE_EXIT=$?
+  if [ "$VERIFY_ARTIFACT_AGGREGATE_EXIT" -gt 1 ]; then
+    echo "FAIL: wrote semantically invalid verify aggregate: $artifact_path" >&2
+    emit_machine_failure "artifact_validation" "valid canonical VERIFY aggregate" "invalid"
+    return 1
+  fi
 }
 
 main() {
@@ -393,6 +401,10 @@ main() {
       else
         echo "WARN: verify artifact write failed on an already-failing run; preserving test FAIL (exit $cls_ec)" >&2
       fi
+    fi
+    if [ "${VERIFY_ARTIFACT_AGGREGATE_EXIT:-0}" -ne 0 ]; then
+      echo "FAIL: canonical VERIFY aggregate remains red for this HEAD; all recorded runs must pass" >&2
+      exit 1
     fi
   fi
 

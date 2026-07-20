@@ -52,15 +52,15 @@
         "id": "F-1",
         "dispatch_ordinal": 1,
         "status": "open",
-        "primary_origin": "test_oracle",
+        "primary_origin": "dispatch_contract",
         "secondary_origins": [],
         "failed_ac_ids": ["AC-2"],
         "owner": "CONDUCTOR",
-        "next_action": { "kind": "diagnosis", "summary": "recheck the oracle and contract before routing another fix" },
+        "next_action": { "kind": "contract_fix", "summary": "repair the dispatch contract before another implementation attempt" },
         "evidence": [
           {
-            "kind": "verify",
-            "path": ".review/history/ISSUE-188-VERIFY-F-1.json",
+            "kind": "blocker",
+            "path": ".review/history/ISSUE-188-BLOCKER-F-1.json",
             "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "head_sha": "2222222222222222222222222222222222222222"
           }
@@ -70,15 +70,15 @@
         "id": "F-2",
         "dispatch_ordinal": 2,
         "status": "open",
-        "primary_origin": "test_oracle",
+        "primary_origin": "dispatch_contract",
         "secondary_origins": ["implementation"],
         "failed_ac_ids": ["AC-2"],
         "owner": "CONDUCTOR",
-        "next_action": { "kind": "diagnosis", "summary": "ground the next action in a hard fact and passing analog" },
+        "next_action": { "kind": "contract_fix", "summary": "repair the dispatch contract before another implementation attempt" },
         "evidence": [
           {
-            "kind": "verify",
-            "path": ".review/history/ISSUE-188-VERIFY-F-2.json",
+            "kind": "blocker",
+            "path": ".review/history/ISSUE-188-BLOCKER-F-2.json",
             "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             "head_sha": "2222222222222222222222222222222222222222"
           }

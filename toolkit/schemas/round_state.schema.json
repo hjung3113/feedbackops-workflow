@@ -177,7 +177,10 @@
               "id": { "type": "string", "minLength": 1 },
               "dispatch_ordinal": { "type": "integer", "minimum": 1 },
               "status": { "enum": ["open", "closed"] },
-              "primary_origin": { "enum": ["environment", "dispatch_contract", "implementation", "test_oracle", "verification_harness", "integration_drift"] },
+              "primary_origin": {
+                "enum": ["environment", "dispatch_contract", "implementation", "test_oracle", "verification_harness", "integration_drift"],
+                "description": "The redispatch gate gives a BLOCKER-only failure-evidence exception only to dispatch_contract; all other origins still require failed VERIFY or REVIEW evidence."
+              },
               "secondary_origins": {
                 "type": "array",
                 "uniqueItems": true,
@@ -202,12 +205,16 @@
                 "type": "array",
                 "minItems": 1,
                 "uniqueItems": true,
+                "description": "The shared evidence union deliberately permits blocker references. Runtime admission treats a schema-valid, issue/hash/HEAD-bound BLOCKER as sole failed evidence only for primary_origin dispatch_contract, and requires its embedded producer head_sha to equal the evidence reference; it is not a general VERIFY/REVIEW replacement.",
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
                   "required": ["kind", "path", "content_sha256", "head_sha"],
                   "properties": {
-                    "kind": { "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"] },
+                    "kind": {
+                      "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"],
+                      "description": "blocker is eligible as sole failed evidence only under the failure-level dispatch_contract exception enforced by redispatch-check.sh, including producer/reference head_sha equality."
+                    },
                     "path": { "type": "string", "minLength": 1 },
                     "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
                     "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }

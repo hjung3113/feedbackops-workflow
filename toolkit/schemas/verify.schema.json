@@ -84,6 +84,55 @@
         }
       }
     },
+    "runs": {
+      "description": "optional ordered same-identity verification runs. When present, top-level readiness is the derived aggregate of every run; absent v1 artifacts are interpreted as one synthetic run.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["verify_cmd", "clean_state", "verdict", "classifier", "failures", "created_at"],
+        "properties": {
+          "verify_cmd": { "type": "string", "minLength": 1 },
+          "verdict": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["passed", "failed", "pending", "exit_code"],
+            "properties": {
+              "passed": { "type": "integer", "minimum": 0 },
+              "failed": { "type": "integer", "minimum": 0 },
+              "pending": { "type": "integer", "minimum": 0 },
+              "exit_code": { "type": "integer" }
+            }
+          },
+          "classifier": { "enum": ["PASS", "FAIL"] },
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "expected", "actual"],
+              "properties": {
+                "code": { "type": "string", "minLength": 1 },
+                "expected": { "type": "string" },
+                "actual": { "type": "string" }
+              }
+            }
+          },
+          "clean_state": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sentinel", "migration_hash", "role"],
+            "properties": {
+              "sentinel": { "type": "object", "additionalProperties": false, "required": ["expected", "actual"], "properties": { "expected": { "type": "string" }, "actual": { "type": "string" } } },
+              "migration_hash": { "type": "object", "additionalProperties": false, "required": ["expected", "actual"], "properties": { "expected": { "type": "string" }, "actual": { "type": "string" } } },
+              "role": { "type": "object", "additionalProperties": false, "required": ["name", "superuser"], "properties": { "name": { "type": "string", "minLength": 1 }, "superuser": { "const": false } } }
+            }
+          },
+          "created_at": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
     "created_at": { "type": "string", "description": "ISO-8601 timestamp" }
   }
 }

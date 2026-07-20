@@ -248,6 +248,113 @@ fi
 run_filter_case "fail-artifact-write-failure-preserves-classifier" 1 "file" "fail" 3
 run_filter_case "no-verify-issue-green-unchanged" 0 "file" "green" ""
 
+echo "--- canonical VERIFY aggregate ---"
+
+make_aggregate_repo() {
+  repo="$1"
+  bin="$repo/bin"
+  mkdir -p "$repo" "$bin" "$repo/.review"
+  git -C "$repo" init -q
+  git -C "$repo" config user.email "smoke@test.local"
+  git -C "$repo" config user.name "smoke"
+  printf '%s\n' '# aggregate smoke repo' > "$repo/README.md"
+  git -C "$repo" add -A
+  git -C "$repo" commit -q -m seed
+  write_pnpm_stub "$bin" green
+}
+
+run_aggregate_filter() {
+  repo="$1"; mode="$2"; issue="$3"; filter="$4"
+  ( cd "$repo" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" VERIFY_ISSUE="$issue" PNPM_STUB_MODE="$mode" VERIFY_ENV_ALLOW="PNPM_STUB_MODE" PATH="$repo/bin:$PATH" bash "$VERIFY" "$filter" ) >/dev/null 2>&1
+}
+
+aggregate_fail_pass="$TMP_DIR/aggregate-fail-pass"
+make_aggregate_repo "$aggregate_fail_pass"
+run_aggregate_filter "$aggregate_fail_pass" fail 42 permissions
+aggregate_first_ec=$?
+run_aggregate_filter "$aggregate_fail_pass" green 42 surveys
+aggregate_second_ec=$?
+if [ "$aggregate_first_ec" -eq 1 ] && [ "$aggregate_second_ec" -eq 1 ] && node -e '
+  const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  if(!Array.isArray(o.runs)||o.runs.length!==2||o.runs[0].classifier!=="FAIL"||o.runs[1].classifier!=="PASS"||o.classifier!=="FAIL"||o.verdict.exit_code===0||o.verdict.failed<1||!o.failures.some((f)=>f.code==="failed_tests")) process.exit(1);
+' "$aggregate_fail_pass/.review/ISSUE-42-VERIFY.json"; then
+  echo "ok   - FAIL then PASS retains both runs and red-latches canonical readiness"
+else
+  echo "NOT OK - FAIL then PASS retains both runs and red-latches canonical readiness (exits $aggregate_first_ec/$aggregate_second_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_pass_pass="$TMP_DIR/aggregate-pass-pass"
+make_aggregate_repo "$aggregate_pass_pass"
+run_aggregate_filter "$aggregate_pass_pass" green 43 permissions
+aggregate_pass_first_ec=$?
+run_aggregate_filter "$aggregate_pass_pass" green 43 surveys
+aggregate_pass_second_ec=$?
+if [ "$aggregate_pass_first_ec" -eq 0 ] && [ "$aggregate_pass_second_ec" -eq 0 ] && node -e '
+  const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  if(!Array.isArray(o.runs)||o.runs.length!==2||o.classifier!=="PASS"||o.verdict.exit_code!==0||o.verdict.failed!==0||o.runs.some((run)=>run.classifier!=="PASS")) process.exit(1);
+' "$aggregate_pass_pass/.review/ISSUE-43-VERIFY.json"; then
+  echo "ok   - PASS then PASS appends runs and remains green"
+else
+  echo "NOT OK - PASS then PASS appends runs and remains green"
+  FAILURES=$((FAILURES + 1))
+fi
+
+git -C "$aggregate_pass_pass" commit --allow-empty -qm "new verify head"
+run_aggregate_filter "$aggregate_pass_pass" green 43 new-head-filter
+aggregate_new_head_ec=$?
+if [ "$aggregate_new_head_ec" -eq 0 ] && node -e '
+  const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  if(!Array.isArray(o.runs)||o.runs.length!==1||o.verify_cmd!=="verify.sh new-head-filter"||o.head_sha!==require("child_process").execFileSync("git",["-C",process.argv[2],"rev-parse","HEAD"],{encoding:"utf8"}).trim()) process.exit(1);
+' "$aggregate_pass_pass/.review/ISSUE-43-VERIFY.json" "$aggregate_pass_pass"; then
+  echo "ok   - a new HEAD starts a new canonical aggregate"
+else
+  echo "NOT OK - a new HEAD starts a new canonical aggregate"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_legacy="$TMP_DIR/aggregate-legacy-flat"
+make_aggregate_repo "$aggregate_legacy"
+run_aggregate_filter "$aggregate_legacy" green 44 legacy-first
+node -e 'const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8")); delete o.runs; fs.writeFileSync(f,JSON.stringify(o));' "$aggregate_legacy/.review/ISSUE-44-VERIFY.json"
+run_aggregate_filter "$aggregate_legacy" green 44 legacy-second
+aggregate_legacy_ec=$?
+if [ "$aggregate_legacy_ec" -eq 0 ] && node -e 'const o=require(process.argv[1]); process.exit(Array.isArray(o.runs)&&o.runs.length===2&&o.runs[0].verify_cmd==="verify.sh legacy-first"&&o.runs[1].verify_cmd==="verify.sh legacy-second" ? 0 : 1)' "$aggregate_legacy/.review/ISSUE-44-VERIFY.json"; then
+  echo "ok   - legacy flat artifact is promoted to runs[] when a matching run appends"
+else
+  echo "NOT OK - legacy flat artifact is promoted to runs[] when a matching run appends"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_malformed="$TMP_DIR/aggregate-malformed-runs"
+make_aggregate_repo "$aggregate_malformed"
+run_aggregate_filter "$aggregate_malformed" green 45 first
+node -e 'const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8")); o.runs={}; fs.writeFileSync(f,JSON.stringify(o));' "$aggregate_malformed/.review/ISSUE-45-VERIFY.json"
+aggregate_malformed_before="$(shasum -a 256 "$aggregate_malformed/.review/ISSUE-45-VERIFY.json" | awk '{print $1}')"
+run_aggregate_filter "$aggregate_malformed" green 45 second
+aggregate_malformed_ec=$?
+aggregate_malformed_after="$(shasum -a 256 "$aggregate_malformed/.review/ISSUE-45-VERIFY.json" | awk '{print $1}')"
+if [ "$aggregate_malformed_ec" -eq 5 ] && [ "$aggregate_malformed_before" = "$aggregate_malformed_after" ]; then
+  echo "ok   - malformed runs property is rejected without replacing canonical evidence"
+else
+  echo "NOT OK - malformed runs property is rejected without replacing canonical evidence (exit $aggregate_malformed_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_atomic="$TMP_DIR/aggregate-atomic-publication"
+make_aggregate_repo "$aggregate_atomic"
+run_aggregate_filter "$aggregate_atomic" fail 46 permissions
+aggregate_atomic_before="$(shasum -a 256 "$aggregate_atomic/.review/ISSUE-46-VERIFY.json" | awk '{print $1}')"
+( cd "$aggregate_atomic" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" VERIFY_ISSUE=46 PNPM_STUB_MODE=green VERIFY_ENV_ALLOW="PNPM_STUB_MODE" VERIFY_ARTIFACT_TEST_FAIL_BEFORE_RENAME=1 PATH="$aggregate_atomic/bin:$PATH" bash "$VERIFY" surveys ) >/dev/null 2>&1
+aggregate_atomic_ec=$?
+aggregate_atomic_after="$(shasum -a 256 "$aggregate_atomic/.review/ISSUE-46-VERIFY.json" | awk '{print $1}')"
+if [ "$aggregate_atomic_ec" -eq 5 ] && [ "$aggregate_atomic_before" = "$aggregate_atomic_after" ] && [ "$(find "$aggregate_atomic/.review" -name '.ISSUE-46-VERIFY.json.tmp-*' | wc -l | tr -d ' ')" -eq 0 ]; then
+  echo "ok   - failed aggregate publication preserves prior red artifact atomically"
+else
+  echo "NOT OK - failed aggregate publication preserves prior red artifact atomically (exit $aggregate_atomic_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
 echo "--- full-module and privilege defaults ---"
 
 clean_out="$TMP_DIR/clean.out"
@@ -442,6 +549,13 @@ if node -e '
   echo "ok   - schema requires exact canonical clean-state fields"
 else
   echo "NOT OK - schema requires exact canonical clean-state fields"
+  FAILURES=$((FAILURES + 1))
+fi
+
+if ! node "$SCRIPT_DIR/../lib/verify-result.cjs" validate-artifact "$SCHEMA_ROOT/schemas/fixtures/verify.aggregate_forged.semantic-invalid.json" "$SCHEMA_ROOT/schemas/verify.schema.json" "$SCRIPT_DIR/../lib/json-schema-subset.cjs" >/dev/null 2>&1; then
+  echo "ok   - semantic validation rejects a forged aggregate PASS over a failed run"
+else
+  echo "NOT OK - semantic validation rejects a forged aggregate PASS over a failed run"
   FAILURES=$((FAILURES + 1))
 fi
 

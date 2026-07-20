@@ -34,6 +34,45 @@ assert_case() {
   fi
 }
 
+assert_error_case() {
+  name="$1"; state="$2"; expected_code="$3"; expected_detail="$4"
+  output="$TMP_DIR/output.json"
+  ( bash "$CHECK" --round-state "$state" --manifest-revision 5 ) >"$output" 2>/dev/null
+  actual_exit=$?
+  if [ "$actual_exit" -ne 2 ]; then
+    echo "NOT OK - $name (expected exit 2, got $actual_exit: $(cat "$output"))"
+    FAILURES=$((FAILURES + 1))
+    return
+  fi
+  if node -e '
+    const value = require(process.argv[1]);
+    const error = value.errors && value.errors[0];
+    process.exit(value.decision === "error" && error
+      && error.code === process.argv[2] && error.detail === process.argv[3] ? 0 : 1);
+  ' "$output" "$expected_code" "$expected_detail"; then
+    echo "ok   - $name"
+  else
+    echo "NOT OK - $name (unexpected error payload: $(cat "$output"))"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+assert_error_code() {
+  name="$1"; state="$2"; expected_code="$3"
+  output="$TMP_DIR/output-error.json"
+  ( bash "$CHECK" --round-state "$state" --manifest-revision 5 ) >"$output" 2>/dev/null
+  actual_exit=$?
+  if [ "$actual_exit" -eq 2 ] && node -e '
+    const value=require(process.argv[1]);
+    process.exit(value.decision === "error" && value.errors[0] && value.errors[0].code === process.argv[2] ? 0 : 1);
+  ' "$output" "$expected_code"; then
+    echo "ok   - $name"
+  else
+    echo "NOT OK - $name (expected exit 2/$expected_code, got $actual_exit: $(cat "$output"))"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
 WORKTREE="$TMP_DIR/worktree"
 mkdir -p "$WORKTREE/.review/evidence"
 git init -q "$WORKTREE"
@@ -54,6 +93,13 @@ fs.writeFileSync(path.join(root,"wrong-issue.json"),JSON.stringify({...verifyFai
 fs.writeFileSync(path.join(root,"contradictory-fail.json"),JSON.stringify({...verifyFail,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
 const review={schema_version:"1",artifact_type:"review",lifecycle:"final",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"security review",met:true}]};
 fs.writeFileSync(path.join(root,"security.json"),JSON.stringify(review));
+const blocker={schema_version:"1",artifact_type:"blocker",lifecycle:"active",producer_role:"CODEX",issue:{number:188,title:"dispatch contract failure"},head_sha:head,reason_code:"failing_precondition",blocking_fact:"cmux command was truncated before codex-safe started",attempted_commands:["cmux workspace create --command ..."],needed_decision:"repair the dispatch wrapper"};
+fs.writeFileSync(path.join(root,"dispatch-contract-blocker.json"),JSON.stringify(blocker));
+fs.writeFileSync(path.join(root,"superseded-blocker.json"),JSON.stringify({...blocker,lifecycle:"superseded"}));
+const {head_sha,...legacyBlocker}=blocker;
+fs.writeFileSync(path.join(root,"legacy-blocker-without-head.json"),JSON.stringify(legacyBlocker));
+fs.writeFileSync(path.join(root,"malformed-blocker.json"),JSON.stringify({artifact_type:"blocker",issue:{number:188}}));
+fs.writeFileSync(path.join(root,"wrong-issue-blocker.json"),JSON.stringify({...blocker,issue:{number:999,title:"wrong issue"}}));
 fs.writeFileSync(path.join(root,"oracle.json"),"oracle evidence\n");
 fs.writeFileSync(path.join(root,"passing-analog.json"),"passing analog evidence\n");
 fs.writeFileSync(path.join(root,"plain.json"),"not a verifier artifact\n");
@@ -69,8 +115,12 @@ for (const name of ["F-1-closed","F-2-closed"]) fs.writeFileSync(path.join(root,
 fs.writeFileSync(path.join(root,"wrong-branch.json"),JSON.stringify({...verifyPass,branch:"other"}));
 fs.writeFileSync(path.join(root,"unrelated-pass.json"),JSON.stringify({...verifyPass,verify_cmd:"smoke verify --filter unrelated"}));
 fs.writeFileSync(path.join(root,"zero-pass.json"),JSON.stringify({...verifyPass,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
-const review={schema_version:"1",artifact_type:"review",lifecycle:"draft",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"unfinished review",met:false}]};
-fs.writeFileSync(path.join(root,"draft-review.json"),JSON.stringify(review));
+const reviewBase={schema_version:"1",artifact_type:"review",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head};
+const closureItem="failure:F-1:AC-1";
+fs.writeFileSync(path.join(root,"review-final-pass.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"pass",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-active-pass.json"),JSON.stringify({...reviewBase,lifecycle:"active",status:"pass",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-final-blocked.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"blocked",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-final-unmet.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"pass",checklist:[{item:closureItem,met:false}]}));
 NODE
 git -C "$WORKTREE" add .review/evidence
 git -C "$WORKTREE" commit -qm closure-evidence
@@ -132,6 +182,52 @@ make_failure_state() {
 make_failure_state "$TMP_DIR/different.json" "implementation,test_oracle"
 assert_case "different origins allow the second normal redispatch" 0 "$TMP_DIR/different.json" "allow_normal" "null"
 
+make_blocker_failure_state() {
+  destination="$1"
+  cp "$TMP_DIR/base.json" "$destination"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,name,origin]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:origin,secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:origin==="dispatch_contract"?"contract_fix":"implementation_fix",summary:"route the scoped abort"},evidence:[{kind:"blocker",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head}]}]};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$destination" "$WORKTREE" "$EVIDENCE_HEAD" "$2" "$3"
+}
+
+make_blocker_failure_state "$TMP_DIR/dispatch-contract-blocker.json" "dispatch-contract-blocker" "dispatch_contract"
+assert_case "dispatch-contract scoped abort admits canonical BLOCKER without REVIEW wrapper" 0 "$TMP_DIR/dispatch-contract-blocker.json" "allow_normal" "null"
+
+make_blocker_failure_state "$TMP_DIR/superseded-blocker.json" "superseded-blocker" "dispatch_contract"
+assert_error_code "superseded blocker is ignored before redispatch admission" "$TMP_DIR/superseded-blocker.json" "superseded_evidence_artifact"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-resolvable-wrong-head.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].head_sha=process.argv[2]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-resolvable-wrong-head.json" "$CLOSURE_HEAD"
+assert_case "blocker evidence rejects a resolvable commit different from the producer-observed HEAD" 2 "$TMP_DIR/blocker-resolvable-wrong-head.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/malformed-blocker.json" "malformed-blocker" "dispatch_contract"
+assert_case "malformed blocker is rejected before redispatch admission" 2 "$TMP_DIR/malformed-blocker.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/legacy-blocker.json" "legacy-blocker-without-head" "dispatch_contract"
+assert_case "legacy blocker without producer-observed HEAD is not redispatch-admissible" 2 "$TMP_DIR/legacy-blocker.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/wrong-issue-blocker.json" "wrong-issue-blocker" "dispatch_contract"
+assert_case "blocker evidence is bound to the ROUND-STATE issue" 2 "$TMP_DIR/wrong-issue-blocker.json" "error" "null"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-wrong-hash.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].content_sha256="0000000000000000000000000000000000000000000000000000000000000000"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-wrong-hash.json"
+assert_case "blocker evidence content hash is verified before admission" 2 "$TMP_DIR/blocker-wrong-hash.json" "error" "null"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-wrong-head.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].head_sha="0000000000000000000000000000000000000000"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-wrong-head.json"
+assert_case "blocker evidence HEAD must resolve in the declared worktree" 2 "$TMP_DIR/blocker-wrong-head.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/non-dispatch-blocker.json" "dispatch-contract-blocker" "implementation"
+assert_case "BLOCKER-only evidence cannot admit a non-dispatch-contract round" 2 "$TMP_DIR/non-dispatch-blocker.json" "error" "null"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-diagnosis-route.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].next_action.kind="diagnosis"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-diagnosis-route.json"
+assert_case "BLOCKER-only evidence requires the dispatch-contract fix route" 2 "$TMP_DIR/blocker-diagnosis-route.json" "error" "null"
+
 cp "$TMP_DIR/different.json" "$TMP_DIR/unrouted.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].next_action.kind="diagnosis"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unrouted.json"
 assert_case "normal write redispatch waits for origin-compatible action routing" 1 "$TMP_DIR/unrouted.json" "routing_required" "null"
@@ -167,18 +263,42 @@ node -e '
 ' "$TMP_DIR/plain-closure.json" "$WORKTREE" "$EVIDENCE_HEAD"
 assert_case "closure labels cannot turn plain text into verifier evidence" 2 "$TMP_DIR/plain-closure.json" "error" "null"
 
-for closure_case in zero-pass draft-review; do
+for closure_case in zero-pass; do
   cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-closure.json"
   node -e '
     const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
     const [file,worktree,head,name]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
     const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
-    value.round_control.failures[0].closed_by={kind:name==="draft-review"?"review":"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids,checklist_item:name==="draft-review"?"unfinished review":undefined};
+    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
     fs.writeFileSync(file,JSON.stringify(value));
   ' "$TMP_DIR/$closure_case-closure.json" "$WORKTREE" "$CLOSURE_HEAD" "$closure_case"
 done
 assert_case "zero-test PASS cannot close a failed round" 2 "$TMP_DIR/zero-pass-closure.json" "error" "null"
-assert_case "draft review with unmet checklist cannot close a failed round" 2 "$TMP_DIR/draft-review-closure.json" "error" "null"
+
+make_review_closure_state() {
+  destination="$1"; artifact="$2"
+  cp "$TMP_DIR/closed-history.json" "$destination"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,artifact]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+artifact+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    const failure=value.round_control.failures[0];
+    failure.closed_by={kind:"review",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:failure.failed_ac_ids,checklist_item:"failure:"+failure.id+":"+failure.failed_ac_ids.join(",")};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$destination" "$WORKTREE" "$CLOSURE_HEAD" "$artifact"
+}
+
+make_review_closure_state "$TMP_DIR/review-final-pass-closure.json" "review-final-pass"
+assert_case "final passing review with the exact checklist closure admits history" 0 "$TMP_DIR/review-final-pass-closure.json" "allow_normal" "null"
+
+make_review_closure_state "$TMP_DIR/review-active-pass-closure.json" "review-active-pass"
+assert_error_case "active passing review reports its lifecycle predicate" "$TMP_DIR/review-active-pass-closure.json" "failure_closure_not_verified" "review_lifecycle_not_final"
+
+make_review_closure_state "$TMP_DIR/review-final-blocked-closure.json" "review-final-blocked"
+assert_error_case "final blocked review reports its status predicate" "$TMP_DIR/review-final-blocked-closure.json" "failure_closure_not_verified" "review_status_not_pass"
+
+make_review_closure_state "$TMP_DIR/review-final-unmet-closure.json" "review-final-unmet"
+assert_error_case "final passing review reports an unmet checklist predicate" "$TMP_DIR/review-final-unmet-closure.json" "failure_closure_not_verified" "review_checklist_unmet"
 
 for closure_case in old-pass wrong-branch unrelated-pass; do
   cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-lineage.json"
@@ -193,6 +313,50 @@ done
 assert_case "closure evidence must be newer than the failed-round evidence" 2 "$TMP_DIR/old-pass-lineage.json" "error" "null"
 assert_case "closure verifier must match the live worktree branch" 2 "$TMP_DIR/wrong-branch-lineage.json" "error" "null"
 assert_case "closure verifier must run the canonical verification scope" 2 "$TMP_DIR/unrelated-pass-lineage.json" "error" "null"
+
+node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path");
+const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
+const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
+const failed={verify_cmd:"smoke verify --filter shared-contract",clean_state,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-20T00:02:00Z"};
+const passed={verify_cmd:"smoke verify --filter unrelated",clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:03:00Z"};
+// This is intentionally forged: legacy top-level checks say PASS and name the
+// required scope, but no passing run actually covers that scope.
+const forged={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:passed.created_at,runs:[failed,passed]};
+fs.writeFileSync(path.join(root,"aggregate-unmatched.json"),JSON.stringify(forged));
+NODE
+cp "$TMP_DIR/closed-history.json" "$TMP_DIR/aggregate-unmatched-closure.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+  const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const relative=".review/evidence/aggregate-unmatched.json"; const content=fs.readFileSync(path.join(worktree,relative));
+  value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$TMP_DIR/aggregate-unmatched-closure.json" "$WORKTREE" "$CLOSURE_HEAD"
+assert_case "closure requires a matching passing run, not a forged aggregate command" 2 "$TMP_DIR/aggregate-unmatched-closure.json" "error" "null"
+
+node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path");
+const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
+const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
+const matching={verify_cmd:"smoke verify --filter shared-contract",clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:04:00Z"};
+const later={verify_cmd:"smoke verify --filter another-scope",clean_state,verdict:{passed:2,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:05:00Z"};
+const aggregate={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:later.verify_cmd,db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:3,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:later.created_at,runs:[matching,later]};
+fs.writeFileSync(path.join(root,"aggregate-matched.json"),JSON.stringify(aggregate));
+fs.writeFileSync(path.join(root,"aggregate-malformed-runs.json"),JSON.stringify({...aggregate,runs:{}}));
+NODE
+for aggregate_case in aggregate-matched aggregate-malformed-runs; do
+  cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$aggregate_case-closure.json"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,name]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$TMP_DIR/$aggregate_case-closure.json" "$WORKTREE" "$CLOSURE_HEAD" "$aggregate_case"
+done
+assert_case "valid all-PASS aggregate closes through an earlier matching run" 0 "$TMP_DIR/aggregate-matched-closure.json" "allow_normal" "null"
+assert_case "present-but-malformed aggregate runs are rejected" 2 "$TMP_DIR/aggregate-malformed-runs-closure.json" "error" "null"
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/interleaved-cycle.json"
 node -e '

@@ -36,6 +36,7 @@ SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
 ROUND_STATE_SCHEMA="$SCHEMA_DIR/round_state.schema.json"
 VERIFY_SCHEMA="$SCHEMA_DIR/verify.schema.json"
 REVIEW_SCHEMA="$SCHEMA_DIR/review.schema.json"
+BLOCKER_SCHEMA="$SCHEMA_DIR/blocker.schema.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -59,7 +60,7 @@ if [ -z "$round_state" ] || [ -z "$expected_revision" ]; then
   exit 2
 fi
 case "$expected_revision" in ''|*[!0-9]*|0) emit_error "invalid_manifest_revision"; exit 2 ;; esac
-if [ ! -r "$round_state" ] || [ ! -r "$SCHEMA_VALIDATOR" ] || [ ! -r "$ROUND_STATE_SCHEMA" ] || [ ! -r "$VERIFY_SCHEMA" ] || [ ! -r "$REVIEW_SCHEMA" ]; then
+if [ ! -r "$round_state" ] || [ ! -r "$SCHEMA_VALIDATOR" ] || [ ! -r "$ROUND_STATE_SCHEMA" ] || [ ! -r "$VERIFY_SCHEMA" ] || [ ! -r "$REVIEW_SCHEMA" ] || [ ! -r "$BLOCKER_SCHEMA" ]; then
   emit_error "unreadable_input"
   exit 2
 fi
@@ -75,18 +76,19 @@ if [ "$fresh_status" -ne 0 ]; then
   exit 2
 fi
 
-node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
+node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$BLOCKER_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
+const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, blockerSchemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
 
 function write(payload, exitCode) {
   process.stdout.write(JSON.stringify(payload) + "\n");
   process.exit(exitCode);
 }
-function error(code, message, exitCode = 2) {
+function error(code, message, exitCode = 2, detail = null) {
+  const errors = detail === null ? [{ code }] : [{ code, detail }];
   write({
     decision: "error",
     redispatch_allowed: false,
@@ -99,7 +101,7 @@ function error(code, message, exitCode = 2) {
     worktree_path: null,
     trigger: null,
     obligations: [],
-    errors: [{ code }],
+    errors,
     error: message
   }, exitCode);
 }
@@ -109,12 +111,13 @@ function sameMembers(left, right) {
   return left.every((value) => expected.has(value));
 }
 
-let state, schema, verifySchema, reviewSchema, validate;
+let state, schema, verifySchema, reviewSchema, blockerSchema, validate;
 try {
   state = JSON.parse(fs.readFileSync(roundStateFile, "utf8"));
   schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
   verifySchema = JSON.parse(fs.readFileSync(verifySchemaFile, "utf8"));
   reviewSchema = JSON.parse(fs.readFileSync(reviewSchemaFile, "utf8"));
+  blockerSchema = JSON.parse(fs.readFileSync(blockerSchemaFile, "utf8"));
   ({ validate } = require(validatorFile));
 } catch (e) {
   error("invalid_round_state", "cannot parse ROUND-STATE or schema: " + e.message);
@@ -162,22 +165,30 @@ function validateEvidence(reference) {
   if (digest !== reference.content_sha256) {
     error("evidence_hash_mismatch", "evidence content does not match its declared sha256");
   }
-  if (reference.kind === "verify" || reference.kind === "review") {
+  if (reference.kind === "verify" || reference.kind === "review" || reference.kind === "blocker") {
     let artifact;
     try { artifact = JSON.parse(content.toString("utf8")); }
     catch (e) { error("invalid_evidence_artifact", reference.kind + " evidence is not JSON"); }
     const artifactSchema = reference.kind === "verify"
       ? verifySchema
-      : (() => { const copy = {...reviewSchema}; delete copy.if; delete copy.then; return copy; })();
+      : reference.kind === "review"
+        ? (() => { const copy = {...reviewSchema}; delete copy.if; delete copy.then; return copy; })()
+        : blockerSchema;
     if (validate(artifactSchema, artifact).length) {
       error("invalid_evidence_artifact", reference.kind + " evidence fails its artifact schema");
+    }
+    if (reference.kind === "blocker" && artifact.lifecycle === "superseded") {
+      error("superseded_evidence_artifact", "superseded BLOCKER evidence must be ignored");
+    }
+    if (reference.kind === "verify" && !validVerifyAggregate(artifact)) {
+      error("invalid_evidence_artifact", "verify evidence has an invalid aggregate");
     }
     if (reference.kind === "review" && artifact.status === "fail"
         && (!Array.isArray(artifact.findings) || artifact.findings.length === 0 || typeof artifact.patch_instructions !== "string")) {
       error("invalid_evidence_artifact", "failed review evidence lacks findings or patch instructions");
     }
     const artifactIssue = reference.kind === "verify" ? artifact.issue : artifact.issue.number;
-    const artifactHead = reference.kind === "verify" ? artifact.head_sha : artifact.reviewed_head_sha;
+    const artifactHead = reference.kind === "review" ? artifact.reviewed_head_sha : artifact.head_sha;
     if (artifactIssue !== state.issue.number || artifactHead !== reference.head_sha) {
       error("evidence_identity_mismatch", reference.kind + " evidence does not match the ROUND-STATE issue and referenced HEAD");
     }
@@ -199,6 +210,59 @@ function commandHasScope(command, scope) {
     const unquoted = token.replace(/^(["'])(.*)\1$/, "$2");
     return unquoted === scope || unquoted.endsWith("=" + scope);
   });
+}
+
+function countRunValue(run, key) {
+  return run && run.verdict && typeof run.verdict[key] === "number" && Number.isFinite(run.verdict[key])
+    ? run.verdict[key]
+    : 0;
+}
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function runFromFlatArtifact(artifact) {
+  return { verify_cmd: artifact.verify_cmd, clean_state: artifact.clean_state, verdict: artifact.verdict,
+    classifier: artifact.classifier, failures: artifact.failures, created_at: artifact.created_at };
+}
+function verifyRuns(artifact) {
+  return Object.prototype.hasOwnProperty.call(artifact, "runs") ? artifact.runs : [runFromFlatArtifact(artifact)];
+}
+function validVerifyRun(run) {
+  if (!run || typeof run !== "object" || Array.isArray(run)
+      || (run.classifier !== "PASS" && run.classifier !== "FAIL")
+      || !run.verdict || !Array.isArray(run.failures) || !run.verify_cmd || !run.created_at
+      || !Number.isInteger(run.verdict.exit_code)) return false;
+  const passed = countRunValue(run, "passed");
+  const failed = countRunValue(run, "failed");
+  return run.classifier === "PASS"
+    ? passed >= 1 && failed === 0 && run.verdict.exit_code === 0 && run.failures.length === 0
+    : failed > 0 || run.verdict.exit_code !== 0 || run.failures.length > 0;
+}
+function validVerifyAggregate(artifact) {
+  if (!Object.prototype.hasOwnProperty.call(artifact, "runs")) return true; // v1 flat artifact: one synthetic run.
+  if (!Array.isArray(artifact.runs)) return false;
+  const runs = artifact.runs;
+  if (runs.length === 0 || !runs.every(validVerifyRun)) return false;
+  const latest = runs[runs.length - 1];
+  const allPass = runs.every((run) => run.classifier === "PASS");
+  const verdict = {
+    passed: runs.reduce((total, run) => total + countRunValue(run, "passed"), 0),
+    failed: runs.reduce((total, run) => total + countRunValue(run, "failed"), 0),
+    pending: runs.reduce((total, run) => total + countRunValue(run, "pending"), 0),
+    exit_code: allPass ? 0 : 1
+  };
+  const failures = runs.reduce((all, run) => all.concat(run.failures), []);
+  return artifact.verify_cmd === latest.verify_cmd
+    && sameJson(artifact.clean_state, latest.clean_state)
+    && sameJson(artifact.verdict, verdict)
+    && artifact.classifier === (allPass ? "PASS" : "FAIL")
+    && sameJson(artifact.failures, failures)
+    && artifact.created_at === latest.created_at;
+}
+function hasMatchingPassingRun(artifact, scope) {
+  return verifyRuns(artifact).some((run) => run.classifier === "PASS"
+    && run.verdict.exit_code === 0 && run.verdict.failed === 0 && run.verdict.passed >= 1
+    && commandHasScope(run.verify_cmd, scope));
 }
 
 const control = state.round_control || { failures: [] };
@@ -229,35 +293,55 @@ for (let index = 0; index < failures.length; index += 1) {
   if (failure.next_action.kind !== "diagnosis" && failure.next_action.kind !== originAction[failure.primary_origin]) {
     error("origin_action_mismatch", "failure next action does not match its primary origin");
   }
-  if (!failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review")) {
-    error("verifier_evidence_missing", "every failed round requires verifier or review evidence");
+  const hasVerifierOrReview = failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review");
+  const hasDispatchContractBlocker = failure.primary_origin === "dispatch_contract"
+    && failure.next_action.kind === "contract_fix"
+    && failure.evidence.some((reference) => reference.kind === "blocker");
+  if (!hasVerifierOrReview && !hasDispatchContractBlocker) {
+    error("verifier_evidence_missing", "every failed round requires verifier/review evidence or a dispatch_contract BLOCKER");
   }
   const failureArtifacts = failure.evidence.map((reference) => ({ reference, artifact: validateEvidence(reference) }));
   const hasFailedVerdict = failureArtifacts.some(({reference, artifact}) =>
     reference.kind === "verify"
       ? artifact.classifier === "FAIL" && (artifact.verdict.exit_code !== 0 || artifact.verdict.failed > 0)
-      : reference.kind === "review" && (artifact.status === "fail" || artifact.status === "blocked"));
+      : reference.kind === "review" ? (artifact.status === "fail" || artifact.status === "blocked")
+        : reference.kind === "blocker" && failure.primary_origin === "dispatch_contract"
+          && failure.next_action.kind === "contract_fix");
   if (!hasFailedVerdict) {
-    error("failed_round_evidence_not_failed", "failure evidence must contain a failing VERIFY or REVIEW artifact");
+    error("failed_round_evidence_not_failed", "failure evidence must contain a failing VERIFY/REVIEW artifact or a dispatch_contract BLOCKER");
   }
   if (failure.status === "closed") {
     if (!failure.closed_by) {
       error("failure_closure_evidence_missing", "closed failures require verifier or review closure evidence");
     }
     const closure = validateEvidence(failure.closed_by);
-    const closurePassed = failure.closed_by.kind === "verify"
-      ? closure.classifier === "PASS" && closure.verdict.exit_code === 0
-        && closure.verdict.failed === 0 && closure.verdict.passed >= 1
-      : closure.lifecycle === "final" && closure.status === "pass"
-        && closure.checklist.every((item) => item.met === true);
+    let closurePassed;
+    if (failure.closed_by.kind === "verify") {
+      closurePassed = closure.classifier === "PASS" && closure.verdict.exit_code === 0
+        && closure.verdict.failed === 0 && closure.verdict.passed >= 1;
+    } else {
+      if (closure.lifecycle !== "final") {
+        error("failure_closure_not_verified", "closed_by REVIEW lifecycle must be final", 2,
+          "review_lifecycle_not_final");
+      }
+      if (closure.status !== "pass") {
+        error("failure_closure_not_verified", "closed_by REVIEW status must be pass", 2,
+          "review_status_not_pass");
+      }
+      if (!closure.checklist.every((item) => item.met === true)) {
+        error("failure_closure_not_verified", "closed_by REVIEW checklist items must all be met", 2,
+          "review_checklist_unmet");
+      }
+      closurePassed = true;
+    }
     if (!closurePassed) {
       error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
     }
     if (!sameMembers(failure.closed_by.closes_ac_ids, failure.failed_ac_ids)) {
       error("failure_closure_scope_mismatch", "closure evidence must cover the failure AC set exactly");
     }
-    if (failure.closed_by.kind === "verify" && !commandHasScope(closure.verify_cmd, state.contract.verify_filter)) {
-      error("failure_closure_scope_mismatch", "closure VERIFY command does not include the canonical verify filter");
+    if (failure.closed_by.kind === "verify" && !hasMatchingPassingRun(closure, state.contract.verify_filter)) {
+      error("failure_closure_scope_mismatch", "closure VERIFY has no passing run for the canonical verify filter");
     }
     if (failure.closed_by.kind === "review") {
       const checklistItem = failure.closed_by.checklist_item;
@@ -271,7 +355,7 @@ for (let index = 0; index < failures.length; index += 1) {
       error("failure_closure_lineage_invalid", "closure HEAD must be an ancestor of the live ROUND-STATE HEAD");
     }
     const failedArtifactHeads = failureArtifacts
-      .filter(({reference}) => reference.kind === "verify" || reference.kind === "review")
+      .filter(({reference}) => reference.kind === "verify" || reference.kind === "review" || reference.kind === "blocker")
       .map(({reference}) => reference.head_sha);
     if (!failedArtifactHeads.every((failedHead) => failedHead !== failure.closed_by.head_sha
         && isAncestor(failedHead, failure.closed_by.head_sha))) {

@@ -3,11 +3,14 @@
   "title": "Blocker Artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "reason_code", "blocking_fact", "attempted_commands", "needed_decision"],
+  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "head_sha", "reason_code", "blocking_fact", "attempted_commands", "needed_decision"],
   "properties": {
     "schema_version": { "const": "1" },
     "artifact_type": { "const": "blocker" },
-    "lifecycle": { "enum": ["active", "superseded", "final"] },
+    "lifecycle": {
+      "enum": ["active", "superseded", "final"],
+      "description": "active and final artifacts may be consumed; readers and admission gates must ignore or reject superseded artifacts."
+    },
     "producer_role": { "const": "CODEX" },
     "producer_version": { "type": "string" },
     "issue": {
@@ -18,6 +21,11 @@
         "number": { "type": "integer" },
         "title": { "type": "string" }
       }
+    },
+    "head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Git HEAD observed by CODEX when the scoped abort artifact was produced."
     },
     "reason_code": {
       "enum": ["scope_violation", "missing_dependency", "ambiguous_requirement", "failing_precondition", "sandbox_limitation", "tier_escalation_required"],
