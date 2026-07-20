@@ -42,15 +42,21 @@ bash scripts/__tests__/run-all.sh --list
 scripts/install-into.sh ../my-project
 ```
 
-기본값은 현재 머신의 toolkit 업데이트를 즉시 따라가는 symlink 모드입니다. 이 절대경로 symlink는 머신 로컬용이므로 커밋해 다른 머신에 배포하지 마세요. 타겟 저장소와 함께 버전 관리할 snapshot은 `--mode copy`로 설치한 뒤 검토·커밋하세요.
+설치는 항상 네 managed leaf를 실제 디렉터리로 복사한 self-contained snapshot입니다. 원본 toolkit의 절대경로를 가리키는 symlink를 만들지 않으므로 타겟 저장소와 함께 검토·커밋하고 다른 머신에서 사용할 수 있습니다.
 
 Installer는 자신의 `scripts/` 위치에서 물리적인 product home을 찾습니다. Git 저장소 루트는 self-install 같은 저장소 안전 검사를 위한 선택적 컨텍스트일 뿐이며, Git 메타데이터가 없는 export와 공백이 포함된 경로도 설치할 수 있습니다. Source와 installed command는 같은 home의 형제 `scripts/`, `schemas/`, `docs/` 구조를 사용합니다.
 
-이전 루트 구조와 일치하는 absolute symlink를 하나라도 발견하면 installer는 아무것도 바꾸지 않고 중단합니다. 일부 링크만 남았거나 원래 저장소가 이동·삭제된 경우도 같습니다. 분리 후 product home이 이동·삭제되어 현재 레이아웃의 absolute symlink가 dangling 상태가 된 경우도 같은 방식으로 감지합니다. 단, 일반적인 사용자 경로와 구별하기 어려운 현재 레이아웃의 `schemas/` 링크는 scripts, docs, skill 중 같은 이전 product home을 증명하는 sibling link가 있을 때만 인식합니다. 진단에 표시된 링크를 확인한 뒤 `--migrate-legacy`를 사용하세요. 이 옵션은 인식된 link만 현재 product home의 symlink 또는 `--mode copy` snapshot으로 바꾸며, 실제 파일·디렉터리·임의 symlink는 보존합니다. `--force`와 함께 사용할 수 없습니다.
+기존 copy 설치나 과거의 live/dangling symlink 설치를 현재 버전으로 바꾸려면 최신 toolkit checkout/export에서 다음 명령을 실행하세요.
 
-Installer가 관리하는 상위 경로인 `.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, `.review`는 타겟 내부의 실제 디렉터리여야 합니다. 이 중 하나가 symlink이면 default, `--migrate-legacy`, `--force` 모두 변경 없이 거부하여 타겟 밖의 경로를 따라가 쓰거나 삭제하지 않습니다.
+```bash
+scripts/install-into.sh ../my-project --upgrade
+```
 
-Copy mode는 자동 갱신되지 않는 point-in-time snapshot입니다. 재실행만으로는 기존 snapshot과 local customization을 덮어쓰지 않습니다. 업데이트하려면 먼저 네 managed destination을 backup/diff한 뒤 `--mode copy --force`를 명시적으로 실행하세요:
+Upgrade는 네 managed leaf가 모두 copy이거나 동일 원본을 가리키는 symlink인 완전한 toolkit 설치로 인식될 때만 실행됩니다. 먼저 현재 source를 target 내부 staging에 모두 복사하고 검증한 뒤, 기존 leaf를 `.review/agent-workflow-install-backups/<id>/`에 보존하고 한 transaction으로 교체합니다. 인식된 copy 내부의 수정 내용은 backup에 보존합니다. partial/mixed/구조를 식별할 수 없는 layout과 상관관계가 없는 symlink는 변경하지 않고 거부합니다.
+
+Installer가 관리하는 상위 경로인 `.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, `.review`, `.review/agent-workflow-install-backups`는 타겟 내부의 실제 디렉터리여야 합니다. 이 중 하나가 symlink이면 install과 upgrade 모두 변경 없이 거부합니다. 실패 시 이전 leaf 복원을 검증하며, filesystem이 rollback 이동까지 거부하면 exit `70`과 보존된 backup 경로를 출력합니다.
+
+기본 install은 기존 managed leaf가 하나라도 있으면 skip하지 않고 `--upgrade`를 안내하며 중단합니다. Upgrade가 교체하는 범위는 다음 네 leaf뿐입니다.
 
 ```text
 .agent-workflow/scripts
@@ -59,15 +65,15 @@ Copy mode는 자동 갱신되지 않는 point-in-time snapshot입니다. 재실�
 .claude/skills/agent-workflow
 ```
 
-`--force`는 이 네 leaf만 교체합니다. 타겟의 `.review`, 그 밖의 파일, 저장소 자체는 삭제하지 않습니다.
+타겟의 기존 `.review` 증거, 그 밖의 파일, 저장소 자체는 삭제하지 않습니다. 제거된 `--mode`, `--force`, `--migrate-legacy` 옵션은 새 동작을 수행하지 않고 `--upgrade` 안내와 함께 거부됩니다.
 
 ```text
 my-project/
 ├── .agent-workflow/
-│   ├── scripts   -> <product-home>/scripts
-│   ├── schemas   -> <resolved-product-schemas>
-│   └── docs/agents -> <product-home>/docs/agents
-├── .claude/skills/agent-workflow
+│   ├── scripts/
+│   ├── schemas/
+│   └── docs/agents/
+├── .claude/skills/agent-workflow/
 └── .review/
 ```
 
@@ -186,7 +192,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 
 | 도구 | 역할 |
 |---|---|
-| `install-into.sh` | 툴킷을 symlink 또는 copy 모드로 타겟에 설치 |
+| `install-into.sh` | self-contained copy 설치 또는 인식된 기존 설치의 transactional upgrade |
 | `prepare-worktree.sh` | 의존성·환경 프로필을 갖춘 격리 워크트리 준비 |
 | `cmux-dispatch.sh` | 보이는 cmux 워크스페이스 생성과 fresh RUN/BLOCKER 폴링 |
 | `codex-watchdog.sh` | 프로세스·파일 liveness, stall 재시도, 이중 probe 기반 refusal 분류 |

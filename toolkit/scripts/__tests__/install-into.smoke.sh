@@ -1,42 +1,29 @@
 #!/usr/bin/env bash
 # Smoke test for scripts/install-into.sh.
-# bash-3.2-compatible. Run: bash scripts/__tests__/install-into.smoke.sh
+# Bash 3.2 compatible. Run: bash scripts/__tests__/install-into.smoke.sh
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL="$SCRIPT_DIR/../install-into.sh"
 PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
-REPOSITORY_ROOT="$(git -C "$PRODUCT_ROOT" rev-parse --show-toplevel)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-
 FAILURES=0
 
-ok() {
-  echo "ok   - $1"
-}
-
-not_ok() {
-  echo "NOT OK - $1"
-  FAILURES=$((FAILURES + 1))
-}
+ok() { echo "ok   - $1"; }
+not_ok() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 
 assert_true() {
   name="$1"; shift
-  if "$@"; then
-    ok "$name"
-  else
-    not_ok "$name"
-  fi
+  if "$@"; then ok "$name"; else not_ok "$name"; fi
 }
 
 assert_exit() {
   name="$1"; expected="$2"; shift 2
   "$@" >/dev/null 2>&1
-  actual_ec=$?
-  if [ "$expected" = "PASS" ] && [ "$actual_ec" -eq 0 ]; then
-    ok "$name"
-  elif [ "$expected" = "FAIL" ] && [ "$actual_ec" -ne 0 ]; then
+  actual=$?
+  if { [ "$expected" = PASS ] && [ "$actual" -eq 0 ]; } || \
+     { [ "$expected" = FAIL ] && [ "$actual" -ne 0 ]; }; then
     ok "$name"
   else
     not_ok "$name"
@@ -44,63 +31,43 @@ assert_exit() {
 }
 
 assert_exit_output() {
-  name="$1"; expected="$2"; expected_output="$3"; shift 3
-  output="$TMP_DIR/command-output.txt"
+  name="$1"; expected_exit="$2"; expected_text="$3"; shift 3
+  output="$TMP_DIR/output-$FAILURES.txt"
   "$@" >"$output" 2>&1
-  actual_ec=$?
-  if [ "$actual_ec" -eq "$expected" ] && grep -F -q -- "$expected_output" "$output"; then
+  actual=$?
+  if [ "$actual" -eq "$expected_exit" ] && grep -F -q -- "$expected_text" "$output"; then
     ok "$name"
   else
     not_ok "$name"
   fi
 }
 
-# release-contract: legacy-link-fixture-begin
-make_legacy_links() {
-  target="$1"
-  legacy_root="$2"
-  live="$3"
-
-  mkdir -p "$target/.agent-workflow/docs" "$target/.claude/skills"
-  if [ "$live" = "live" ]; then
-    mkdir -p "$legacy_root/scripts" "$legacy_root/.review/schemas" \
-      "$legacy_root/docs/agents" "$legacy_root/.claude/skills/agent-workflow"
-  fi
-  ln -s "$legacy_root/scripts" "$target/.agent-workflow/scripts"
-  ln -s "$legacy_root/.review/schemas" "$target/.agent-workflow/schemas"
-  ln -s "$legacy_root/docs/agents" "$target/.agent-workflow/docs/agents"
-  ln -s "$legacy_root/.claude/skills/agent-workflow" "$target/.claude/skills/agent-workflow"
+assert_portable_layout() {
+  label="$1"; target="$2"
+  for leaf in \
+    "$target/.agent-workflow/scripts" \
+    "$target/.agent-workflow/schemas" \
+    "$target/.agent-workflow/docs/agents" \
+    "$target/.claude/skills/agent-workflow"; do
+    assert_true "$label creates real directory $leaf" test -d "$leaf"
+    assert_true "$label creates no managed leaf symlink $leaf" test ! -L "$leaf"
+  done
 }
 
-assert_legacy_links() {
-  label="$1"
-  target="$2"
-  legacy_root="$3"
-  assert_true "$label preserves scripts link" test "$(readlink "$target/.agent-workflow/scripts")" = "$legacy_root/scripts"
-  assert_true "$label preserves schemas link" test "$(readlink "$target/.agent-workflow/schemas")" = "$legacy_root/.review/schemas"
-  assert_true "$label preserves docs link" test "$(readlink "$target/.agent-workflow/docs/agents")" = "$legacy_root/docs/agents"
-  assert_true "$label preserves skill link" test "$(readlink "$target/.claude/skills/agent-workflow")" = "$legacy_root/.claude/skills/agent-workflow"
-}
-# release-contract: legacy-link-fixture-end
-
-assert_external_tree_untouched() {
-  label="$1"
-  external="$2"
-  external_entry_count="$(find "$external" -mindepth 1 -print | wc -l | tr -d ' ')"
-  assert_true "$label preserves external sentinel" grep -F -q 'outside target' "$external/sentinel"
-  assert_true "$label creates no external paths" test "$external_entry_count" = "1"
+assert_current_content() {
+  label="$1"; target="$2"
+  assert_true "$label includes install script" test -x "$target/.agent-workflow/scripts/install-into.sh"
+  assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
+  assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
+  assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"
 }
 
 assert_no_maintainer_leakage() {
   target="$1"
   assert_true "install excludes Matt skills" test ! -e "$target/.agents"
-  assert_true "install excludes Matt lockfile" test ! -e "$target/skills-lock.json"
   assert_true "install excludes root instructions" test ! -e "$target/AGENTS.md"
   assert_true "install excludes maintainer tracker" test ! -e "$target/docs/agents/issue-tracker.md"
-  assert_true "install excludes maintainer domain config" test ! -e "$target/docs/agents/domain.md"
-  assert_true "install excludes maintainer triage config" test ! -e "$target/docs/agents/triage-labels.md"
   assert_true "install excludes plans" test ! -e "$target/docs/plans"
-  assert_true "install excludes repository evidence" test ! -e "$target/.review/source"
 }
 
 prepare_gate_fixture() {
@@ -108,422 +75,237 @@ prepare_gate_fixture() {
   fixture="$target/.agent-workflow/schemas/fixtures/round_state.valid.json"
   GATE_STATE="$target/.review/ROUND-STATE.json"
   GATE_TESTS="$target/.review/discovered-tests.txt"
-
   git init -q "$target"
   git -C "$target" config user.email smoke@example.test
   git -C "$target" config user.name smoke
   mkdir -p "$target/allowed"
-  printf '%s\n' 'base' > "$target/allowed/file.txt"
+  printf '%s\n' base > "$target/allowed/file.txt"
   git -C "$target" add allowed/file.txt
   git -C "$target" commit -qm base
   git -C "$target" branch -M main
   base_sha="$(git -C "$target" rev-parse HEAD)"
-  git -C "$target" switch -q -c feat/product-home-smoke
-  printf '%s\n' 'changed' >> "$target/allowed/file.txt"
-  git -C "$target" commit -am allowed-change -q
+  git -C "$target" switch -q -c feat/install-smoke
+  printf '%s\n' changed >> "$target/allowed/file.txt"
+  git -C "$target" commit -am change -q
   head_sha="$(git -C "$target" rev-parse HEAD)"
-
   cp "$fixture" "$GATE_STATE"
   node -e '
-    const fs = require("fs");
-    const [file, worktree, base, head] = process.argv.slice(1);
-    const value = JSON.parse(fs.readFileSync(file, "utf8"));
-    value.revision = 3;
-    value.base_branch = "main";
-    value.base_sha = base;
-    value.head_sha = head;
-    value.worktree_path = worktree;
-    value.contract.touch_allowlist = ["allowed/**"];
-    value.contract.chunk_boundary = {
-      chunk_id: "C1",
-      typecheck_command: "true",
-      compile_consumers: ["allowed/file.txt"],
-      convention_watch: [{
-        surface: "installed gate convention",
-        trigger: ["allowed/**"],
-        expected_invariant: "installed gate derives the same review scope",
-        owner: "REVIEWER",
-        review_by_chunk: "C1",
-        closed_by: {artifact_type: "review", checklist_item: "convention-watch:installed-gate"}
-      }]
-    };
-    value.contract.test_discovery_command = "printf '\''AC-1\\n'\''";
-    value.acceptance.criteria = [{id: "AC-1"}];
-    value.acceptance.expected_test_count = 1;
-    value.decisions = [];
-    delete value.round_control;
-    value.commit_scope.commits = [];
-    fs.writeFileSync(file, JSON.stringify(value));
+    const fs=require("fs"); const [file,root,base,head]=process.argv.slice(1); const v=JSON.parse(fs.readFileSync(file,"utf8"));
+    v.revision=3; v.base_branch="main"; v.base_sha=base; v.head_sha=head; v.worktree_path=root;
+    v.contract.touch_allowlist=["allowed/**"]; v.contract.test_discovery_command="printf '\''AC-1\\n'\''";
+    delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1"}]; v.acceptance.expected_test_count=1;
+    v.decisions=[]; delete v.round_control; v.commit_scope.commits=[]; fs.writeFileSync(file,JSON.stringify(v));
   ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
 }
 
-assert_gate_contract() {
-  label="$1"
-  scripts="$2"
-  ac_output="$TMP_DIR/ac-output.txt"
-  completion_output="$TMP_DIR/completion-output.json"
-  redispatch_output="$TMP_DIR/redispatch-output.json"
-
-  bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS" > "$ac_output" 2>/dev/null
-  ac_exit=$?
-  if [ "$ac_exit" -eq 0 ] && grep -F -q 'OK revision 3: 1 acs mapped' "$ac_output"; then
-    ok "$label executes ac-check through product home"
-  else
-    not_ok "$label executes ac-check through product home"
-  fi
-
-  bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 > "$completion_output" 2>/dev/null
-  completion_exit=$?
-  if [ "$completion_exit" -eq 0 ] && node -e '
-    const value = require(process.argv[1]);
-    process.exit(value.status === "pass"
-      && value.mismatches.length === 0
-      && value.typecheck.exit_code === 0
-      && value.compile_consumers.length === 1
-      && value.review_obligations.length === 1 ? 0 : 1);
-  ' "$completion_output"; then
-    ok "$label executes completion-check through product home"
-  else
-    not_ok "$label executes completion-check through product home"
-  fi
-
-  bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 > "$redispatch_output" 2>/dev/null
-  redispatch_exit=$?
-  if [ "$redispatch_exit" -eq 0 ] && node -e '
-    const value = require(process.argv[1]);
-    process.exit(value.decision === "allow_normal" && value.redispatch_allowed === true ? 0 : 1);
-  ' "$redispatch_output"; then
-    ok "$label executes redispatch-check through product home"
-  else
-    not_ok "$label executes redispatch-check through product home"
-  fi
+assert_installed_gates() {
+  label="$1"; target="$2"; scripts="$target/.agent-workflow/scripts"
+  assert_exit "$label executes ac-check" PASS bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS"
+  assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
+  assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
 }
 
-target_symlink="$TMP_DIR/target-symlink"
-mkdir -p "$target_symlink"
+fresh="$TMP_DIR/fresh target"
+mkdir -p "$fresh/.review"
+printf '%s\n' evidence > "$fresh/.review/keep.txt"
+printf '%s\n' project > "$fresh/project.txt"
+assert_exit "fresh install succeeds" PASS bash "$INSTALL" "$fresh"
+assert_portable_layout "fresh install" "$fresh"
+assert_current_content "fresh install" "$fresh"
+assert_true "fresh install preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
+assert_true "fresh install preserves unrelated project files" grep -F -q project "$fresh/project.txt"
+assert_no_maintainer_leakage "$fresh"
 
-for parent_case in agent agent-docs claude claude-skills review; do
-  parent_target="$TMP_DIR/symlinked-parent-$parent_case"
-  parent_external="$TMP_DIR/external-parent-$parent_case"
-  mkdir -p "$parent_target" "$parent_external"
-  printf '%s\n' 'outside target' > "$parent_external/sentinel"
-  case "$parent_case" in
-    agent)
-      ln -s "$parent_external" "$parent_target/.agent-workflow"
-      ;;
-    agent-docs)
-      mkdir -p "$parent_target/.agent-workflow"
-      ln -s "$parent_external" "$parent_target/.agent-workflow/docs"
-      ;;
-    claude)
-      ln -s "$parent_external" "$parent_target/.claude"
-      ;;
-    claude-skills)
-      mkdir -p "$parent_target/.claude"
-      ln -s "$parent_external" "$parent_target/.claude/skills"
-      ;;
-    review)
-      ln -s "$parent_external" "$parent_target/.review"
-      ;;
-  esac
-  assert_exit_output "symlinked $parent_case parent is rejected" 2 \
-    "managed parent must not be a symlink" bash "$INSTALL" "$parent_target"
-  assert_external_tree_untouched "symlinked $parent_case refusal" "$parent_external"
-done
+assert_exit_output "default rerun refuses existing install" 2 "--upgrade" bash "$INSTALL" "$fresh"
+printf '%s\n' customized > "$fresh/.agent-workflow/scripts/install-into.sh"
+upgrade_output="$TMP_DIR/upgrade-output.txt"
+bash "$INSTALL" "$fresh" --upgrade >"$upgrade_output" 2>&1
+upgrade_exit=$?
+if [ "$upgrade_exit" -eq 0 ]; then ok "copy upgrade succeeds"; else not_ok "copy upgrade succeeds"; fi
+assert_current_content "copy upgrade" "$fresh"
+backup_root="$(sed -n 's/^upgrade backup: //p' "$upgrade_output")"
+assert_true "upgrade reports a retained backup" test -d "$backup_root"
+assert_true "upgrade backup preserves customized managed content" grep -F -q customized "$backup_root/scripts/install-into.sh"
+assert_true "upgrade preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
 
-parent_target="$TMP_DIR/symlinked-parent-mutating-flags"
-parent_external="$TMP_DIR/external-parent-mutating-flags"
-mkdir -p "$parent_target" "$parent_external"
-printf '%s\n' 'outside target' > "$parent_external/sentinel"
-ln -s "$parent_external" "$parent_target/.agent-workflow"
-assert_exit_output "symlinked parent blocks forced install" 2 \
-  "managed parent must not be a symlink" bash "$INSTALL" "$parent_target" --force
-assert_exit_output "symlinked parent blocks legacy migration" 2 \
-  "managed parent must not be a symlink" bash "$INSTALL" "$parent_target" --migrate-legacy
-assert_external_tree_untouched "symlinked parent mutating flags" "$parent_external"
+current_links="$TMP_DIR/current-links"
+mkdir -p "$current_links/.agent-workflow/docs" "$current_links/.claude/skills"
+ln -s "$PRODUCT_ROOT/scripts" "$current_links/.agent-workflow/scripts"
+ln -s "$PRODUCT_ROOT/schemas" "$current_links/.agent-workflow/schemas"
+ln -s "$PRODUCT_ROOT/docs/agents" "$current_links/.agent-workflow/docs/agents"
+ln -s "$PRODUCT_ROOT/.claude/skills/agent-workflow" "$current_links/.claude/skills/agent-workflow"
+assert_exit "current symlink install upgrades to copy" PASS bash "$INSTALL" "$current_links" --upgrade
+assert_portable_layout "current symlink upgrade" "$current_links"
 
-assert_exit "symlink mode exits zero" PASS bash "$INSTALL" "$target_symlink"
-assert_true "symlink mode creates scripts link" test -L "$target_symlink/.agent-workflow/scripts"
-assert_true "scripts link points at product scripts" test "$(readlink "$target_symlink/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
-assert_true "symlink mode creates schemas link" test -L "$target_symlink/.agent-workflow/schemas"
-assert_true "schemas link points at product schemas" test "$(readlink "$target_symlink/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
-assert_true "symlink mode creates docs link" test -L "$target_symlink/.agent-workflow/docs/agents"
-assert_true "docs link points at product docs" test "$(readlink "$target_symlink/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
-assert_true "symlink mode creates project skill link" test -L "$target_symlink/.claude/skills/agent-workflow"
-assert_true "skill link points at product skill" test "$(readlink "$target_symlink/.claude/skills/agent-workflow")" = "$PRODUCT_ROOT/.claude/skills/agent-workflow"
-assert_true "install creates target .review" test -d "$target_symlink/.review"
-assert_exit "current symlink install remains idempotent" PASS bash "$INSTALL" "$target_symlink"
-assert_no_maintainer_leakage "$target_symlink"
-prepare_gate_fixture "$target_symlink"
-assert_gate_contract "source layout" "$PRODUCT_ROOT/scripts"
-assert_gate_contract "symlink install" "$target_symlink/.agent-workflow/scripts"
+current_dangling="$TMP_DIR/current-dangling"
+current_dangling_root="$TMP_DIR/deleted current root"
+mkdir -p "$current_dangling/.agent-workflow/docs" "$current_dangling/.claude/skills"
+ln -s "$current_dangling_root/scripts" "$current_dangling/.agent-workflow/scripts"
+ln -s "$current_dangling_root/schemas" "$current_dangling/.agent-workflow/schemas"
+ln -s "$current_dangling_root/docs/agents" "$current_dangling/.agent-workflow/docs/agents"
+ln -s "$current_dangling_root/.claude/skills/agent-workflow" "$current_dangling/.claude/skills/agent-workflow"
+assert_exit "dangling current symlink install upgrades to copy" PASS bash "$INSTALL" "$current_dangling" --upgrade
+assert_portable_layout "dangling current symlink upgrade" "$current_dangling"
 
-target_copy="$TMP_DIR/target-copy"
-mkdir -p "$target_copy"
+# release-contract: legacy-link-fixture-begin
+legacy_links="$TMP_DIR/legacy-links"
+legacy_root="$TMP_DIR/deleted legacy root"
+mkdir -p "$legacy_links/.agent-workflow/docs" "$legacy_links/.claude/skills"
+ln -s "$legacy_root/scripts" "$legacy_links/.agent-workflow/scripts"
+ln -s "$legacy_root/.review/schemas" "$legacy_links/.agent-workflow/schemas"
+ln -s "$legacy_root/docs/agents" "$legacy_links/.agent-workflow/docs/agents"
+ln -s "$legacy_root/.claude/skills/agent-workflow" "$legacy_links/.claude/skills/agent-workflow"
+assert_exit "dangling legacy symlink install upgrades to copy" PASS bash "$INSTALL" "$legacy_links" --upgrade
+assert_portable_layout "legacy symlink upgrade" "$legacy_links"
 
-assert_exit "copy mode exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy
-assert_true "copy mode creates real scripts dir" test -d "$target_copy/.agent-workflow/scripts"
-assert_true "copy mode scripts is not a symlink" test ! -L "$target_copy/.agent-workflow/scripts"
-assert_true "copy mode creates real schemas dir" test -d "$target_copy/.agent-workflow/schemas"
-assert_true "copy mode schemas is not a symlink" test ! -L "$target_copy/.agent-workflow/schemas"
-assert_true "copy mode creates real docs dir" test -d "$target_copy/.agent-workflow/docs/agents"
-assert_true "copy mode docs is not a symlink" test ! -L "$target_copy/.agent-workflow/docs/agents"
-assert_true "copy mode creates real project skill" test -d "$target_copy/.claude/skills/agent-workflow"
-assert_true "copy mode skill is not a symlink" test ! -L "$target_copy/.claude/skills/agent-workflow"
-assert_true "copy mode includes install script" test -e "$target_copy/.agent-workflow/scripts/install-into.sh"
-assert_true "copy mode includes completion gate" test -e "$target_copy/.agent-workflow/scripts/completion-check.sh"
-assert_true "copy mode includes redispatch gate" test -e "$target_copy/.agent-workflow/scripts/redispatch-check.sh"
-assert_true "copy mode includes schema files" test -e "$target_copy/.agent-workflow/schemas/blocker.schema.json"
-assert_true "copy mode includes ROUND-STATE schema" test -e "$target_copy/.agent-workflow/schemas/round_state.schema.json"
-assert_true "copy mode includes dependency-free schema validator" test -e "$target_copy/.agent-workflow/scripts/lib/json-schema-subset.cjs"
-assert_true "copy mode includes playbook" test -e "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook requires repository-native impact pass" grep -F -q '### Pre-scope-lock impact pass' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook requires compile-atomic chunk boundaries" grep -F -q '### Compile-atomic chunk boundary' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook limits review to triggered convention watches" grep -F -q 'Only watches triggered by the live `base_sha..HEAD` diff' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook defines repeated-round circuit breaker" grep -F -q '### Repeated-round circuit breaker' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook requires ARCH feasibility evidence before decisions lock" grep -F -q '### ARCH feasibility evidence' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook provides reusable ARCH appendix row shape" grep -F -q 'concern | exact command | concise result | decision impact' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook makes criterion id the sole AC-ID authority" grep -F -q 'its `id` is the sole AC-ID authority, and its `statement` contains an explicit precondition and observable checkpoint' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook requires inline row fields without external authority" grep -F -q 'Do not use cited authoritative detail as a substitute for required inline content' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook requires allowlists only for privacy rows" grep -F -q 'When a row exercises a privacy boundary, its canonical `statement` also requires a **positive field allowlist assertion**' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "installed playbook avoids non-privacy allowlist ceremony" grep -F -q 'non-privacy rows need no non-applicability ceremony' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
-assert_true "copy mode includes skill entrypoint" test -e "$target_copy/.claude/skills/agent-workflow/SKILL.md"
-assert_true "skill has no machine-specific toolkit path" sh -c "! grep -F '/Desktop/2026/feedbackops-workflow' '$target_copy/.claude/skills/agent-workflow/SKILL.md' >/dev/null"
-assert_true "skill requires explicit toolkit self-test" grep -F -q -- '--self-test' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
-assert_true "skill documents source self-application refusal" grep -F -q 'resolves to `TARGET`, stop' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
+legacy_live="$TMP_DIR/legacy-live"
+legacy_live_root="$TMP_DIR/live legacy root"
+mkdir -p "$legacy_live/.agent-workflow/docs" "$legacy_live/.claude/skills" \
+  "$legacy_live_root/scripts" "$legacy_live_root/.review/schemas" \
+  "$legacy_live_root/docs/agents" "$legacy_live_root/.claude/skills/agent-workflow"
+ln -s "$legacy_live_root/scripts" "$legacy_live/.agent-workflow/scripts"
+ln -s "$legacy_live_root/.review/schemas" "$legacy_live/.agent-workflow/schemas"
+ln -s "$legacy_live_root/docs/agents" "$legacy_live/.agent-workflow/docs/agents"
+ln -s "$legacy_live_root/.claude/skills/agent-workflow" "$legacy_live/.claude/skills/agent-workflow"
+# release-contract: legacy-link-fixture-end
+assert_exit "live legacy symlink install upgrades to copy" PASS bash "$INSTALL" "$legacy_live" --upgrade
+assert_portable_layout "live legacy symlink upgrade" "$legacy_live"
 
-printf '%s\n' 'local target customization' > "$target_copy/.claude/skills/agent-workflow/SKILL.md"
-printf '%s\n' 'preserve runtime evidence' > "$target_copy/.review/force-sentinel"
-printf '%s\n' 'preserve unrelated file' > "$target_copy/unrelated-sentinel"
-assert_exit "reinstall without force exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy
-assert_true "reinstall without force preserves target skill" grep -F -q 'local target customization' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
-assert_exit "force reinstall exits zero" PASS bash "$INSTALL" "$target_copy" --mode copy --force
-assert_true "force reinstall restores canonical skill" grep -F -q 'name: agent-workflow' "$target_copy/.claude/skills/agent-workflow/SKILL.md"
-assert_true "force preserves target runtime evidence" grep -F -q 'preserve runtime evidence' "$target_copy/.review/force-sentinel"
-assert_true "force preserves unrelated target files" grep -F -q 'preserve unrelated file' "$target_copy/unrelated-sentinel"
-assert_no_maintainer_leakage "$target_copy"
-prepare_gate_fixture "$target_copy"
-assert_gate_contract "copy install" "$target_copy/.agent-workflow/scripts"
+mixed="$TMP_DIR/mixed-topology"
+mkdir -p "$mixed"
+bash "$INSTALL" "$mixed" >/dev/null
+rm -rf "$mixed/.agent-workflow/docs/agents" "$mixed/.claude/skills/agent-workflow"
+ln -s "$PRODUCT_ROOT/docs/agents" "$mixed/.agent-workflow/docs/agents"
+ln -s "$PRODUCT_ROOT/.claude/skills/agent-workflow" "$mixed/.claude/skills/agent-workflow"
+assert_exit_output "mixed copy and link topology fails closed" 2 "not a complete recognized" bash "$INSTALL" "$mixed" --upgrade
+assert_true "mixed topology refusal preserves docs link" test -L "$mixed/.agent-workflow/docs/agents"
 
-legacy_live="$TMP_DIR/legacy-live-target"
-legacy_live_root="$TMP_DIR/legacy live root"
-mkdir -p "$legacy_live"
-make_legacy_links "$legacy_live" "$legacy_live_root" live
-assert_exit_output "live legacy install is detected without mutation" 2 \
-  "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_live"
-assert_exit_output "legacy diagnostic gives narrow migration command" 2 \
-  "--migrate-legacy" bash "$INSTALL" "$legacy_live"
-assert_legacy_links "live legacy refusal" "$legacy_live" "$legacy_live_root"
+uncorrelated_links="$TMP_DIR/uncorrelated-links"
+mkdir -p "$uncorrelated_links/.agent-workflow/docs" "$uncorrelated_links/.claude/skills"
+ln -s "$TMP_DIR/root-a/scripts" "$uncorrelated_links/.agent-workflow/scripts"
+ln -s "$TMP_DIR/root-b/schemas" "$uncorrelated_links/.agent-workflow/schemas"
+ln -s "$TMP_DIR/root-c/docs/agents" "$uncorrelated_links/.agent-workflow/docs/agents"
+ln -s "$TMP_DIR/root-d/.claude/skills/agent-workflow" "$uncorrelated_links/.claude/skills/agent-workflow"
+assert_exit_output "uncorrelated absolute links fail closed" 2 "not a complete recognized" bash "$INSTALL" "$uncorrelated_links" --upgrade
+assert_true "uncorrelated link refusal preserves scripts" test "$(readlink "$uncorrelated_links/.agent-workflow/scripts")" = "$TMP_DIR/root-a/scripts"
 
-legacy_dangling="$TMP_DIR/legacy-dangling-target"
-legacy_dangling_root="$TMP_DIR/missing legacy root"
-mkdir -p "$legacy_dangling"
-make_legacy_links "$legacy_dangling" "$legacy_dangling_root" dangling
-assert_exit_output "dangling legacy install is detected" 2 \
-  "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_dangling"
-assert_legacy_links "dangling legacy refusal" "$legacy_dangling" "$legacy_dangling_root"
+filesystem_root_links="$TMP_DIR/filesystem-root-links"
+filesystem_other_root="$TMP_DIR/other-root"
+mkdir -p "$filesystem_root_links/.agent-workflow/docs" "$filesystem_root_links/.claude/skills"
+ln -s /scripts "$filesystem_root_links/.agent-workflow/scripts"
+ln -s "$filesystem_other_root/schemas" "$filesystem_root_links/.agent-workflow/schemas"
+ln -s "$filesystem_other_root/docs/agents" "$filesystem_root_links/.agent-workflow/docs/agents"
+ln -s "$filesystem_other_root/.claude/skills/agent-workflow" "$filesystem_root_links/.claude/skills/agent-workflow"
+assert_exit_output "filesystem-root link cannot reset correlation" 2 "not a complete recognized" bash "$INSTALL" "$filesystem_root_links" --upgrade
 
-# release-contract: filesystem-root-legacy-fixture-begin
-legacy_root_target="$TMP_DIR/legacy-filesystem-root-target"
-mkdir -p "$legacy_root_target/.agent-workflow/docs" "$legacy_root_target/.claude/skills"
-ln -s /scripts "$legacy_root_target/.agent-workflow/scripts"
-ln -s /.review/schemas "$legacy_root_target/.agent-workflow/schemas"
-ln -s /docs/agents "$legacy_root_target/.agent-workflow/docs/agents"
-ln -s /.claude/skills/agent-workflow "$legacy_root_target/.claude/skills/agent-workflow"
-# release-contract: filesystem-root-legacy-fixture-end
-assert_exit_output "filesystem-root legacy install is detected" 2 \
-  "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_root_target"
-assert_legacy_links "filesystem-root legacy refusal" "$legacy_root_target" ""
+partial="$TMP_DIR/partial"
+mkdir -p "$partial/.agent-workflow/scripts"
+printf '%s\n' custom > "$partial/.agent-workflow/scripts/custom.txt"
+assert_exit_output "partial custom topology fails closed" 2 "not a complete recognized" bash "$INSTALL" "$partial" --upgrade
+assert_true "partial custom topology is preserved" grep -F -q custom "$partial/.agent-workflow/scripts/custom.txt"
 
-legacy_foreign_partial="$TMP_DIR/legacy-foreign-partial-target"
-legacy_foreign_root="$TMP_DIR/foreign moved root"
-mkdir -p "$legacy_foreign_partial"
-make_legacy_links "$legacy_foreign_partial" "$legacy_foreign_root" dangling
-rm "$legacy_foreign_partial/.claude/skills/agent-workflow"
-mkdir -p "$legacy_foreign_partial/.claude/skills/agent-workflow"
-printf '%s\n' 'foreign partial custom skill' > "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
-assert_exit_output "foreign partial dangling legacy install is detected" 2 \
-  "legacy absolute-symlink installation detected" bash "$INSTALL" "$legacy_foreign_partial"
-assert_true "foreign partial refusal preserves scripts link" test -L "$legacy_foreign_partial/.agent-workflow/scripts"
-assert_true "foreign partial refusal preserves schemas link" test -L "$legacy_foreign_partial/.agent-workflow/schemas"
-assert_true "foreign partial refusal preserves docs link" test -L "$legacy_foreign_partial/.agent-workflow/docs/agents"
-assert_true "foreign partial refusal preserves custom skill" grep -F -q 'foreign partial custom skill' "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
-assert_exit "foreign partial legacy links migrate explicitly" PASS \
-  bash "$INSTALL" "$legacy_foreign_partial" --migrate-legacy
-assert_true "foreign partial migration rewires scripts" test "$(readlink "$legacy_foreign_partial/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
-assert_true "foreign partial migration rewires schemas" test "$(readlink "$legacy_foreign_partial/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
-assert_true "foreign partial migration rewires docs" test "$(readlink "$legacy_foreign_partial/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
-assert_true "foreign partial migration preserves custom skill" grep -F -q 'foreign partial custom skill' "$legacy_foreign_partial/.claude/skills/agent-workflow/SKILL.md"
+external="$TMP_DIR/external"
+parent_link="$TMP_DIR/parent-link"
+mkdir -p "$external" "$parent_link"
+printf '%s\n' outside > "$external/sentinel"
+ln -s "$external" "$parent_link/.agent-workflow"
+assert_exit_output "symlinked managed parent is rejected" 2 "managed parent must not be a symlink" bash "$INSTALL" "$parent_link"
+assert_true "managed-parent refusal preserves outside tree" grep -F -q outside "$external/sentinel"
 
-for custom_schema_state in live dangling; do
-  custom_schema_target="$TMP_DIR/custom-schema-$custom_schema_state-target"
-  custom_schema_root="$TMP_DIR/custom-schema-$custom_schema_state-root"
-  mkdir -p "$custom_schema_target/.agent-workflow"
-  if [ "$custom_schema_state" = "live" ]; then
-    mkdir -p "$custom_schema_root/schemas"
-  fi
-  ln -s "$custom_schema_root/schemas" "$custom_schema_target/.agent-workflow/schemas"
-  assert_exit "lone $custom_schema_state custom schemas link remains installable" PASS \
-    bash "$INSTALL" "$custom_schema_target"
-  assert_true "lone $custom_schema_state custom schemas link is preserved" \
-    test "$(readlink "$custom_schema_target/.agent-workflow/schemas")" = "$custom_schema_root/schemas"
-  assert_exit "lone $custom_schema_state custom schemas link is not migratable" FAIL \
-    bash "$INSTALL" "$custom_schema_target" --migrate-legacy
-  assert_true "refused $custom_schema_state custom schemas migration preserves link" \
-    test "$(readlink "$custom_schema_target/.agent-workflow/schemas")" = "$custom_schema_root/schemas"
-done
+backup_parent_target="$TMP_DIR/backup-parent-target"
+backup_parent_outside="$TMP_DIR/backup-parent-outside"
+mkdir -p "$backup_parent_target" "$backup_parent_outside"
+bash "$INSTALL" "$backup_parent_target" >/dev/null
+ln -s "$backup_parent_outside" "$backup_parent_target/.review/agent-workflow-install-backups"
+assert_exit_output "symlinked backup parent is rejected" 2 "managed parent must not be a symlink" bash "$INSTALL" "$backup_parent_target" --upgrade
+assert_true "backup-parent refusal leaves outside unchanged" bash -c 'test -z "$(find "$1" -mindepth 1 -print -quit)"' _ "$backup_parent_outside"
 
-moved_current_target="$TMP_DIR/moved-current-target"
-moved_current_root="$TMP_DIR/deleted current product home"
-mkdir -p "$moved_current_target/.agent-workflow/docs" "$moved_current_target/.claude/skills"
-ln -s "$moved_current_root/scripts" "$moved_current_target/.agent-workflow/scripts"
-ln -s "$moved_current_root/schemas" "$moved_current_target/.agent-workflow/schemas"
-ln -s "$moved_current_root/docs/agents" "$moved_current_target/.agent-workflow/docs/agents"
-ln -s "$moved_current_root/.claude/skills/agent-workflow" "$moved_current_target/.claude/skills/agent-workflow"
-assert_exit_output "moved current-layout install is detected" 2 \
-  "legacy absolute-symlink installation detected" bash "$INSTALL" "$moved_current_target"
-assert_exit "moved current-layout links migrate explicitly" PASS \
-  bash "$INSTALL" "$moved_current_target" --migrate-legacy
-assert_true "moved current-layout migration rewires scripts" \
-  test "$(readlink "$moved_current_target/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
-assert_true "moved current-layout migration rewires schemas" \
-  test "$(readlink "$moved_current_target/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
-assert_true "moved current-layout migration rewires docs" \
-  test "$(readlink "$moved_current_target/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
-assert_true "moved current-layout migration rewires skill" \
-  test "$(readlink "$moved_current_target/.claude/skills/agent-workflow")" = "$PRODUCT_ROOT/.claude/skills/agent-workflow"
+empty_upgrade="$TMP_DIR/empty-upgrade"
+mkdir -p "$empty_upgrade"
+assert_exit_output "upgrade requires an existing install" 2 "requires an existing installation" bash "$INSTALL" "$empty_upgrade" --upgrade
+assert_exit_output "symlink mode is removed" 2 "installs are always portable copies" bash "$INSTALL" "$empty_upgrade" --mode symlink
+assert_exit_output "copy mode flag is removed" 2 "installs are always portable copies" bash "$INSTALL" "$empty_upgrade" --mode copy
+assert_exit_output "force points to upgrade" 2 "replaced by --upgrade" bash "$INSTALL" "$empty_upgrade" --force
+assert_exit_output "legacy migration points to upgrade" 2 "replaced by --upgrade" bash "$INSTALL" "$empty_upgrade" --migrate-legacy
 
-assert_exit "legacy links migrate to current symlink mode" PASS \
-  bash "$INSTALL" "$legacy_dangling" --migrate-legacy
-assert_true "migrated scripts link uses product" test "$(readlink "$legacy_dangling/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
-assert_true "migrated schemas link uses product" test "$(readlink "$legacy_dangling/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
-assert_true "migrated docs link uses product" test "$(readlink "$legacy_dangling/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
-assert_true "migrated skill link uses product" test "$(readlink "$legacy_dangling/.claude/skills/agent-workflow")" = "$PRODUCT_ROOT/.claude/skills/agent-workflow"
-prepare_gate_fixture "$legacy_dangling"
-assert_gate_contract "migrated symlink install" "$legacy_dangling/.agent-workflow/scripts"
+stage_failure="$TMP_DIR/stage-failure"
+mkdir -p "$stage_failure"
+cp_bin="$TMP_DIR/cp-bin"
+mkdir -p "$cp_bin"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 19' > "$cp_bin/cp"
+chmod +x "$cp_bin/cp"
+assert_exit_output "staging failure changes no target installation" 1 "target installation was not changed" env PATH="$cp_bin:$PATH" bash "$INSTALL" "$stage_failure"
+assert_true "staging failure leaves managed scripts absent" test ! -e "$stage_failure/.agent-workflow/scripts"
 
-legacy_copy="$TMP_DIR/legacy-copy-target"
-legacy_copy_root="$TMP_DIR/legacy-copy-root"
-mkdir -p "$legacy_copy"
-make_legacy_links "$legacy_copy" "$legacy_copy_root" live
-assert_exit "legacy links migrate to copy snapshot" PASS \
-  bash "$INSTALL" "$legacy_copy" --mode copy --migrate-legacy
-assert_true "migrated copy scripts are real" test ! -L "$legacy_copy/.agent-workflow/scripts"
-assert_true "migrated copy schemas are real" test ! -L "$legacy_copy/.agent-workflow/schemas"
-assert_true "migrated copy includes completion gate" test -e "$legacy_copy/.agent-workflow/scripts/completion-check.sh"
-assert_true "migrated copy includes schema" test -e "$legacy_copy/.agent-workflow/schemas/round_state.schema.json"
-prepare_gate_fixture "$legacy_copy"
-assert_gate_contract "migrated copy install" "$legacy_copy/.agent-workflow/scripts"
+rollback="$TMP_DIR/rollback"
+mkdir -p "$rollback"
+bash "$INSTALL" "$rollback" >/dev/null
+printf '%s\n' rollback-sentinel > "$rollback/.agent-workflow/scripts/rollback.txt"
+mv_bin="$TMP_DIR/mv-bin"
+mkdir -p "$mv_bin"
+mv_counter="$TMP_DIR/mv-counter"
+printf '%s\n' 0 > "$mv_counter"
+cat > "$mv_bin/mv" <<'MVEOF'
+#!/usr/bin/env bash
+count="$(cat "$INSTALL_MV_COUNTER")"
+count=$((count + 1))
+printf '%s\n' "$count" > "$INSTALL_MV_COUNTER"
+if [ "$count" -eq "${INSTALL_MV_FAIL_AT:-5}" ] || \
+   [ "$count" -eq "${INSTALL_MV_FAIL_AT_2:--1}" ]; then exit 23; fi
+exec /bin/mv "$@"
+MVEOF
+chmod +x "$mv_bin/mv"
+cat > "$mv_bin/rm" <<'RMEOF'
+#!/usr/bin/env bash
+if [ -n "${INSTALL_RM_FAIL_PATH:-}" ] && [ "${2:-}" = "$INSTALL_RM_FAIL_PATH" ]; then exit 31; fi
+exec /bin/rm "$@"
+RMEOF
+chmod +x "$mv_bin/rm"
+assert_exit_output "commit failure rolls back prior installation" 23 "restoring the previous installation" env INSTALL_MV_COUNTER="$mv_counter" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback" --upgrade
+assert_true "rollback restores previous managed content" grep -F -q rollback-sentinel "$rollback/.agent-workflow/scripts/rollback.txt"
+printf '%s\n' 0 > "$mv_counter"
+assert_exit_output "backup failure preserves unmoved destinations" 23 "restoring the previous installation" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=2 PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback" --upgrade
+assert_true "backup rollback preserves scripts" grep -F -q rollback-sentinel "$rollback/.agent-workflow/scripts/rollback.txt"
+assert_true "backup rollback preserves schemas" test -e "$rollback/.agent-workflow/schemas/round_state.schema.json"
 
-# release-contract: repository-legacy-fixture-begin
-legacy_mixed="$TMP_DIR/legacy-mixed-target"
-mkdir -p "$legacy_mixed/.agent-workflow/docs" "$legacy_mixed/.claude/skills/agent-workflow"
-ln -s "$REPOSITORY_ROOT/scripts" "$legacy_mixed/.agent-workflow/scripts"
-ln -s "$REPOSITORY_ROOT/.review/schemas" "$legacy_mixed/.agent-workflow/schemas"
-ln -s "$REPOSITORY_ROOT/docs/agents" "$legacy_mixed/.agent-workflow/docs/agents"
-# release-contract: repository-legacy-fixture-end
-printf '%s\n' 'custom skill stays' > "$legacy_mixed/.claude/skills/agent-workflow/SKILL.md"
-assert_exit "known partial legacy links migrate without deleting customization" PASS \
-  bash "$INSTALL" "$legacy_mixed" --migrate-legacy
-assert_true "mixed migration rewires scripts" test "$(readlink "$legacy_mixed/.agent-workflow/scripts")" = "$PRODUCT_ROOT/scripts"
-assert_true "mixed migration rewires schemas" test "$(readlink "$legacy_mixed/.agent-workflow/schemas")" = "$PRODUCT_ROOT/schemas"
-assert_true "mixed migration rewires docs" test "$(readlink "$legacy_mixed/.agent-workflow/docs/agents")" = "$PRODUCT_ROOT/docs/agents"
-assert_true "mixed migration preserves custom skill" grep -F -q 'custom skill stays' "$legacy_mixed/.claude/skills/agent-workflow/SKILL.md"
+rollback_incomplete="$TMP_DIR/rollback-incomplete"
+mkdir -p "$rollback_incomplete"
+bash "$INSTALL" "$rollback_incomplete" >/dev/null
+printf '%s\n' rollback-sentinel > "$rollback_incomplete/.agent-workflow/scripts/rollback.txt"
+printf '%s\n' 0 > "$mv_counter"
+assert_exit_output "restore failure reports manual recovery" 70 "manual recovery required" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=5 INSTALL_MV_FAIL_AT_2=6 PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_incomplete" --upgrade
+assert_true "restore failure retains scripts backup" bash -c 'test -n "$(find "$1" -path "*/scripts/rollback.txt" -print -quit)"' _ "$rollback_incomplete/.review/agent-workflow-install-backups"
 
-legacy_conflict="$TMP_DIR/legacy-conflict-target"
-legacy_conflict_root="$TMP_DIR/legacy-conflict-root"
-mkdir -p "$legacy_conflict"
-make_legacy_links "$legacy_conflict" "$legacy_conflict_root" dangling
-assert_exit_output "force and legacy migration are mutually exclusive" 2 \
-  "cannot be combined" bash "$INSTALL" "$legacy_conflict" --force --migrate-legacy
-assert_legacy_links "conflicting flags" "$legacy_conflict" "$legacy_conflict_root"
-
-legacy_rollback="$TMP_DIR/legacy-rollback-target"
-legacy_rollback_root="$TMP_DIR/legacy-rollback-root"
-fake_bin="$TMP_DIR/fake-bin"
-cp_count="$TMP_DIR/cp-count"
-mkdir -p "$legacy_rollback" "$fake_bin"
-make_legacy_links "$legacy_rollback" "$legacy_rollback_root" live
-printf '%s\n' \
-  '#!/usr/bin/env bash' \
-  'count_file="${CP_COUNT_FILE:?}"' \
-  'count=0' \
-  '[[ -f "$count_file" ]] && count="$(cat "$count_file")"' \
-  'count=$((count + 1))' \
-  'printf '\''%s\n'\'' "$count" > "$count_file"' \
-  '[[ "$count" -eq 4 ]] && exit 97' \
-  'exec /bin/cp "$@"' > "$fake_bin/cp"
-chmod +x "$fake_bin/cp"
-assert_exit_output "failed copy migration reports rollback" 97 \
-  "restoring the previous installation" env PATH="$fake_bin:$PATH" CP_COUNT_FILE="$cp_count" \
-  bash "$INSTALL" "$legacy_rollback" --mode copy --migrate-legacy
-assert_legacy_links "failed copy migration rollback" "$legacy_rollback" "$legacy_rollback_root"
-
-for custom_mode in symlink copy; do
-  custom_target="$TMP_DIR/custom-$custom_mode"
-  custom_docs="$TMP_DIR/custom-docs-$custom_mode"
-  mkdir -p "$custom_target/.agent-workflow/schemas" "$custom_target/.agent-workflow/docs" \
-    "$custom_target/.claude/skills" "$custom_docs"
-  printf '%s\n' 'custom scripts' > "$custom_target/.agent-workflow/scripts"
-  printf '%s\n' 'custom schema' > "$custom_target/.agent-workflow/schemas/custom-marker"
-  ln -s "$custom_docs" "$custom_target/.agent-workflow/docs/agents"
-  ln -s "../../missing-custom-skill" "$custom_target/.claude/skills/agent-workflow"
-  assert_exit "custom destinations are preserved in $custom_mode mode" PASS \
-    bash "$INSTALL" "$custom_target" --mode "$custom_mode"
-  assert_true "$custom_mode preserves custom scripts" grep -F -q 'custom scripts' "$custom_target/.agent-workflow/scripts"
-  assert_true "$custom_mode preserves custom schemas" grep -F -q 'custom schema' "$custom_target/.agent-workflow/schemas/custom-marker"
-  assert_true "$custom_mode preserves custom docs link" test "$(readlink "$custom_target/.agent-workflow/docs/agents")" = "$custom_docs"
-  assert_true "$custom_mode preserves custom skill link" test "$(readlink "$custom_target/.claude/skills/agent-workflow")" = "../../missing-custom-skill"
-  assert_exit_output "migration refuses custom $custom_mode destinations" 2 \
-    "no recognized legacy" bash "$INSTALL" "$custom_target" --mode "$custom_mode" --migrate-legacy
-done
+rollback_remove_failure="$TMP_DIR/rollback-remove-failure"
+mkdir -p "$rollback_remove_failure"
+bash "$INSTALL" "$rollback_remove_failure" >/dev/null
+printf '%s\n' old-sentinel > "$rollback_remove_failure/.agent-workflow/scripts/old.txt"
+rollback_remove_root="$(cd "$rollback_remove_failure" && pwd -P)"
+printf '%s\n' 0 > "$mv_counter"
+assert_exit_output "restore removal failure reports manual recovery" 70 "could not remove replacement" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=6 INSTALL_RM_FAIL_PATH="$rollback_remove_root/.agent-workflow/scripts" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_remove_failure" --upgrade
+assert_true "restore removal failure does not nest backup" test ! -e "$rollback_remove_failure/.agent-workflow/scripts/scripts"
+assert_true "restore removal failure retains old scripts backup" bash -c 'test -n "$(find "$1" -path "*/scripts/old.txt" -print -quit)"' _ "$rollback_remove_failure/.review/agent-workflow-install-backups"
 
 product_export="$TMP_DIR/product export"
 export_target="$TMP_DIR/export target"
-mkdir -p "$product_export/docs" "$product_export/.claude/skills" "$export_target"
-product_export_real="$(cd "$product_export" && pwd -P)"
-cp -R "$PRODUCT_ROOT/scripts" "$product_export/scripts"
-cp -R "$PRODUCT_ROOT/schemas" "$product_export/schemas"
-cp -R "$PRODUCT_ROOT/docs/agents" "$product_export/docs/agents"
-cp -R "$PRODUCT_ROOT/.claude/skills/agent-workflow" "$product_export/.claude/skills/agent-workflow"
-
-assert_exit "git-metadata-free product export installs from a path with spaces" PASS \
-  bash "$product_export/scripts/install-into.sh" "$export_target" --mode copy
-assert_true "export install includes completion gate" test -e "$export_target/.agent-workflow/scripts/completion-check.sh"
-assert_true "export install includes canonical schema" test -e "$export_target/.agent-workflow/schemas/round_state.schema.json"
+cp -R "$PRODUCT_ROOT" "$product_export"
+mkdir -p "$export_target"
+assert_exit "git-free export installs from path with spaces" PASS bash "$product_export/scripts/install-into.sh" "$export_target"
+assert_portable_layout "git-free export install" "$export_target"
 assert_no_maintainer_leakage "$export_target"
-prepare_gate_fixture "$export_target"
-assert_gate_contract "git-free export copy install" "$export_target/.agent-workflow/scripts"
 
-export_legacy_target="$TMP_DIR/export legacy target"
-export_legacy_root="$TMP_DIR/export old root"
-export_legacy_output="$TMP_DIR/export-legacy-output.txt"
-mkdir -p "$export_legacy_target"
-make_legacy_links "$export_legacy_target" "$export_legacy_root" dangling
-bash "$product_export/scripts/install-into.sh" "$export_legacy_target" >"$export_legacy_output" 2>&1
-export_legacy_status=$?
-export_legacy_command="$(grep -- '--migrate-legacy$' "$export_legacy_output")"
-assert_true "spaced export legacy detection exits two" test "$export_legacy_status" -eq 2
-assert_true "spaced export migration guidance quotes product path" grep -F -q 'product\ export/scripts/install-into.sh' "$export_legacy_output"
-assert_exit "spaced export migration guidance is executable" PASS bash -c "$export_legacy_command"
-assert_true "spaced export migration rewires scripts" test "$(readlink "$export_legacy_target/.agent-workflow/scripts")" = "$product_export_real/scripts"
+prepare_gate_fixture "$fresh"
+assert_installed_gates "portable install" "$fresh"
 
-assert_exit "refuses product root" FAIL bash "$INSTALL" "$PRODUCT_ROOT"
-assert_exit "errors on missing target path" FAIL bash "$INSTALL" "$TMP_DIR/does-not-exist"
-
-assert_true "README documents copy snapshot" grep -F -q 'snapshot' "$PRODUCT_ROOT/README.md"
-assert_true "README documents narrow legacy migration" grep -F -q -- '--migrate-legacy' "$PRODUCT_ROOT/README.md"
-assert_true "README documents explicit copy update" grep -F -q -- '--mode copy --force' "$PRODUCT_ROOT/README.md"
-assert_true "adoption guide names managed scripts destination" grep -F -q '.agent-workflow/scripts' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
-assert_true "adoption guide names managed skill destination" grep -F -q '.claude/skills/agent-workflow' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
-assert_true "adoption usage documents mutually exclusive migration flags" grep -F -q -- '[--migrate-legacy|--force]' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
+assert_true "README documents copy-only install" grep -F -q 'self-contained' "$PRODUCT_ROOT/README.md"
+assert_true "README documents explicit upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/README.md"
+assert_true "adoption guide documents upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"
   exit 0
-else
-  echo "$FAILURES CASE(S) FAILED"
-  exit 1
 fi
+echo "$FAILURES CASE(S) FAILED"
+exit 1

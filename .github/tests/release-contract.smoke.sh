@@ -308,7 +308,7 @@ copy_target="$TMP_DIR/copy target"
 mkdir -p "$copy_target"
 printf '%s\n' '# target-owned README' > "$copy_target/README.md"
 assert_command "release copy installation succeeds" \
-  bash "$PRODUCT_ROOT/scripts/install-into.sh" "$copy_target" --mode copy
+  bash "$PRODUCT_ROOT/scripts/install-into.sh" "$copy_target"
 assert_command "installed Markdown links are valid in copy context" \
   node "$SCRIPT_DIR/release-contract-check.cjs" installed "$copy_target"
 assert_command "copy scripts are not symlinked to source" test ! -L "$copy_target/.agent-workflow/scripts"
@@ -330,22 +330,15 @@ assert_absent "copy excludes repository evidence" "$copy_target/.review/source"
 assert_absent "copy excludes repository CI" "$copy_target/.github"
 assert_absent "copy excludes repository hooks" "$copy_target/.githooks"
 
-symlink_target="$TMP_DIR/symlink target"
-mkdir -p "$symlink_target"
-assert_command "release symlink installation succeeds" \
-  bash "$PRODUCT_ROOT/scripts/install-into.sh" "$symlink_target"
-assert_command "installed Markdown links are valid in symlink context" \
-  node "$SCRIPT_DIR/release-contract-check.cjs" installed "$symlink_target"
-
 broken_product="$TMP_DIR/broken product"
-broken_target="$TMP_DIR/broken symlink target"
+broken_target="$TMP_DIR/broken installed target"
 mkdir -p "$broken_product/docs/agents" "$broken_product/skill" \
-  "$broken_target/.agent-workflow/docs" "$broken_target/.claude/skills"
+  "$broken_target/.agent-workflow/docs/agents" "$broken_target/.claude/skills/agent-workflow"
 printf '%s\n' '[broken](missing.md)' > "$broken_product/docs/agents/broken.md"
 printf '%s\n' '# skill' > "$broken_product/skill/SKILL.md"
-ln -s "$broken_product/docs/agents" "$broken_target/.agent-workflow/docs/agents"
-ln -s "$broken_product/skill" "$broken_target/.claude/skills/agent-workflow"
-assert_rejects "broken symlink-installed Markdown link fails" 'missing Markdown link' \
+cp -R "$broken_product/docs/agents/." "$broken_target/.agent-workflow/docs/agents"
+cp -R "$broken_product/skill/." "$broken_target/.claude/skills/agent-workflow"
+assert_rejects "broken portable-installed Markdown link fails" 'missing Markdown link' \
   node "$SCRIPT_DIR/release-contract-check.cjs" installed "$broken_target"
 empty_installed="$TMP_DIR/empty installed target"
 mkdir -p "$empty_installed"

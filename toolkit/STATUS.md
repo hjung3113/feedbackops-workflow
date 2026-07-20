@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.13
+## Current release: v0.14
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -21,9 +21,9 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
 - a single distributable `toolkit/` authority separated from the root Matt Pocock development environment;
-- fail-closed legacy absolute-symlink detection plus narrow `--migrate-legacy` conversion that preserves target customization;
+- copy-only fresh installation plus transactional `--upgrade` for recognized copies and correlated current/legacy absolute-link installations;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
-- a root-owned release contract that checks toolkit containment, exact compatibility exceptions, source/copy/symlink links, and target-install non-leakage;
+- a root-owned release contract that checks toolkit containment, exact compatibility exceptions, source/portable-installed links, and target-install non-leakage;
 - an offline Bash 3.2 smoke suite; this source repository runs the release gate and full suite in CI.
 
 Run the current inventory instead of copying a count into docs:
@@ -115,6 +115,14 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - `redispatch-check.sh` validates live worktree HEAD plus coherent VERIFY/REVIEW failure verdicts, origin/action routing, and closure lineage/scope (exact failed ACs plus canonical verify filter or checklist item) before it blocks on two consecutive failures with the same primary origin or before a third redispatch.
 - `cmux-dispatch.sh` atomically records every write attempt before cmux, binds returned admission to the CLI issue/worktree, and consumes an immutable issue/ordinal key plus an issue-wide integrated-fix singleton in the Git common dir; dry-runs do not consume admission and read-only seats remain outside the circuit.
 - A tripped circuit rechecks oracle/contract first, requires a hard fact plus passing-analog parity instruction, and permits at most one manifest increment and one integrated fix batch; security findings may stop earlier.
+
+### v0.14 — portable copy installation and transactional upgrade
+
+- Fresh installation always creates four self-contained directory copies; the installer no longer creates machine-bound absolute symlinks.
+- `--upgrade` recognizes complete copy installations and correlated current or pre-separation absolute-link layouts, including dangling links, then converts all four managed leaves to current copies.
+- Upgrade stages every source tree before mutation, retains the previous leaves under `.review/agent-workflow-install-backups/`, verifies rollback after a failed backup or swap, and reports exit `70` plus the retained backup if restoration itself is refused.
+- Partial, mixed, structurally unrecognized, uncorrelated, and managed-parent or backup-parent symlink layouts fail closed. Removed `--mode`, `--force`, and `--migrate-legacy` flags only provide migration guidance.
+- Product docs and the root release contract now describe and exercise the portable installed context.
 
 ## Compatibility boundary
 

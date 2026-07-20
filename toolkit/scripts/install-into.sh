@@ -1,33 +1,31 @@
 #!/usr/bin/env bash
-# Wire a target repo to this workflow toolkit without copying by default.
-#
-# Usage:
-#   scripts/install-into.sh <target-repo-path> [--mode symlink|copy] [--migrate-legacy|--force]
+# Install or upgrade a portable, self-contained workflow toolkit copy.
+# Bash 3.2 compatible.
 set -euo pipefail
 
 usage() {
-  echo "usage: install-into.sh <target-repo-path> [--mode symlink|copy] [--migrate-legacy|--force]" >&2
+  echo "usage: install-into.sh <target-repo-path> [--upgrade]" >&2
 }
 
 TARGET_REPO=""
-MODE="symlink"
-FORCE=0
-MIGRATE_LEGACY=0
+UPGRADE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --upgrade)
+      UPGRADE=1
+      shift
+      ;;
     --mode)
       [[ $# -lt 2 ]] && { echo "missing value for --mode" >&2; usage; exit 2; }
-      MODE="$2"
-      shift 2
+      echo "install-into: --mode $2 was removed; installs are always portable copies." >&2
+      echo "Use: $0 <target-repo-path> [--upgrade]" >&2
+      exit 2
       ;;
-    --force)
-      FORCE=1
-      shift
-      ;;
-    --migrate-legacy)
-      MIGRATE_LEGACY=1
-      shift
+    --force|--migrate-legacy)
+      echo "install-into: $1 was replaced by --upgrade." >&2
+      echo "Use: $0 <target-repo-path> --upgrade" >&2
+      exit 2
       ;;
     -*)
       echo "unknown arg: $1" >&2
@@ -46,12 +44,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -z "$TARGET_REPO" ]] && { echo "missing <target-repo-path>" >&2; usage; exit 2; }
-[[ "$MODE" != "symlink" && "$MODE" != "copy" ]] && { echo "invalid --mode: $MODE" >&2; usage; exit 2; }
-if [[ "$FORCE" -eq 1 && "$MIGRATE_LEGACY" -eq 1 ]]; then
-  echo "install-into: --migrate-legacy cannot be combined with --force" >&2
-  exit 2
-fi
+[[ -n "$TARGET_REPO" ]] || { echo "missing <target-repo-path>" >&2; usage; exit 2; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
@@ -69,7 +62,6 @@ if [[ ! -d "$TARGET_REPO" ]]; then
   echo "target does not exist or is not a directory: $TARGET_REPO" >&2
   exit 2
 fi
-
 TARGET_ROOT="$(cd "$TARGET_REPO" && pwd -P)"
 
 if [[ "$TARGET_ROOT" == "$PRODUCT_ROOT" ]] || \
@@ -77,14 +69,14 @@ if [[ "$TARGET_ROOT" == "$PRODUCT_ROOT" ]] || \
   echo "refusing to install into the toolkit source itself: $TARGET_ROOT" >&2
   exit 2
 fi
-
 if ! git -C "$TARGET_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "warning: target is not a git repo: $TARGET_ROOT" >&2
 fi
 
 AGENT_DIR="$TARGET_ROOT/.agent-workflow"
 REVIEW_DIR="$TARGET_ROOT/.review"
-CLAUDE_SKILLS_DIR="$TARGET_ROOT/.claude/skills"
+CLAUDE_DIR="$TARGET_ROOT/.claude"
+CLAUDE_SKILLS_DIR="$CLAUDE_DIR/skills"
 SCRIPTS_SRC="$PRODUCT_ROOT/scripts"
 SCHEMAS_SRC="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
   echo "product schemas are missing beneath: $PRODUCT_ROOT" >&2
@@ -97,254 +89,266 @@ SCHEMAS_DEST="$AGENT_DIR/schemas"
 DOCS_DEST="$AGENT_DIR/docs/agents"
 SKILL_DEST="$CLAUDE_SKILLS_DIR/agent-workflow"
 
-reject_symlinked_managed_parent() {
-  local managed_parent=""
-  for managed_parent in \
-    "$AGENT_DIR" \
-    "$AGENT_DIR/docs" \
-    "$TARGET_ROOT/.claude" \
-    "$CLAUDE_SKILLS_DIR" \
-    "$REVIEW_DIR"; do
-    if [[ -L "$managed_parent" ]]; then
-      echo "install-into: managed parent must not be a symlink: $managed_parent" >&2
-      echo "No changes made. Replace it with a real directory inside the target before installing." >&2
-      exit 2
-    fi
-  done
-}
-
-require_source_dir() {
+require_source_tree() {
   local source_dir="$1"
   if [[ ! -d "$source_dir" ]]; then
     echo "required product directory is missing: $source_dir" >&2
     exit 2
   fi
+  if find "$source_dir" -type l -print -quit | grep -q .; then
+    echo "product directory contains a symlink and is not portable: $source_dir" >&2
+    exit 2
+  fi
 }
 
-require_source_dir "$SCRIPTS_SRC"
-require_source_dir "$SCHEMAS_SRC"
-require_source_dir "$DOCS_SRC"
-require_source_dir "$SKILL_SRC"
+reject_symlinked_managed_parent() {
+  local managed_parent=""
+  for managed_parent in \
+    "$AGENT_DIR" \
+    "$AGENT_DIR/docs" \
+    "$CLAUDE_DIR" \
+    "$CLAUDE_SKILLS_DIR" \
+    "$REVIEW_DIR" \
+    "$REVIEW_DIR/agent-workflow-install-backups"; do
+    if [[ -L "$managed_parent" ]]; then
+      echo "install-into: managed parent must not be a symlink: $managed_parent" >&2
+      echo "No changes made. Replace it with a real directory inside the target." >&2
+      exit 2
+    fi
+  done
+}
+
+require_source_tree "$SCRIPTS_SRC"
+require_source_tree "$SCHEMAS_SRC"
+require_source_tree "$DOCS_SRC"
+require_source_tree "$SKILL_SRC"
 reject_symlinked_managed_parent
 
-# release-contract: legacy-link-detection-begin
-legacy_root_for() {
-  local raw_target="$1"
-  local legacy_suffix="$2"
-  local inferred_root=""
+exists_node() {
+  [[ -e "$1" || -L "$1" ]]
+}
 
+# release-contract: legacy-link-detection-begin
+managed_link_root() {
+  local dest="$1"
+  local kind="$2"
+  local raw_target=""
+  local legacy_schema_parent=""
+  [[ -L "$dest" ]] || return 1
+  raw_target="$(readlink "$dest")"
   case "$raw_target" in
-    "$legacy_suffix")
-      printf '/\n'
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "$kind:$raw_target" in
+    scripts:*'/scripts') printf '%s\n' "${raw_target%/scripts}" ;;
+    schemas:*'/.review/schemas')
+      legacy_schema_parent="${raw_target%/schemas}"
+      printf '%s\n' "${legacy_schema_parent%/.review}"
       ;;
-    /*"$legacy_suffix")
-      inferred_root="${raw_target%"$legacy_suffix"}"
-      [[ -n "$inferred_root" ]] || return 1
-      printf '%s\n' "$inferred_root"
-      ;;
+    schemas:*'/schemas') printf '%s\n' "${raw_target%/schemas}" ;;
+    docs:*'/docs/agents') printf '%s\n' "${raw_target%/docs/agents}" ;;
+    skill:*'/.claude/skills/agent-workflow') printf '%s\n' "${raw_target%/.claude/skills/agent-workflow}" ;;
     *) return 1 ;;
   esac
 }
-
-SCRIPTS_LINK=""
-SCHEMAS_LINK=""
-DOCS_LINK=""
-SKILL_LINK=""
-SCRIPTS_LEGACY_ROOT=""
-SCHEMAS_LEGACY_ROOT=""
-SCHEMAS_CURRENT_ROOT=""
-DOCS_LEGACY_ROOT=""
-SKILL_LEGACY_ROOT=""
-
-if [[ -L "$SCRIPTS_DEST" ]]; then
-  SCRIPTS_LINK="$(readlink "$SCRIPTS_DEST")"
-  SCRIPTS_LEGACY_ROOT="$(legacy_root_for "$SCRIPTS_LINK" "/scripts")" || SCRIPTS_LEGACY_ROOT=""
-fi
-if [[ -L "$SCHEMAS_DEST" ]]; then
-  SCHEMAS_LINK="$(readlink "$SCHEMAS_DEST")"
-  SCHEMAS_LEGACY_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/.review/schemas")" || SCHEMAS_LEGACY_ROOT=""
-  if [[ -z "$SCHEMAS_LEGACY_ROOT" ]]; then
-    SCHEMAS_CURRENT_ROOT="$(legacy_root_for "$SCHEMAS_LINK" "/schemas")" || SCHEMAS_CURRENT_ROOT=""
-  fi
-fi
-if [[ -L "$DOCS_DEST" ]]; then
-  DOCS_LINK="$(readlink "$DOCS_DEST")"
-  DOCS_LEGACY_ROOT="$(legacy_root_for "$DOCS_LINK" "/docs/agents")" || DOCS_LEGACY_ROOT=""
-fi
-if [[ -L "$SKILL_DEST" ]]; then
-  SKILL_LINK="$(readlink "$SKILL_DEST")"
-  SKILL_LEGACY_ROOT="$(legacy_root_for "$SKILL_LINK" "/.claude/skills/agent-workflow")" || SKILL_LEGACY_ROOT=""
-fi
 # release-contract: legacy-link-detection-end
 
-LEGACY_SCRIPTS=0
-LEGACY_SCHEMAS=0
-LEGACY_DOCS=0
-LEGACY_SKILL=0
-LEGACY_COUNT=0
-
-if [[ -n "$SCRIPTS_LEGACY_ROOT" && "$SCRIPTS_LINK" != "$SCRIPTS_SRC" ]]; then
-  LEGACY_SCRIPTS=1
-fi
-if [[ -n "$SCHEMAS_LEGACY_ROOT" && "$SCHEMAS_LINK" != "$SCHEMAS_SRC" ]]; then
-  LEGACY_SCHEMAS=1
-elif [[ -n "$SCHEMAS_CURRENT_ROOT" && "$SCHEMAS_LINK" != "$SCHEMAS_SRC" ]]; then
-  if [[ "$SCHEMAS_CURRENT_ROOT" == "$SCRIPTS_LEGACY_ROOT" || \
-        "$SCHEMAS_CURRENT_ROOT" == "$DOCS_LEGACY_ROOT" || \
-        "$SCHEMAS_CURRENT_ROOT" == "$SKILL_LEGACY_ROOT" ]]; then
-    LEGACY_SCHEMAS=1
-  fi
-fi
-if [[ -n "$DOCS_LEGACY_ROOT" && "$DOCS_LINK" != "$DOCS_SRC" ]]; then
-  LEGACY_DOCS=1
-fi
-if [[ -n "$SKILL_LEGACY_ROOT" && "$SKILL_LINK" != "$SKILL_SRC" ]]; then
-  LEGACY_SKILL=1
-fi
-LEGACY_COUNT=$((LEGACY_SCRIPTS + LEGACY_SCHEMAS + LEGACY_DOCS + LEGACY_SKILL))
-
-print_legacy_link() {
-  local recognized="$1"
-  local dest="$2"
-  local raw_target="$3"
-  if [[ "$recognized" -eq 1 ]]; then
-    echo "  $dest -> $raw_target" >&2
-  fi
+is_recognized_tree() {
+  local dest="$1"
+  local sentinel="$2"
+  [[ -d "$dest" && ! -L "$dest" && -e "$dest/$sentinel" ]]
 }
 
-if [[ "$LEGACY_COUNT" -gt 0 && "$MIGRATE_LEGACY" -eq 0 ]]; then
-  echo "install-into: legacy absolute-symlink installation detected; no changes made." >&2
-  print_legacy_link "$LEGACY_SCRIPTS" "$SCRIPTS_DEST" "$SCRIPTS_LINK"
-  print_legacy_link "$LEGACY_SCHEMAS" "$SCHEMAS_DEST" "$SCHEMAS_LINK"
-  print_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK"
-  print_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK"
-  echo "Migrate only the recognized legacy links with:" >&2
-  printf '  %q %q --mode %q --migrate-legacy\n' "$0" "$TARGET_ROOT" "$MODE" >&2
-  echo "Existing files, directories, copy installs, and unrecognized symlinks will be preserved." >&2
+RECOGNIZED_LINK_ROOT=""
+RECOGNIZED_LINK_ROOT_SET=0
+RECOGNIZED_TOPOLOGY=""
+recognized_node() {
+  local dest="$1"
+  local kind="$2"
+  local sentinel="$3"
+  local link_root=""
+  if [[ -L "$dest" ]]; then
+    if [[ -n "$RECOGNIZED_TOPOLOGY" && "$RECOGNIZED_TOPOLOGY" != "link" ]]; then
+      return 1
+    fi
+    link_root="$(managed_link_root "$dest" "$kind")" || return 1
+    if [[ "$RECOGNIZED_LINK_ROOT_SET" -eq 1 && "$link_root" != "$RECOGNIZED_LINK_ROOT" ]]; then
+      return 1
+    fi
+    RECOGNIZED_TOPOLOGY="link"
+    RECOGNIZED_LINK_ROOT="$link_root"
+    RECOGNIZED_LINK_ROOT_SET=1
+    return 0
+  fi
+  if [[ -n "$RECOGNIZED_TOPOLOGY" && "$RECOGNIZED_TOPOLOGY" != "tree" ]]; then
+    return 1
+  fi
+  if is_recognized_tree "$dest" "$sentinel"; then
+    RECOGNIZED_TOPOLOGY="tree"
+    return 0
+  fi
+  return 1
+}
+
+recognized_installation() {
+  if ! exists_node "$SCRIPTS_DEST" || ! exists_node "$SCHEMAS_DEST" || \
+     ! exists_node "$DOCS_DEST" || ! exists_node "$SKILL_DEST"; then
+    return 1
+  fi
+  RECOGNIZED_LINK_ROOT=""
+  RECOGNIZED_LINK_ROOT_SET=0
+  RECOGNIZED_TOPOLOGY=""
+  recognized_node "$SCRIPTS_DEST" scripts "install-into.sh" && \
+  recognized_node "$SCHEMAS_DEST" schemas "round_state.schema.json" && \
+  recognized_node "$DOCS_DEST" docs "multi-agent-workflow.md" && \
+  recognized_node "$SKILL_DEST" skill "SKILL.md"
+}
+
+MANAGED_COUNT=0
+for managed_dest in "$SCRIPTS_DEST" "$SCHEMAS_DEST" "$DOCS_DEST" "$SKILL_DEST"; do
+  if exists_node "$managed_dest"; then
+    MANAGED_COUNT=$((MANAGED_COUNT + 1))
+  fi
+done
+
+if [[ "$UPGRADE" -eq 0 && "$MANAGED_COUNT" -gt 0 ]]; then
+  echo "install-into: an existing or partial installation was found; no changes made." >&2
+  printf 'Upgrade a recognized installation with:\n  %q %q --upgrade\n' "$0" "$TARGET_ROOT" >&2
+  exit 2
+fi
+if [[ "$UPGRADE" -eq 1 && "$MANAGED_COUNT" -eq 0 ]]; then
+  echo "install-into: --upgrade requires an existing installation; use the default command for a fresh install." >&2
+  exit 2
+fi
+if [[ "$UPGRADE" -eq 1 ]] && ! recognized_installation; then
+  echo "install-into: existing managed paths are not a complete recognized toolkit installation; no changes made." >&2
+  echo "Custom, partial, and unrecognized link layouts must be resolved manually." >&2
   exit 2
 fi
 
-if [[ "$MIGRATE_LEGACY" -eq 1 && "$LEGACY_COUNT" -eq 0 ]]; then
-  echo "install-into: --migrate-legacy found no recognized legacy absolute symlinks; no changes made." >&2
-  echo "Existing files, directories, copy installs, and unrecognized symlinks require no migration." >&2
-  exit 2
+mkdir -p "$AGENT_DIR" "$AGENT_DIR/docs" "$REVIEW_DIR" "$CLAUDE_SKILLS_DIR"
+STAGE_ROOT="$(mktemp -d "$TARGET_ROOT/.agent-workflow-install.XXXXXX")"
+STAGE_SCRIPTS="$STAGE_ROOT/scripts"
+STAGE_SCHEMAS="$STAGE_ROOT/schemas"
+STAGE_DOCS="$STAGE_ROOT/docs"
+STAGE_SKILL="$STAGE_ROOT/skill"
+
+cleanup_stage() {
+  if [[ -n "${STAGE_ROOT:-}" && -d "$STAGE_ROOT" ]]; then
+    rm -rf "$STAGE_ROOT"
+  fi
+}
+trap cleanup_stage EXIT INT TERM
+
+stage_tree() {
+  local src="$1"
+  local dest="$2"
+  cp -R "$src" "$dest"
+  [[ -d "$dest" && ! -L "$dest" ]]
+}
+
+if ! stage_tree "$SCRIPTS_SRC" "$STAGE_SCRIPTS" || \
+   ! stage_tree "$SCHEMAS_SRC" "$STAGE_SCHEMAS" || \
+   ! stage_tree "$DOCS_SRC" "$STAGE_DOCS" || \
+   ! stage_tree "$SKILL_SRC" "$STAGE_SKILL"; then
+  echo "install-into: staging failed; target installation was not changed." >&2
+  exit 1
 fi
 
-mkdir -p "$AGENT_DIR"
-mkdir -p "$AGENT_DIR/docs"
-mkdir -p "$REVIEW_DIR"
-mkdir -p "$CLAUDE_SKILLS_DIR"
+BACKUP_ROOT=""
+if [[ "$UPGRADE" -eq 1 ]]; then
+  backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  BACKUP_ROOT="$REVIEW_DIR/agent-workflow-install-backups/$backup_id"
+  mkdir -p "$BACKUP_ROOT"
+fi
 
-SCRIPTS_ABSENT=0
-SCHEMAS_ABSENT=0
-DOCS_ABSENT=0
-SKILL_ABSENT=0
-[[ ! -e "$SCRIPTS_DEST" && ! -L "$SCRIPTS_DEST" ]] && SCRIPTS_ABSENT=1
-[[ ! -e "$SCHEMAS_DEST" && ! -L "$SCHEMAS_DEST" ]] && SCHEMAS_ABSENT=1
-[[ ! -e "$DOCS_DEST" && ! -L "$DOCS_DEST" ]] && DOCS_ABSENT=1
-[[ ! -e "$SKILL_DEST" && ! -L "$SKILL_DEST" ]] && SKILL_ABSENT=1
-
-remove_legacy_link() {
-  local recognized="$1"
-  local dest="$2"
-  local raw_target="$3"
-  if [[ "$recognized" -eq 1 ]]; then
-    rm "$dest" || return $?
-    echo "removed legacy link: $dest -> $raw_target"
-  fi
-}
-
-install_link() {
-  src="$1"
-  dest="$2"
-
-  if [[ -e "$dest" || -L "$dest" ]]; then
-    if [[ "$FORCE" -eq 1 ]]; then
-      rm -rf "$dest"
-    else
-      echo "skip existing: $dest"
-      return 0
+restore_previous() {
+  local name=""
+  local dest=""
+  local restore_status=0
+  echo "install-into: installation failed; restoring the previous installation." >&2
+  for name in scripts schemas docs skill; do
+    case "$name" in
+      scripts) dest="$SCRIPTS_DEST" ;;
+      schemas) dest="$SCHEMAS_DEST" ;;
+      docs) dest="$DOCS_DEST" ;;
+      skill) dest="$SKILL_DEST" ;;
+    esac
+    if [[ -n "$BACKUP_ROOT" ]] && exists_node "$BACKUP_ROOT/$name"; then
+      if exists_node "$dest"; then
+        if ! rm -rf "$dest" || exists_node "$dest"; then
+          echo "install-into: rollback incomplete; could not remove replacement: $dest" >&2
+          restore_status=1
+          continue
+        fi
+      fi
+      if ! mv "$BACKUP_ROOT/$name" "$dest"; then
+        echo "install-into: rollback incomplete for $dest; retained backup: $BACKUP_ROOT/$name" >&2
+        restore_status=1
+      fi
+    elif [[ "$UPGRADE" -eq 0 ]] && exists_node "$dest"; then
+      if ! rm -rf "$dest" || exists_node "$dest"; then
+        echo "install-into: rollback incomplete; could not remove fresh-install leaf: $dest" >&2
+        restore_status=1
+      fi
     fi
+  done
+  return "$restore_status"
+}
+
+commit_installation() {
+  local name=""
+  local dest=""
+  local staged=""
+  if [[ "$UPGRADE" -eq 1 ]]; then
+    for name in scripts schemas docs skill; do
+      case "$name" in
+        scripts) dest="$SCRIPTS_DEST" ;;
+        schemas) dest="$SCHEMAS_DEST" ;;
+        docs) dest="$DOCS_DEST" ;;
+        skill) dest="$SKILL_DEST" ;;
+      esac
+      mv "$dest" "$BACKUP_ROOT/$name" || return $?
+    done
   fi
-
-  ln -s "$src" "$dest" || return $?
-  echo "linked: $dest -> $src"
+  for name in scripts schemas docs skill; do
+    case "$name" in
+      scripts) dest="$SCRIPTS_DEST"; staged="$STAGE_SCRIPTS" ;;
+      schemas) dest="$SCHEMAS_DEST"; staged="$STAGE_SCHEMAS" ;;
+      docs) dest="$DOCS_DEST"; staged="$STAGE_DOCS" ;;
+      skill) dest="$SKILL_DEST"; staged="$STAGE_SKILL" ;;
+    esac
+    mv "$staged" "$dest" || return $?
+    echo "installed: $dest"
+  done
 }
 
-install_copy() {
-  src="$1"
-  dest="$2"
-
-  if [[ -e "$dest" || -L "$dest" ]]; then
-    if [[ "$FORCE" -eq 1 ]]; then
-      rm -rf "$dest"
-    else
-      echo "skip existing: $dest"
-      return 0
-    fi
-  fi
-
-  cp -R "$src" "$dest" || return $?
-  echo "copied: $dest"
-}
-
-perform_install() {
-  if [[ "$MODE" == "symlink" ]]; then
-    install_link "$SCRIPTS_SRC" "$SCRIPTS_DEST" || return $?
-    install_link "$SCHEMAS_SRC" "$SCHEMAS_DEST" || return $?
-    install_link "$DOCS_SRC" "$DOCS_DEST" || return $?
-    install_link "$SKILL_SRC" "$SKILL_DEST" || return $?
-  else
-    install_copy "$SCRIPTS_SRC" "$SCRIPTS_DEST" || return $?
-    install_copy "$SCHEMAS_SRC" "$SCHEMAS_DEST" || return $?
-    install_copy "$DOCS_SRC" "$DOCS_DEST" || return $?
-    install_copy "$SKILL_SRC" "$SKILL_DEST" || return $?
-  fi
-}
-
-restore_destination() {
-  local recognized="$1"
-  local initially_absent="$2"
-  local dest="$3"
-  local raw_target="$4"
-
-  if [[ "$recognized" -eq 1 ]]; then
-    rm -rf "$dest"
-    ln -s "$raw_target" "$dest"
-  elif [[ "$initially_absent" -eq 1 ]]; then
-    rm -rf "$dest"
-  fi
-}
-
-rollback_migration() {
-  echo "install-into: migration failed; restoring the previous installation." >&2
-  restore_destination "$LEGACY_SCRIPTS" "$SCRIPTS_ABSENT" "$SCRIPTS_DEST" "$SCRIPTS_LINK"
-  restore_destination "$LEGACY_SCHEMAS" "$SCHEMAS_ABSENT" "$SCHEMAS_DEST" "$SCHEMAS_LINK"
-  restore_destination "$LEGACY_DOCS" "$DOCS_ABSENT" "$DOCS_DEST" "$DOCS_LINK"
-  restore_destination "$LEGACY_SKILL" "$SKILL_ABSENT" "$SKILL_DEST" "$SKILL_LINK"
-}
-
-if [[ "$MIGRATE_LEGACY" -eq 1 ]]; then
+set +e
+commit_installation
+install_status=$?
+set -e
+if [[ "$install_status" -ne 0 ]]; then
   set +e
-  remove_legacy_link "$LEGACY_SCRIPTS" "$SCRIPTS_DEST" "$SCRIPTS_LINK" && \
-    remove_legacy_link "$LEGACY_SCHEMAS" "$SCHEMAS_DEST" "$SCHEMAS_LINK" && \
-    remove_legacy_link "$LEGACY_DOCS" "$DOCS_DEST" "$DOCS_LINK" && \
-    remove_legacy_link "$LEGACY_SKILL" "$SKILL_DEST" "$SKILL_LINK" && \
-    perform_install
-  migration_status=$?
+  restore_previous
+  restore_status=$?
   set -e
-  if [[ "$migration_status" -ne 0 ]]; then
-    rollback_migration
-    exit "$migration_status"
+  if [[ "$restore_status" -ne 0 ]]; then
+    if [[ -n "$BACKUP_ROOT" ]]; then
+      echo "install-into: manual recovery required from: $BACKUP_ROOT" >&2
+    else
+      echo "install-into: manual cleanup required inside target: $TARGET_ROOT" >&2
+    fi
+    exit 70
   fi
-else
-  perform_install
+  exit "$install_status"
 fi
 
-if [[ "$MODE" == "copy" ]]; then
-  ENV_NEXT_STEP="Copy .env.example from the distributable toolkit package before sharing this snapshot."
-else
-  ENV_NEXT_STEP="Copy toolkit env defaults into the target when needed: $PRODUCT_ROOT/.env.example"
+trap - EXIT INT TERM
+cleanup_stage
+
+if [[ "$UPGRADE" -eq 1 ]]; then
+  echo "upgrade backup: $BACKUP_ROOT"
 fi
 
 cat <<EOF
@@ -354,5 +358,5 @@ Next steps:
   - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
   - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/cmux-dispatch.sh
   - Verify target fit before using the bundled backend/Vitest verify.sh adapter.
-  - $ENV_NEXT_STEP
+  - Copy .env.example from the distributable toolkit package when needed.
 EOF

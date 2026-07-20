@@ -22,7 +22,8 @@ The workflow's **coordination model is reusable**, but every script is not yet t
 From the toolkit repository:
 
 ```bash
-scripts/install-into.sh <target-repo> [--mode symlink|copy] [--migrate-legacy|--force]
+scripts/install-into.sh <target-repo>
+scripts/install-into.sh <target-repo> --upgrade
 ```
 
 The installer derives `PRODUCT_ROOT` from its own physical `scripts/` location. Git metadata is optional: when present, the enclosing repository is used only for repository-specific safety checks and is not the product identity. Source and installed commands use the same sibling `scripts/`, `schemas/`, and `docs/` layout; installed commands do not need repository metadata.
@@ -37,11 +38,11 @@ This installs:
 <target>/.review
 ```
 
-Symlink mode follows toolkit updates immediately but uses machine-local absolute links; do not commit those links as a portable installation. A sibling worktree sees the installation only if the copied files/links are part of its Git tree or the installer is run for that worktree too.
+Every installation is a self-contained directory copy. No managed destination is a symlink to the toolkit checkout, so the result remains usable after moving it to another machine or deleting the source checkout. A sibling worktree sees the installation only when those copied files are part of its Git tree or the installer is run for that worktree too.
 
-Pre-`toolkit/` installations used four absolute links from the target into the old repository root. The installer detects recognized live or dangling legacy links, makes no changes, and prints the exact `--migrate-legacy` command. It uses the same fail-closed path when a post-separation product home moved or disappeared; a current-layout `schemas/` link is recognized only when a sibling managed link identifies the same former product home. That option replaces only recognized managed links in the requested symlink/copy mode; it preserves files, directories, copy installs, and unrecognized links, and cannot be combined with `--force`.
+The default command is fresh-install only and refuses any existing managed leaf. Use `--upgrade` for an existing complete installation. Upgrade accepts recognized copies and complete correlated current or pre-`toolkit/` absolute-link layouts, including dangling links, then converts all four leaves to portable copies. Changed content inside a recognized complete copy is retained in the backup; partial, mixed, structurally unrecognized, or uncorrelated layouts fail closed for manual resolution.
 
-Copy mode is a point-in-time snapshot and never updates automatically. Rerunning without force preserves the snapshot and target customization. To update, back up and review changes, then explicitly run `--mode copy --force`. Force replacement is limited to these managed destinations:
+Upgrade stages all four source trees inside the target before mutation, moves the previous leaves to `.review/agent-workflow-install-backups/<timestamp>-pid/`, and swaps the staged copies as one operation with verified rollback on failure. The backup parent must be a real directory inside the target. If the filesystem also refuses a rollback move, the installer exits `70`, names the retained backup, and requires manual recovery. Replacement is limited to these managed destinations:
 
 ```text
 .agent-workflow/scripts
@@ -50,7 +51,7 @@ Copy mode is a point-in-time snapshot and never updates automatically. Rerunning
 .claude/skills/agent-workflow
 ```
 
-It does not remove target `.review`, unrelated files, or the repository itself.
+It does not remove target `.review`, unrelated files, or the repository itself. The old `--mode`, `--force`, and `--migrate-legacy` flags are rejected with guidance to use the new interface.
 
 ## Compatibility interview
 
@@ -99,7 +100,7 @@ Do not let a target-only workaround become the only record of a reusable failure
 or a later run exposes a problem:
 
 1. Preserve a minimal, sanitized reproduction in the target repository and identify the installed
-   toolkit revision plus symlink/copy mode.
+   toolkit revision plus whether it was a fresh install or `--upgrade`.
 2. Decide whether the evidence points to the coordination core, a bundled target adapter, or an
    adoption/documentation gap. Leave the classification open when the boundary is not yet proven.
 3. Search the toolkit repository's open and closed GitHub issues for an existing report.
