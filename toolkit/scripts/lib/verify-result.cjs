@@ -217,7 +217,8 @@ function main(argv, env) {
       && checks.every((check) => check && Object.keys(check).sort().join(",") === "actual,code,expected"
         && typeof check.expected === "string" && typeof check.actual === "string")
       && clean.role && Object.keys(clean.role).sort().join(",") === "name,superuser"
-      && typeof clean.role.name === "string" && typeof clean.role.superuser === "boolean";
+      && typeof clean.role.name === "string" && clean.role.name.length > 0
+      && typeof clean.role.superuser === "boolean";
     if (!validShape) {
       console.error("FAIL: clean probe must provide exact role evidence plus sentinel and migration_hash checks");
       console.error(`VERIFY_FAILURE_JSON=${JSON.stringify({ failures: [{ code: "clean_probe_invalid", expected: "exact role, sentinel, and migration_hash shape", actual: topLevelKeys.join(",") || "missing" }] })}`);

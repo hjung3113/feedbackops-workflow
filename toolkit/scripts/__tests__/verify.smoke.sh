@@ -299,6 +299,19 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+EMPTY_ROLE_PROBE="$TMP_DIR/empty-role-probe.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"same","actual":"same"}],"role":{"name":"","superuser":false}}'\''' > "$EMPTY_ROLE_PROBE"
+chmod +x "$EMPTY_ROLE_PROBE"
+empty_role_err="$TMP_DIR/empty-role.stderr"
+VERIFY_DATABASE_URL="postgres:///verify_smoke" VERIFY_CLEAN_COMMAND="$EMPTY_ROLE_PROBE" bash "$VERIFY" --verify-clean >/dev/null 2>"$empty_role_err"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -F -q '"code":"clean_probe_invalid"' "$empty_role_err"; then
+  echo "ok   - clean probe rejects empty role evidence"
+else
+  echo "NOT OK - clean probe rejects empty role evidence (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
 clean_missing_err="$TMP_DIR/clean-missing.stderr"
 VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" env -u VERIFY_CLEAN_COMMAND bash "$VERIFY" --verify-clean >/dev/null 2>"$clean_missing_err"
 ec=$?
