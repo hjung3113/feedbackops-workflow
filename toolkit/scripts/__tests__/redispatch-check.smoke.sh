@@ -34,10 +34,20 @@ assert_case() {
   fi
 }
 
-BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
-HEAD_SHA="$(git -C "$ROOT" rev-parse HEAD)"
-BASE_SHA="$(git -C "$ROOT" merge-base HEAD "$BRANCH")"
-HASH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+WORKTREE="$TMP_DIR/worktree"
+mkdir -p "$WORKTREE/.review/evidence"
+git init -q "$WORKTREE"
+git -C "$WORKTREE" config user.email smoke@example.test
+git -C "$WORKTREE" config user.name smoke
+for evidence_name in F-1 F-2 F-3 F-1-closed F-2-closed security oracle hard-fact passing-analog; do
+  printf '%s\n' "$evidence_name evidence" > "$WORKTREE/.review/evidence/$evidence_name.json"
+done
+git -C "$WORKTREE" add .review/evidence
+git -C "$WORKTREE" commit -qm evidence
+git -C "$WORKTREE" branch -M main
+BRANCH="main"
+HEAD_SHA="$(git -C "$WORKTREE" rev-parse HEAD)"
+BASE_SHA="$HEAD_SHA"
 
 cp "$FIXTURE" "$TMP_DIR/base.json"
 node -e '
@@ -53,7 +63,7 @@ node -e '
   value.commit_scope.commits = [];
   delete value.round_control;
   fs.writeFileSync(file, JSON.stringify(value));
-' "$TMP_DIR/base.json" "$ROOT" "$BRANCH" "$BASE_SHA" "$HEAD_SHA"
+' "$TMP_DIR/base.json" "$WORKTREE" "$BRANCH" "$BASE_SHA" "$HEAD_SHA"
 
 assert_case "allows a normal initial dispatch without failure history" 0 "$TMP_DIR/base.json" "allow_normal" "null"
 
@@ -62,8 +72,15 @@ make_failure_state() {
   cp "$TMP_DIR/base.json" "$destination"
   node -e '
     const fs = require("fs");
-    const [file, origins, hash, head] = process.argv.slice(1);
+    const crypto = require("crypto");
+    const path = require("path");
+    const [file, origins, worktree, head] = process.argv.slice(1);
     const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    const evidence = (index) => {
+      const relative = ".review/evidence/F-" + (index + 1) + ".json";
+      const content = fs.readFileSync(path.join(worktree, relative));
+      return {kind: "verify", path: relative, content_sha256: crypto.createHash("sha256").update(content).digest("hex"), head_sha: head};
+    };
     value.round_control = {
       failures: origins.split(",").map((origin, index) => ({
         id: "F-" + (index + 1),
@@ -74,11 +91,11 @@ make_failure_state() {
         failed_ac_ids: ["AC-" + (index + 1)],
         owner: "CONDUCTOR",
         next_action: {kind: "diagnosis", summary: "classify and route the failure"},
-        evidence: [{kind: "verify", path: ".review/history/F-" + (index + 1) + ".json", content_sha256: hash, head_sha: head}]
+        evidence: [evidence(index)]
       }))
     };
     fs.writeFileSync(file, JSON.stringify(value));
-  ' "$destination" "$origins" "$HASH" "$HEAD_SHA"
+  ' "$destination" "$origins" "$WORKTREE" "$HEAD_SHA"
 }
 
 make_failure_state "$TMP_DIR/different.json" "implementation,test_oracle"
@@ -87,15 +104,34 @@ assert_case "different origins allow the second normal redispatch" 0 "$TMP_DIR/d
 make_failure_state "$TMP_DIR/same.json" "test_oracle,test_oracle"
 assert_case "two consecutive equal primary origins trip the circuit" 1 "$TMP_DIR/same.json" "diagnosis_required" "same_origin"
 
+cp "$TMP_DIR/same.json" "$TMP_DIR/closed-history.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+  const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  value.round_control.failures.forEach((failure,index)=>{
+    const relative=".review/evidence/F-"+(index+1)+"-closed.json";
+    const content=fs.readFileSync(path.join(worktree,relative));
+    failure.status="closed";
+    failure.closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+  });
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$TMP_DIR/closed-history.json" "$WORKTREE" "$HEAD_SHA"
+assert_case "closed historical failures do not retrip the active circuit" 0 "$TMP_DIR/closed-history.json" "allow_normal" "null"
+
+cp "$TMP_DIR/closed-history.json" "$TMP_DIR/unverified-closure.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); delete v.round_control.failures[0].closed_by; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unverified-closure.json"
+assert_case "closed failures require closure evidence" 2 "$TMP_DIR/unverified-closure.json" "error" "null"
+
 make_failure_state "$TMP_DIR/third.json" "environment,implementation,integration_drift"
 assert_case "two completed redispatches block a third redispatch" 1 "$TMP_DIR/third.json" "diagnosis_required" "third_redispatch"
 
 cp "$TMP_DIR/different.json" "$TMP_DIR/security.json"
 node -e '
-  const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8"));
-  v.round_control.security_stop={active:true,finding_id:"SEC-1",evidence:{kind:"review",path:".review/SEC-1.json",content_sha256:process.argv[2],head_sha:process.argv[3]}};
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const f=process.argv[1]; const worktree=process.argv[2]; const v=JSON.parse(fs.readFileSync(f,"utf8"));
+  const relative=".review/evidence/security.json"; const content=fs.readFileSync(path.join(worktree,relative));
+  v.round_control.security_stop={active:true,finding_id:"SEC-1",evidence:{kind:"review",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:process.argv[3]}};
   fs.writeFileSync(f,JSON.stringify(v));
-' "$TMP_DIR/security.json" "$HASH" "$HEAD_SHA"
+' "$TMP_DIR/security.json" "$WORKTREE" "$HEAD_SHA"
 assert_case "security finding stops before numeric thresholds" 1 "$TMP_DIR/security.json" "security_stop" "security"
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/diagnosis-incomplete.json"
@@ -108,20 +144,20 @@ assert_case "incomplete diagnosis keeps implementation redispatch blocked" 1 "$T
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/integrated-ready.json"
 node -e '
-  const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); const hash=process.argv[2]; const head=process.argv[3];
-  const evidence=(kind,path)=>({kind,path,content_sha256:hash,head_sha:head});
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const f=process.argv[1]; const worktree=process.argv[2]; const v=JSON.parse(fs.readFileSync(f,"utf8")); const head=process.argv[3];
+  const evidence=(kind,name)=>{const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative)); return {kind,path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};};
   v.round_control.diagnosis={
     trigger:"same_origin",
     failure_ids:["F-1","F-2"],
     records:[
-      {kind:"oracle_contract_recheck",summary:"oracle and contract compared first",evidence:evidence("live_probe",".review/oracle-contract.json")},
-      {kind:"hard_fact",summary:"passing fixture uses the canonical helper",evidence:evidence("verify",".review/hard-fact.json")},
-      {kind:"passing_analog",summary:"copy the known-green wiring to parity",instruction:"guess_forbidden_copy_passing_analog_to_parity",evidence:evidence("diff",".review/passing-analog.diff")}
+      {kind:"oracle_contract_recheck",summary:"oracle and contract compared first",evidence:evidence("live_probe","oracle")},
+      {kind:"hard_fact",summary:"passing fixture uses the canonical helper",evidence:evidence("verify","hard-fact")},
+      {kind:"passing_analog",summary:"copy the known-green wiring to parity",instruction:"guess_forbidden_copy_passing_analog_to_parity",evidence:evidence("diff","passing-analog")}
     ],
     integrated_fix_batch:{dispatch_ordinal:3,failure_ids:["F-1","F-2"],status:"ready"}
   };
   fs.writeFileSync(f,JSON.stringify(v));
-' "$TMP_DIR/integrated-ready.json" "$HASH" "$HEAD_SHA"
+' "$TMP_DIR/integrated-ready.json" "$WORKTREE" "$HEAD_SHA"
 assert_case "ordered diagnosis authorizes one integrated fix batch" 0 "$TMP_DIR/integrated-ready.json" "allow_integrated_fix" "same_origin"
 
 cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/integrated-used.json"
@@ -147,6 +183,30 @@ assert_case "diagnosis must recheck oracle and contract first" 2 "$TMP_DIR/wrong
 cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/manifest-jump.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.diagnosis.manifest_update={from_revision:3,to_revision:5,decision_id:"D-2"}; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/manifest-jump.json"
 assert_case "diagnosis permits at most one manifest revision increment" 2 "$TMP_DIR/manifest-jump.json" "error" "null"
+
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/unbound-manifest.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.diagnosis.manifest_update={from_revision:1,to_revision:2,decision_id:"D-old"}; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unbound-manifest.json"
+assert_case "manifest update must end at the current ROUND-STATE revision" 2 "$TMP_DIR/unbound-manifest.json" "error" "null"
+
+cp "$TMP_DIR/same.json" "$TMP_DIR/no-verifier-evidence.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].kind="dispatch_log"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/no-verifier-evidence.json"
+assert_case "failed ACs require verifier or review evidence" 2 "$TMP_DIR/no-verifier-evidence.json" "error" "null"
+
+cp "$TMP_DIR/same.json" "$TMP_DIR/stale-head.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.head_sha="0000000000000000000000000000000000000000"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/stale-head.json"
+assert_case "ROUND-STATE head must match the live worktree" 2 "$TMP_DIR/stale-head.json" "error" "null"
+
+printf '%s\n' 'tampered evidence' > "$WORKTREE/.review/evidence/F-1.json"
+assert_case "evidence content hash is verified before admission" 2 "$TMP_DIR/same.json" "error" "null"
+git -C "$WORKTREE" show HEAD:.review/evidence/F-1.json > "$WORKTREE/.review/evidence/F-1.json"
+
+( bash "$CHECK" --round-state "$TMP_DIR/base.json" --manifest-revision 4 ) > "$TMP_DIR/stale-revision.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const value=require(process.argv[1]); process.exit(value.decision === "error" && value.errors[0].code === "stale_manifest_revision" ? 0 : 1)' "$TMP_DIR/stale-revision.json"; then
+  echo "ok   - stale manifest revision is an input error"
+else
+  echo "NOT OK - stale manifest revision exit contract"
+  FAILURES=$((FAILURES + 1))
+fi
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/model-remedy.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].next_action.kind="model_escalation"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/model-remedy.json"

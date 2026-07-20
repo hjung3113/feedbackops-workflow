@@ -121,15 +121,17 @@ prepare_gate_fixture() {
   git -C "$target" switch -q -c feat/product-home-smoke
   printf '%s\n' 'changed' >> "$target/allowed/file.txt"
   git -C "$target" commit -am allowed-change -q
+  head_sha="$(git -C "$target" rev-parse HEAD)"
 
   cp "$fixture" "$GATE_STATE"
   node -e '
     const fs = require("fs");
-    const [file, worktree, base] = process.argv.slice(1);
+    const [file, worktree, base, head] = process.argv.slice(1);
     const value = JSON.parse(fs.readFileSync(file, "utf8"));
     value.revision = 3;
     value.base_branch = "main";
     value.base_sha = base;
+    value.head_sha = head;
     value.worktree_path = worktree;
     value.contract.touch_allowlist = ["allowed/**"];
     value.contract.chunk_boundary = {
@@ -152,7 +154,7 @@ prepare_gate_fixture() {
     delete value.round_control;
     value.commit_scope.commits = [];
     fs.writeFileSync(file, JSON.stringify(value));
-  ' "$GATE_STATE" "$target" "$base_sha"
+  ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
 }
 

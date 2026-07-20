@@ -26,6 +26,7 @@
 # Usage:
 #   scripts/cmux-dispatch.sh --issue <N> --worktree <path> \
 #     [--prompt-file <p>] [--name <workspace-name>] \
+#     [--round-state <json> --manifest-revision <n>] \
 #     [--poll-timeout <secs>] [--dry-run]
 #
 # Defaults:
@@ -43,6 +44,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WATCHDOG="$SCRIPT_DIR/codex-watchdog.sh"
+REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
 
 ISSUE_N=""
 WORKTREE=""
@@ -52,13 +54,15 @@ MODEL=""
 EFFORT=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
+ROUND_STATE=""
+MANIFEST_REVISION=""
 READ_ONLY=0
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 
 usage() {
-  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--read-only] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: cmux-dispatch.sh --issue N --worktree PATH [--prompt-file P] [--name WSNAME] [--model M] [--effort E] [--read-only] [--round-state JSON --manifest-revision N] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -90,6 +94,8 @@ while [ $# -gt 0 ]; do
     --effort) EFFORT="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
+    --round-state) ROUND_STATE="$2"; shift 2 ;;
+    --manifest-revision) MANIFEST_REVISION="$2"; shift 2 ;;
     --read-only) READ_ONLY=1; shift 1 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
@@ -121,6 +127,92 @@ esac
 
 [ -n "$WS_NAME" ] || WS_NAME="codex-${ISSUE_N}"
 
+RUN_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-RUN.json"
+BLOCKER_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
+DEFAULT_ROUND_STATE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-ROUND-STATE.json"
+
+# A prior same-issue RUN/BLOCKER makes this a write-capable implementation
+# redispatch. Bind admission to canonical ROUND-STATE policy before cmux is
+# allowed to start. Read-only seats do not mutate implementation state and are
+# outside this circuit.
+ADMISSION_KEY=""
+REDISPATCH_REQUIRED=0
+if [ "$READ_ONLY" -eq 0 ]; then
+  if [ -f "$RUN_FILE" ] || [ -f "$BLOCKER_FILE" ]; then
+    REDISPATCH_REQUIRED=1
+  elif [ -f "$DEFAULT_ROUND_STATE" ] && node -e '
+    try {
+      const value=require(process.argv[1]);
+      process.exit(value.round_control && Array.isArray(value.round_control.failures) && value.round_control.failures.length > 0 ? 0 : 1);
+    } catch (e) { process.exit(1); }
+  ' "$DEFAULT_ROUND_STATE"; then
+    REDISPATCH_REQUIRED=1
+  fi
+fi
+if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
+  if [ -z "$ROUND_STATE" ] || [ -z "$MANIFEST_REVISION" ]; then
+    echo "ERROR: write redispatch requires --round-state and --manifest-revision" >&2
+    exit 2
+  fi
+  case "$ROUND_STATE" in
+    /*) ABS_ROUND_STATE="$ROUND_STATE" ;;
+    *) ABS_ROUND_STATE="$ABS_WORKTREE/$ROUND_STATE" ;;
+  esac
+  if [ ! -x "$REDISPATCH_CHECK" ]; then
+    echo "ERROR: redispatch gate is missing or not executable: $REDISPATCH_CHECK" >&2
+    exit 2
+  fi
+  ADMISSION_JSON="$(bash "$REDISPATCH_CHECK" --round-state "$ABS_ROUND_STATE" --manifest-revision "$MANIFEST_REVISION" 2>/dev/null)"
+  ADMISSION_EXIT=$?
+  if [ "$ADMISSION_EXIT" -ne 0 ]; then
+    echo "ERROR: redispatch gate denied: $ADMISSION_JSON" >&2
+    exit "$ADMISSION_EXIT"
+  fi
+  ADMISSION_FIELDS="$(node -e '
+    try {
+      const value=JSON.parse(process.argv[1]);
+      process.stdout.write([value.redispatch_allowed, value.dispatch_mode || "", value.classified_failures, value.admission_key || ""].join("\t"));
+    } catch (e) { process.exit(2); }
+  ' "$ADMISSION_JSON")"
+  ADMISSION_PARSE_EXIT=$?
+  if [ "$ADMISSION_PARSE_EXIT" -ne 0 ]; then
+    echo "ERROR: redispatch gate returned invalid JSON" >&2
+    exit 2
+  fi
+  oldIFS=$IFS
+  IFS="$(printf '\t')"
+  set -- $ADMISSION_FIELDS
+  IFS=$oldIFS
+  ADMISSION_ALLOWED="${1:-false}"
+  ADMISSION_MODE="${2:-}"
+  CLASSIFIED_FAILURES="${3:-0}"
+  ADMISSION_KEY="${4:-}"
+  case "$CLASSIFIED_FAILURES" in
+    ''|*[!0-9]*)
+      echo "ERROR: redispatch gate returned an invalid failure count" >&2
+      exit 2
+      ;;
+  esac
+  case "$ADMISSION_KEY" in
+    ''|*[!A-Za-z0-9._-]*)
+      echo "ERROR: redispatch gate returned an invalid admission key" >&2
+      exit 2
+      ;;
+  esac
+  if [ "$ADMISSION_ALLOWED" != "true" ] || [ "$CLASSIFIED_FAILURES" -lt 1 ] || [ -z "$ADMISSION_KEY" ]; then
+    echo "ERROR: redispatch gate did not authorize a classified implementation failure" >&2
+    exit 2
+  fi
+  echo "cmux-dispatch: redispatch admission: mode=$ADMISSION_MODE key=$ADMISSION_KEY"
+  if [ "$DRY_RUN" -eq 0 ]; then
+    ADMISSION_DIR="$ABS_WORKTREE/.review/.redispatch-admission-$ADMISSION_KEY"
+    if ! mkdir "$ADMISSION_DIR" 2>/dev/null; then
+      echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
+      exit 1
+    fi
+  fi
+fi
+
 if [ "$DRY_RUN" -eq 0 ]; then
   command -v cmux >/dev/null 2>&1 || {
     echo "ERROR: cmux binary not found on PATH" >&2
@@ -148,9 +240,6 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 echo "cmux-dispatch: issue=$ISSUE_N worktree=$ABS_WORKTREE name=$WS_NAME poll-timeout=${POLL_TIMEOUT}s"
-
-RUN_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-RUN.json"
-BLOCKER_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
 
 # Record the identity of any PRE-EXISTING artifacts (same-issue re-dispatch,
 # e.g. with a second prompt file, is a supported pattern) so the poll below

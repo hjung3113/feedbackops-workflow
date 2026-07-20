@@ -132,6 +132,8 @@ scripts/redispatch-check.sh \
   --manifest-revision 4
 ```
 
+gate는 선언된 worktree의 live HEAD와 증거 파일의 실제 hash를 검증하며, 종료된 실패에는 별도의 verifier/review closure 증거가 필요합니다. 실제 write redispatch는 `cmux-dispatch.sh`에도 같은 `--round-state`와 `--manifest-revision`을 전달해야 합니다. dispatch 직전에 정책을 다시 검사하고 admission을 원자적으로 한 번 소비하므로 같은 상태를 재사용할 수 없습니다. `--dry-run`은 검사만 하고 소비하지 않으며 `--read-only` 좌석은 구현 회로 밖입니다.
+
 동일 primary origin이 2회 연속이거나 이미 2회의 redispatch가 실패했다면 정상 구현 재디스패치를 거부합니다. 이때 oracle/contract 재검 → 하드 팩트 → 통과 analog 배관 parity 순서로 진단한 뒤 하나의 integrated fix batch만 허용합니다. `decision`, `dispatch_mode`, `trigger`, `obligations`가 JSON으로 나오며 exit 0만 해당 mode의 디스패치를 허용합니다. 보안 finding은 더 일찍 중단할 수 있고, watchdog retry·RUN/HEARTBEAT·모델 승격은 이 카운터나 진단 의무를 바꾸지 않습니다.
 
 Full Cluster의 migration·권한·저장 제약 결정은 ARCH 확정 전에 feasibility appendix를 남깁니다. 실제 grant/privilege, migration principal capability, 직전 migration/journal 관례, 관련 uniqueness constraint를 확인한 정확한 명령과 간결한 결과는 기존 ROUND-STATE `live_probes[]`에 기록하며, 관측 불가나 불가능한 capability는 구현 추측이 아니라 blocker/결정으로 처리합니다.

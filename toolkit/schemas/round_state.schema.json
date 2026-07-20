@@ -213,6 +213,17 @@
                     "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
                   }
                 }
+              },
+              "closed_by": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "path", "content_sha256", "head_sha"],
+                "properties": {
+                  "kind": { "enum": ["verify", "review"] },
+                  "path": { "type": "string", "minLength": 1 },
+                  "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+                }
               }
             }
           }

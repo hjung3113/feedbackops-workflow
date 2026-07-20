@@ -75,6 +75,9 @@ fi
 
 node - "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
 const fs = require("fs");
+const crypto = require("crypto");
+const path = require("path");
+const { execFileSync } = require("child_process");
 const [roundStateFile, schemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
 
 function write(payload, exitCode) {
@@ -88,6 +91,8 @@ function error(code, message, exitCode = 2) {
     dispatch_mode: null,
     same_origin_streak: 0,
     redispatches_completed: 0,
+    classified_failures: 0,
+    admission_key: null,
     trigger: null,
     obligations: [],
     errors: [{ code }],
@@ -114,7 +119,39 @@ if (state.lifecycle !== "active" && state.lifecycle !== "final") {
   error("invalid_round_state", "ROUND-STATE lifecycle is not gateable");
 }
 if (String(state.revision) !== expectedRevision) {
-  error("stale_manifest_revision", "expected revision does not match ROUND-STATE", 1);
+  error("stale_manifest_revision", "expected revision does not match ROUND-STATE");
+}
+
+let worktreeRoot, liveHead;
+try {
+  worktreeRoot = fs.realpathSync(state.worktree_path);
+  liveHead = execFileSync("git", ["-C", worktreeRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+} catch (e) {
+  error("uncheckable_worktree", "cannot resolve the declared worktree HEAD");
+}
+if (state.head_sha !== liveHead) {
+  error("stale_round_state_head", "ROUND-STATE head_sha does not match the live worktree HEAD");
+}
+
+function validateEvidence(reference) {
+  const candidate = path.resolve(worktreeRoot, reference.path);
+  let realCandidate;
+  try { realCandidate = fs.realpathSync(candidate); }
+  catch (e) { error("missing_failure_evidence", "evidence path does not exist: " + reference.path); }
+  const relative = path.relative(worktreeRoot, realCandidate);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    error("invalid_failure_evidence", "evidence path escapes the declared worktree");
+  }
+  let digest;
+  try {
+    digest = crypto.createHash("sha256").update(fs.readFileSync(realCandidate)).digest("hex");
+    execFileSync("git", ["-C", worktreeRoot, "cat-file", "-e", reference.head_sha + "^{commit}"], { stdio: "ignore" });
+  } catch (e) {
+    error("invalid_failure_evidence", "evidence HEAD is not a commit in the declared worktree");
+  }
+  if (digest !== reference.content_sha256) {
+    error("evidence_hash_mismatch", "evidence content does not match its declared sha256");
+  }
 }
 
 const control = state.round_control || { failures: [] };
@@ -129,25 +166,41 @@ for (let index = 0; index < failures.length; index += 1) {
   if (failure.secondary_origins.includes(failure.primary_origin)) {
     error("secondary_origin_conflict", "primary origin cannot also be secondary");
   }
+  if (!failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review")) {
+    error("verifier_evidence_missing", "every failed round requires verifier or review evidence");
+  }
+  failure.evidence.forEach(validateEvidence);
+  if (failure.status === "closed") {
+    if (!failure.closed_by) {
+      error("failure_closure_evidence_missing", "closed failures require verifier or review closure evidence");
+    }
+    validateEvidence(failure.closed_by);
+  }
 }
+if (control.security_stop) validateEvidence(control.security_stop.evidence);
+if (control.diagnosis) control.diagnosis.records.forEach((record) => validateEvidence(record.evidence));
 
+const activeFailures = failures.filter((failure) => failure.status === "open");
 let sameOriginStreak = 0;
-if (failures.length > 0) {
-  const latestOrigin = failures[failures.length - 1].primary_origin;
-  for (let index = failures.length - 1; index >= 0; index -= 1) {
-    if (failures[index].primary_origin !== latestOrigin) break;
+if (activeFailures.length > 0) {
+  const latestOrigin = activeFailures[activeFailures.length - 1].primary_origin;
+  for (let index = activeFailures.length - 1; index >= 0; index -= 1) {
+    if (activeFailures[index].primary_origin !== latestOrigin) break;
     sameOriginStreak += 1;
   }
 }
-const redispatchesCompleted = Math.max(0, failures.length - 1);
+const redispatchesCompleted = Math.max(0, activeFailures.length - 1);
 
 function decision(name, allowed, mode, trigger, obligations, exitCode) {
+  const nextOrdinal = failures.length + 1;
   write({
     decision: name,
     redispatch_allowed: allowed,
     dispatch_mode: mode,
     same_origin_streak: sameOriginStreak,
     redispatches_completed: redispatchesCompleted,
+    classified_failures: activeFailures.length,
+    admission_key: allowed ? `issue-${state.issue.number}-revision-${state.revision}-dispatch-${nextOrdinal}-${mode}` : null,
     trigger,
     obligations,
     errors: []
@@ -175,7 +228,7 @@ if (!diagnosis) {
 if (diagnosis.trigger !== trigger) {
   error("diagnosis_trigger_mismatch", "diagnosis trigger does not match calculated breaker trigger");
 }
-const openFailureIds = failures.filter((failure) => failure.status === "open").map((failure) => failure.id);
+const openFailureIds = activeFailures.map((failure) => failure.id);
 if (!sameMembers(diagnosis.failure_ids, openFailureIds)) {
   error("diagnosis_failure_set_mismatch", "diagnosis must cover every open failure exactly once");
 }
@@ -192,7 +245,8 @@ if (passingAnalog && passingAnalog.instruction !== "guess_forbidden_copy_passing
   error("diagnosis_order_violation", "passing analog must pin the guess-forbidden parity instruction");
 }
 if (diagnosis.manifest_update
-    && diagnosis.manifest_update.to_revision !== diagnosis.manifest_update.from_revision + 1) {
+    && (diagnosis.manifest_update.to_revision !== diagnosis.manifest_update.from_revision + 1
+      || diagnosis.manifest_update.to_revision !== state.revision)) {
   error("manifest_update_count_invalid", "a diagnosis cycle permits at most one manifest revision increment");
 }
 if (diagnosis.records.length < requiredKinds.length) {

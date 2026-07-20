@@ -16,7 +16,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - compile-atomic `contract.chunk_boundary` enforcement: enumerated consumers stay inside one chunk, `completion-check.sh` executes its target-native full typecheck, and only live-diff-triggered convention watches enter review;
-- a read-only repeated-round circuit breaker keyed to canonical failure-origin codes, with oracle/contract-first diagnosis, immutable per-failure evidence references, one manifest update, one integrated fix batch, and security early stop;
+- a dispatch-bound repeated-round circuit breaker keyed to canonical failure-origin codes, with live evidence validation, atomic single-use admission, oracle/contract-first diagnosis, one manifest update, one integrated fix batch, and security early stop;
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
@@ -112,7 +112,8 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 ### v0.13 — repeated-round circuit breaker
 
 - ROUND-STATE classifies every failed implementation round with one primary origin, optional secondary origins, failed AC ids, owner/action routing, and hash/HEAD-bound evidence references.
-- `redispatch-check.sh` blocks on two consecutive failures with the same primary origin or before a third redispatch, while ignoring watchdog attempts and model-tier changes.
+- `redispatch-check.sh` validates the live worktree HEAD and evidence content before it blocks on two consecutive failures with the same primary origin or before a third redispatch; closed history requires explicit verifier/review closure evidence.
+- `cmux-dispatch.sh` runs that gate immediately before same-issue write redispatch and atomically consumes its state-derived admission key; dry-runs do not consume it and read-only seats remain outside the circuit.
 - A tripped circuit rechecks oracle/contract first, requires a hard fact plus passing-analog parity instruction, and permits at most one manifest increment and one integrated fix batch; security findings may stop earlier.
 
 ## Compatibility boundary
