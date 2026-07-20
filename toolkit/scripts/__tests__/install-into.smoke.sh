@@ -106,6 +106,7 @@ assert_installed_gates() {
   assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label enforces canonical initial-write admission" PASS bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --tier full_cluster --round-state "$GATE_STATE" --manifest-revision 3 --dry-run
+  assert_exit_output "$label exposes canonical REVIEW publication" 0 "--produce-review" bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --produce-review --model gpt-5.6-sol --effort medium --dry-run
 }
 
 fresh="$TMP_DIR/fresh target"

@@ -107,7 +107,7 @@ CONDUCTOR는 Standard/Full Cluster 최초 write 전에 `schemas/round_state.sche
 
 `gpt-5.6-terra`는 현재 운영 환경의 구현 모델 alias입니다. 다른 계정·머신에서는 플레이북의 capability ordering을 유지하는 명시적 모델을 preflight한 뒤 사용하세요. `--model`을 생략해 글로벌 기본값으로 fallback하지 마세요.
 
-읽기·사고 중심 작업은 파일 변경이 없어도 stall로 오판하지 않도록 `--read-only`를 추가합니다. 긴 ARCH/리뷰 시트는 필요할 때 `--first-progress-timeout`과 `--stall-timeout`을 명시하세요.
+읽기·사고 중심 작업은 파일 변경이 없어도 stall로 오판하지 않도록 liveness 옵션 `--read-only`를 추가합니다. 이 옵션만으로 Codex filesystem sandbox가 read-only가 되지는 않습니다. REVIEWER는 명시적 `--model`·`--effort`와 함께 `--produce-review`를 사용합니다. 이 모드는 Codex를 실제 `read-only` sandbox에서 실행하고 최종 JSON을 host-side에서 schema·issue·live HEAD와 대조한 뒤에만 canonical `.review/ISSUE-N-REVIEW.json`으로 원자 게시합니다. 긴 ARCH/리뷰 시트는 필요할 때 `--first-progress-timeout`과 `--stall-timeout`을 명시하세요.
 
 `codex exec`를 직접 실행하거나 `cmux workspace create --command ...`를 손으로 조립하는 경로는 지원하지 않습니다.
 
@@ -220,7 +220,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 | 산출물 | 의미 |
 |---|---|
 | `ISSUE-N-PR-DRAFT.json` | CODEX의 구현 handoff. 자체 테스트 주장은 참고일 뿐입니다. |
-| `ISSUE-N-REVIEW.json` | 독립 REVIEWER의 판정과 patch instruction |
+| `ISSUE-N-REVIEW.json` | 독립 REVIEWER의 판정과 patch instruction. `--produce-review`가 검증 후 원자 게시합니다. |
 | `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거 |
 | `ISSUE-N-RUN.json` | watchdog 실행 상태. 병합 증거가 아닙니다. |
 | `ISSUE-N-BLOCKER.json` | 구조화된 중단 사유와 필요한 의사결정 |

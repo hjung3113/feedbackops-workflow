@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-20. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.15
+## Current release: v0.16
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -11,6 +11,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
+- an explicit REVIEWER publication path that runs Codex filesystem-read-only and host-validates its final JSON before atomically publishing the sole canonical REVIEW artifact;
 - pre-review AC-ID existence checking;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
@@ -35,6 +36,13 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 ```
 
 ## Shipped timeline
+
+### v0.16 — read-only REVIEW publication
+
+- `cmux-dispatch.sh --produce-review` forwards one explicit REVIEWER mode through the existing watchdog and safe wrapper without entering write admission.
+- Codex runs with `--sandbox read-only`; the host captures its final message to a hidden same-directory temporary file, grants no Git writable root or failure stash, validates the review schema plus producer/issue/live-HEAD identity and fail-verdict requirements, and atomically publishes `.review/ISSUE-N-REVIEW.json`.
+- Invalid output and non-zero reviewer exits remove temporary output without replacing prior canonical evidence. Pane prose and CONDUCTOR transcription remain non-authoritative.
+- The legacy `--read-only` name is documented as heartbeat/liveness only; it does not change the Codex filesystem sandbox.
 
 ### v0.1 — artifact and verifier foundation
 
