@@ -54,7 +54,27 @@ You read `HEARTBEAT-<pane>.json` for **liveness**. Liveness and correctness are 
 - A **stale** heartbeat (no `updated_at` within the threshold — default **15 minutes**) → **alert**. Do not assume progress; treat the pane as possibly hung/dead and investigate or re-dispatch. A stale heartbeat is never evidence that work is proceeding.
 - `blocked: true` or `dirty: true` in a heartbeat is a flag to act on, not state to merge from.
 
-## 7. Decisions CONDUCTOR owns
+## 7. Dispatch prompt authoring
+
+Before each Standard/Full write launch and every write redispatch, author the worker prompt in this order. The authoring conversation stays with CONDUCTOR; the worker receives only the final prompt file in a new context.
+
+1. **Context dump:** collect the unedited issue body/comments, applicable ADRs, prototype paths, preceding REVIEW/VERIFY artifacts, and prior-round findings in `<worktree>/.review/ISSUE-<N>-CONTEXT.md`. Do not summarize or draft the prompt in this step.
+2. **Reverse questions:** list what remains unknown, then ask the user once in a batch of at most four questions, each with a CONDUCTOR recommendation. Record `skipped: no open questions` when there are none. Never delegate these questions to CODEX.
+3. **Compress:** turn the dump and answers into `<worktree>/.review/ISSUE-<N>-PROMPT.md`, deleting narrative and alternatives while preserving constraints, paths, prohibitions, and completion criteria. The project-owned `model-alloc.json` `prompt_authoring.target_tokens` is guidance and telemetry only; it never rejects launch.
+
+ROUND-STATE is the sole authority for AC wording. The final prompt contains exactly one delimited block:
+
+````text
+<!-- agent-workflow:ac-block:start -->
+```json
+[{"id":"AC-1","statement":"exact ROUND-STATE wording"}]
+```
+<!-- agent-workflow:ac-block:end -->
+````
+
+The JSON array must copy `acceptance.criteria[]` exactly, including order, IDs, and statements. `prompt-ac-check.sh` rejects missing, extra, duplicate, malformed, or reworded entries before Standard/Full launch or canonical redispatch side effects.
+
+## 8. Decisions CONDUCTOR owns
 
 You own the cross-cutting orchestration calls:
 
@@ -70,7 +90,7 @@ You own the cross-cutting orchestration calls:
 - **Pre-review acceptance coverage** — require `scripts/ac-check.sh --round-state <json> --manifest-revision <revision> --tests <discovered-tests>` to pass before dispatching REVIEWER. This is a freshness/mapping gate, not correctness evidence.
 - **Test-matrix quality** — require every test-matrix row as a canonical acceptance criterion: `acceptance.criteria[].id` is the sole AC-ID authority, and its inline `statement` states an explicit precondition and observable checkpoint. Require a positive field allowlist only for privacy-relevant rows; the AC gate proves only discovered-ID coverage, so keep the non-vacuousness audit with REVIEWER and VERIFIER.
 
-## 8. ARCHITECT autonomy list (anti-bottleneck)
+## 9. ARCHITECT autonomy list (anti-bottleneck)
 
 You are an orchestrator, **not a chokepoint.** If every routine intra-chunk choice routes through you, the workflow slows down and you become the bottleneck the multi-agent design exists to avoid. ARCHITECT may make the following decisions **WITHOUT waiting on CONDUCTOR**, inside an already-scoped chunk:
 
@@ -87,7 +107,7 @@ CONDUCTOR is consulted **only** for:
 
 Routine intra-chunk choices are ARCHITECT's, not yours. If you find yourself approving them, you are over-centralizing.
 
-## 9. Self-guard against the 4 failure modes
+## 10. Self-guard against the 4 failure modes
 
 These four failure modes were surfaced by adversarial review. Guard against each, every cycle:
 

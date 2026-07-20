@@ -46,6 +46,18 @@ state.artifact_pointers = [
 ];
 delete state.round_control;
 fs.writeFileSync(file, JSON.stringify(state, null, 2) + "\n");
+fs.writeFileSync(
+  `${worktree}/.review/ISSUE-${issue}-PROMPT.txt`,
+  [
+    "worker instructions",
+    "<!-- agent-workflow:ac-block:start -->",
+    "```json",
+    JSON.stringify(state.acceptance.criteria),
+    "```",
+    "<!-- agent-workflow:ac-block:end -->",
+    ""
+  ].join("\n")
+);
 NODE
 }
 
@@ -167,6 +179,24 @@ else
   fail "Standard round-0 state requires pr_draft and review pointers (ec=$ec: $(cat "$stderr_file"))"
 fi
 cp "$VALID_INITIAL_STATE" "$INITIAL_STATE"
+
+# Standard/Full writes fail before launch when the worker-facing AC block is
+# absent, then accept only the exact canonical copy.
+printf '%s\n' 'prompt without canonical acceptance criteria' > "$WT/.review/ISSUE-301-PROMPT.txt"
+prompt_ac_denied="$TMP_ROOT/prompt-ac-denied.out"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >"$prompt_ac_denied" 2>&1
+ec=$?
+if [ "$ec" -eq 1 ] && grep -q "prompt AC gate denied" "$prompt_ac_denied"; then
+  pass "Standard write rejects a prompt without the canonical AC block before launch"
+else
+  fail "Standard write rejects a prompt without the canonical AC block before launch (ec=$ec: $(cat "$prompt_ac_denied"))"
+fi
+node - "$INITIAL_STATE" "$WT/.review/ISSUE-301-PROMPT.txt" <<'NODE'
+const fs = require("fs");
+const [stateFile, promptFile] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+fs.writeFileSync(promptFile, ["worker instructions", "<!-- agent-workflow:ac-block:start -->", "```json", JSON.stringify(state.acceptance.criteria), "```", "<!-- agent-workflow:ac-block:end -->", ""].join("\n"));
+NODE
 
 trivial_out="$TMP_ROOT/trivial-initial.out"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$trivial_out" 2>&1
@@ -493,7 +523,6 @@ git -C "$ADMIT_WT" add .review/evidence
 git -C "$ADMIT_WT" commit -qm evidence
 git -C "$ADMIT_WT" branch -M main
 ADMIT_HEAD="$(git -C "$ADMIT_WT" rev-parse HEAD)"
-printf '%s\n' 'prompt body' > "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt"
 printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":307,"attempt":1,"started_at":"2026-07-13T00:00:00Z","updated_at":"2026-07-13T00:00:00Z","status":"exited","exit_code":1}' > "$ADMIT_WT/.review/ISSUE-307-RUN.json"
 cp "$ROOT/schemas/fixtures/round_state.valid.json" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 node -e '
@@ -504,6 +533,12 @@ node -e '
   value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"implementation",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"implementation_fix",summary:"apply the classified fix"},evidence:[{kind:"verify",path:evidencePath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:process.argv[4]}]}]};
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT" "$ADMIT_HEAD" "$ADMIT_EVIDENCE_HEAD"
+node - "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt" <<'NODE'
+const fs = require("fs");
+const [stateFile, promptFile] = process.argv.slice(2);
+const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+fs.writeFileSync(promptFile, ["worker instructions", "<!-- agent-workflow:ac-block:start -->", "```json", JSON.stringify(state.acceptance.criteria), "```", "<!-- agent-workflow:ac-block:end -->", ""].join("\n"));
+NODE
 VALID_ADMIT_STATE="$TMP_ROOT/valid-admit-state.json"
 cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$VALID_ADMIT_STATE"
 

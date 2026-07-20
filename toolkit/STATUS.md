@@ -6,6 +6,8 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 ## Next: unreleased canonical VERIFY aggregate
 
+- Standard/Full initial writes and canonical write redispatches now fail closed unless the worker prompt contains one delimited JSON AC block that exactly copies the ordered ROUND-STATE `acceptance.criteria[]` IDs and statements. CONDUCTOR performs an unedited context dump, one user-facing reverse-question batch (or explicit skip), then compression; CONTEXT/PROMPT Markdown files are uncommitted, non-archival scratch, and `model-alloc.json` owns an advisory-only prompt target budget.
+
 - Canonical `ISSUE-N-VERIFY.json` now optionally retains ordered `runs[]` for repeated same-identity verifier runs. Its top-level verdict is validated as the derived aggregate, so a prior FAIL cannot be overwritten into false readiness by a later narrow-filter PASS. Only an absent `runs` property is legacy; a present malformed value is rejected.
 - A later locally-green run returns nonzero while that aggregate remains red; a new HEAD begins a new aggregate. Legacy flat v1 artifacts remain accepted as one synthetic run.
 - CONDUCTOR reconstruction schema-validates the complete canonical VERIFY from its source/installed product home before aggregate checks, while redispatch closure validation rejects forged aggregate top-level claims. A VERIFY closure needs a matching passing run for `contract.verify_filter`, not merely a top-level command string. Canonical publication validates a same-directory temporary file before atomic replacement, preserving prior evidence on publication failure.

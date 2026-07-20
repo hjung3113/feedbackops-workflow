@@ -92,6 +92,8 @@ scripts/prepare-worktree.sh ../wt-123 --env-profile ../env/issue-123.env
 
 Standard/Full Cluster 최초 write 전에는 CONDUCTOR가 `schemas/round_state.schema.json` 전체를 만족하는 `ISSUE-123-ROUND-STATE.json`을 만들고 issue, tier, revision, 실제 worktree, live HEAD, base freshness에 결속해야 합니다. Standard는 별도 mini-state를 만들지 않고 `pr_draft`와 `review` pointer를 유지합니다. Trivial 최초 write만 `--tier trivial`과 기존 `pr_draft`-only 계약을 사용합니다.
 
+CONDUCTOR는 dispatch 전에 `.review/ISSUE-123-CONTEXT.md`에 원자료를 정제 없이 모으고, 필요한 사용자 역질문을 한 번(최대 4문항)으로 끝낸 뒤, `.review/ISSUE-123-PROMPT.md`를 압축합니다. Standard/Full과 canonical redispatch는 prompt 안의 delimited JSON AC block이 ROUND-STATE `acceptance.criteria[]`의 ID·statement·순서를 정확히 복사하지 않으면 launch 전에 거부됩니다. 두 Markdown 파일은 uncommitted/non-archival scratch이며, `model-alloc.json`의 `prompt_authoring.target_tokens`는 길이 안내·telemetry일 뿐 launch 거부 조건이 아닙니다.
+
 ```bash
 NODE_OPTIONS= scripts/cmux-dispatch.sh \
   --issue 123 \
@@ -190,7 +192,7 @@ Release Captain merge decision
 | 설치·업그레이드 | `install-into.sh` | [적용 가이드](.claude/skills/agent-workflow/references/adoption.md) |
 | worktree·env 준비 | `prepare-worktree.sh` | [운영 플레이북](docs/agents/multi-agent-workflow.md#worktree-prep) |
 | visible dispatch·liveness | `cmux-dispatch.sh`, `codex-watchdog.sh`, `codex-safe.sh` | [디스패치 오퍼레이터 규칙](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules) |
-| 계약·완료 gate | `ac-check.sh`, `completion-check.sh`, `redispatch-check.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
+| 계약·완료 gate | `prompt-ac-check.sh`, `ac-check.sh`, `completion-check.sh`, `redispatch-check.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
 | DB·테스트 검증 | `prepare-verify-db.sh`, `verify.sh` | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
 | 상태 복원·보존 | `conductor-rebuild.sh`, `artifact-fresh.sh`, `review-archive.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
 
@@ -199,6 +201,7 @@ Release Captain merge decision
 | 산출물 | 의미 |
 |---|---|
 | `ISSUE-N-ROUND-STATE.json` | CONDUCTOR가 dispatch 0부터 유지하는 canonical contract와 revision-pinned AC manifest |
+| `ISSUE-N-CONTEXT.md`, `ISSUE-N-PROMPT.md` | uncommitted/non-archival CONDUCTOR prompt-authoring scratch; PROMPT에는 exact AC block |
 | `ISSUE-N-PR-DRAFT.json` | CODEX 구현 handoff; 자체 테스트 주장은 참고일 뿐 |
 | `ISSUE-N-REVIEW.json` | 독립 REVIEWER의 판정과 patch instruction |
 | `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거 |

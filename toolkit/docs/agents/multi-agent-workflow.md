@@ -115,7 +115,7 @@ Use one appendix row per concern: `concern | exact command | concise result | de
 
 ## Model Allocation — project-owned defaults with evidence-gated adaptation
 
-The installed `.agent-workflow/model-alloc.json` is the project-owned allocation contract; its schema is `schemas/model_alloc.schema.json`. The default table carries `source: "livebench"` and `release: "2026-06-25"` alongside the capability and price data, so a benchmark refresh replaces data rather than dispatch code. `model-alloc.sh` validates every runtime config through that same schema before output or dispatch; missing project config safely uses the toolkit default, while malformed existing config fails closed. Fresh install seeds the file and `--upgrade` preserves it (with a warning rather than an implicit migration).
+The installed `.agent-workflow/model-alloc.json` is the project-owned allocation contract; its schema is `schemas/model_alloc.schema.json`. The default table carries `source: "livebench"` and `release: "2026-06-25"` alongside the capability and price data, so a benchmark refresh replaces data rather than dispatch code. `model-alloc.sh` validates every runtime config through that same schema before output or dispatch; missing project config safely uses the toolkit default, while malformed existing config fails closed. Fresh install seeds the file and `--upgrade` preserves it (with a warning rather than an implicit migration). Its `prompt_authoring.target_tokens` is the single project-owned prompt-compression target; it is guidance/telemetry, never a dispatch rejection.
 
 | Role | Default allocation |
 |---|---|
@@ -144,6 +144,7 @@ Workload scaling (v1): review depth scales with the actual diff — ≤~50 chang
 ## Non-Negotiable Rules
 
 - **Implementation is separate from review and verification.** The same agent/session must not implement and then approve or verify its own work. Re-review uses a new clean context.
+- **Authoring context stops at the prompt-file boundary.** CONDUCTOR's context dump and user reverse-question conversation never enter the worker session; CODEX receives only the compressed prompt file.
 - **Clean context is non-negotiable; review capability is enforced by default.** Using the source-dated LiveBench table, `model-alloc.sh` compares the deterministic unweighted sum `static_coding + reasoning` for reviewer and selected implementation models. It rejects a lower reviewer score unless the project sets `allow_review_below_implementation: true`; only that explicit relaxation emits the allocation warning.
 - **Do not run two workspace-write Codex jobs in the same repo at the same time.** `codex-safe.sh` stashes partial work on failure; concurrent jobs in one checkout can race on stash state. Parallel implementation requires separate prepared worktrees.
 - **Clear `NODE_OPTIONS=` before codex/node dispatch and verification.** cmux or shell preloads can leak `--require` instrumentation into codex/vitest children. `verify.sh` uses an explicit env allowlist, but operators should still dispatch with a clean `NODE_OPTIONS`.
@@ -293,6 +294,10 @@ For Standard/Full Cluster work, CONDUCTOR maintains one `.review/ISSUE-<n>-ROUND
 For Standard tier, “minimal” means generating this complete schema before the first write while omitting optional Full Cluster structures and using empty arrays only where the Standard contract permits them. `artifact_pointers` still declares `pr_draft` and `review`. It never means a reduced schema or parallel manifest. `cmux-dispatch.sh` enforces the canonical artifact and revision at initial admission and redispatch, and escalation revises the same file. Trivial retains the table's `pr_draft`-only contract.
 
 CONDUCTOR is the sole writer. `revision` increments whenever the normative contract or acceptance criteria change, with the reason recorded in `decisions`. CODEX, REVIEWER, and VERIFIER consume but do not edit it. The acceptance manifest is not a separate file: it is the `acceptance.criteria[]` view at the ROUND-STATE `revision`. A task narrative is at most 2 KB and carries only current intent/delta, failing AC ids, and evidence pointers; it must not restate normative criteria or allowlists.
+
+### Dispatch prompt AC gate
+
+Before any Standard/Full initial write and every canonical write redispatch, CONDUCTOR follows the three-step authoring procedure in `conductor-persona.md`: unedited context dump, one user-facing reverse-question batch (or explicit `skipped: no open questions`), then compressed worker prompt. The dump and prompt are uncommitted non-archival scratch inputs. `ISSUE-N-PROMPT.md` must have exactly one `agent-workflow:ac-block` fenced JSON array that exactly copies the ordered `acceptance.criteria[]` IDs and statements from canonical ROUND-STATE. `scripts/prompt-ac-check.sh` is the deterministic seam; `cmux-dispatch.sh` invokes it after canonical admission and before attempt markers, runners, or cmux effects. Trivial initial writes and read-only/review seats remain outside this prompt-AC admission.
 
 ## Workflow Tax Brake
 

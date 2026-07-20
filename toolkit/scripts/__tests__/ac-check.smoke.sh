@@ -49,7 +49,7 @@ node -e '
   value.base_sha = base;
   value.head_sha = head;
   value.worktree_path = root;
-  value.acceptance.criteria = [{id: "AC-1"}, {id: "AC-2"}];
+  value.acceptance.criteria = [{id: "AC-1", statement: "first acceptance condition"}, {id: "AC-2", statement: "second acceptance condition"}];
   value.decisions = [];
   value.commit_scope.commits = [];
   fs.writeFileSync(file, JSON.stringify(value));
@@ -76,7 +76,7 @@ else
 fi
 
 cp "$TMP_DIR/happy.json" "$TMP_DIR/duplicate.json"
-node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.acceptance.criteria=[{id:"AC-1"},{id:"AC-1"}]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/duplicate.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.acceptance.criteria=[{id:"AC-1",statement:"first acceptance condition"},{id:"AC-1",statement:"duplicate acceptance condition"}]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/duplicate.json"
 printf '%s\n' 'test AC-1 behavior' > "$TMP_DIR/duplicate.tests"
 assert_case "AC-4 duplicate id" 1 "$TMP_DIR/duplicate.json" 3 "$TMP_DIR/duplicate.tests" "DUP AC-1"
 

@@ -97,7 +97,7 @@ prepare_gate_fixture() {
     const fs=require("fs"); const [file,root,base,head]=process.argv.slice(1); const v=JSON.parse(fs.readFileSync(file,"utf8"));
     v.revision=3; v.base_branch="main"; v.base_sha=base; v.head_sha=head; v.worktree_path=root;
     v.contract.touch_allowlist=["allowed/**"]; v.contract.test_discovery_command="printf '\''AC-1\\n'\''";
-    delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1"}]; v.acceptance.expected_test_count=1;
+    delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1",statement:"the installed gate discovers AC-1"}]; v.acceptance.expected_test_count=1;
     v.decisions=[]; delete v.round_control; v.commit_scope.commits=[]; fs.writeFileSync(file,JSON.stringify(v));
   ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
   node -e '
