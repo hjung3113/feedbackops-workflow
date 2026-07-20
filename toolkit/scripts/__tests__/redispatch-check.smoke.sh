@@ -34,6 +34,29 @@ assert_case() {
   fi
 }
 
+assert_error_case() {
+  name="$1"; state="$2"; expected_code="$3"; expected_detail="$4"
+  output="$TMP_DIR/output.json"
+  ( bash "$CHECK" --round-state "$state" --manifest-revision 5 ) >"$output" 2>/dev/null
+  actual_exit=$?
+  if [ "$actual_exit" -ne 2 ]; then
+    echo "NOT OK - $name (expected exit 2, got $actual_exit: $(cat "$output"))"
+    FAILURES=$((FAILURES + 1))
+    return
+  fi
+  if node -e '
+    const value = require(process.argv[1]);
+    const error = value.errors && value.errors[0];
+    process.exit(value.decision === "error" && error
+      && error.code === process.argv[2] && error.detail === process.argv[3] ? 0 : 1);
+  ' "$output" "$expected_code" "$expected_detail"; then
+    echo "ok   - $name"
+  else
+    echo "NOT OK - $name (unexpected error payload: $(cat "$output"))"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
 WORKTREE="$TMP_DIR/worktree"
 mkdir -p "$WORKTREE/.review/evidence"
 git init -q "$WORKTREE"
@@ -69,8 +92,12 @@ for (const name of ["F-1-closed","F-2-closed"]) fs.writeFileSync(path.join(root,
 fs.writeFileSync(path.join(root,"wrong-branch.json"),JSON.stringify({...verifyPass,branch:"other"}));
 fs.writeFileSync(path.join(root,"unrelated-pass.json"),JSON.stringify({...verifyPass,verify_cmd:"smoke verify --filter unrelated"}));
 fs.writeFileSync(path.join(root,"zero-pass.json"),JSON.stringify({...verifyPass,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
-const review={schema_version:"1",artifact_type:"review",lifecycle:"draft",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"unfinished review",met:false}]};
-fs.writeFileSync(path.join(root,"draft-review.json"),JSON.stringify(review));
+const reviewBase={schema_version:"1",artifact_type:"review",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head};
+const closureItem="failure:F-1:AC-1";
+fs.writeFileSync(path.join(root,"review-final-pass.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"pass",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-active-pass.json"),JSON.stringify({...reviewBase,lifecycle:"active",status:"pass",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-final-blocked.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"blocked",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-final-unmet.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"pass",checklist:[{item:closureItem,met:false}]}));
 NODE
 git -C "$WORKTREE" add .review/evidence
 git -C "$WORKTREE" commit -qm closure-evidence
@@ -167,18 +194,42 @@ node -e '
 ' "$TMP_DIR/plain-closure.json" "$WORKTREE" "$EVIDENCE_HEAD"
 assert_case "closure labels cannot turn plain text into verifier evidence" 2 "$TMP_DIR/plain-closure.json" "error" "null"
 
-for closure_case in zero-pass draft-review; do
+for closure_case in zero-pass; do
   cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-closure.json"
   node -e '
     const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
     const [file,worktree,head,name]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
     const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
-    value.round_control.failures[0].closed_by={kind:name==="draft-review"?"review":"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids,checklist_item:name==="draft-review"?"unfinished review":undefined};
+    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
     fs.writeFileSync(file,JSON.stringify(value));
   ' "$TMP_DIR/$closure_case-closure.json" "$WORKTREE" "$CLOSURE_HEAD" "$closure_case"
 done
 assert_case "zero-test PASS cannot close a failed round" 2 "$TMP_DIR/zero-pass-closure.json" "error" "null"
-assert_case "draft review with unmet checklist cannot close a failed round" 2 "$TMP_DIR/draft-review-closure.json" "error" "null"
+
+make_review_closure_state() {
+  destination="$1"; artifact="$2"
+  cp "$TMP_DIR/closed-history.json" "$destination"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,artifact]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+artifact+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    const failure=value.round_control.failures[0];
+    failure.closed_by={kind:"review",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:failure.failed_ac_ids,checklist_item:"failure:"+failure.id+":"+failure.failed_ac_ids.join(",")};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$destination" "$WORKTREE" "$CLOSURE_HEAD" "$artifact"
+}
+
+make_review_closure_state "$TMP_DIR/review-final-pass-closure.json" "review-final-pass"
+assert_case "final passing review with the exact checklist closure admits history" 0 "$TMP_DIR/review-final-pass-closure.json" "allow_normal" "null"
+
+make_review_closure_state "$TMP_DIR/review-active-pass-closure.json" "review-active-pass"
+assert_error_case "active passing review reports its lifecycle predicate" "$TMP_DIR/review-active-pass-closure.json" "failure_closure_not_verified" "review_lifecycle_not_final"
+
+make_review_closure_state "$TMP_DIR/review-final-blocked-closure.json" "review-final-blocked"
+assert_error_case "final blocked review reports its status predicate" "$TMP_DIR/review-final-blocked-closure.json" "failure_closure_not_verified" "review_status_not_pass"
+
+make_review_closure_state "$TMP_DIR/review-final-unmet-closure.json" "review-final-unmet"
+assert_error_case "final passing review reports an unmet checklist predicate" "$TMP_DIR/review-final-unmet-closure.json" "failure_closure_not_verified" "review_checklist_unmet"
 
 for closure_case in old-pass wrong-branch unrelated-pass; do
   cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-lineage.json"

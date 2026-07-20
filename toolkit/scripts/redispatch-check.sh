@@ -86,7 +86,8 @@ function write(payload, exitCode) {
   process.stdout.write(JSON.stringify(payload) + "\n");
   process.exit(exitCode);
 }
-function error(code, message, exitCode = 2) {
+function error(code, message, exitCode = 2, detail = null) {
+  const errors = detail === null ? [{ code }] : [{ code, detail }];
   write({
     decision: "error",
     redispatch_allowed: false,
@@ -99,7 +100,7 @@ function error(code, message, exitCode = 2) {
     worktree_path: null,
     trigger: null,
     obligations: [],
-    errors: [{ code }],
+    errors,
     error: message
   }, exitCode);
 }
@@ -245,11 +246,25 @@ for (let index = 0; index < failures.length; index += 1) {
       error("failure_closure_evidence_missing", "closed failures require verifier or review closure evidence");
     }
     const closure = validateEvidence(failure.closed_by);
-    const closurePassed = failure.closed_by.kind === "verify"
-      ? closure.classifier === "PASS" && closure.verdict.exit_code === 0
-        && closure.verdict.failed === 0 && closure.verdict.passed >= 1
-      : closure.lifecycle === "final" && closure.status === "pass"
-        && closure.checklist.every((item) => item.met === true);
+    let closurePassed;
+    if (failure.closed_by.kind === "verify") {
+      closurePassed = closure.classifier === "PASS" && closure.verdict.exit_code === 0
+        && closure.verdict.failed === 0 && closure.verdict.passed >= 1;
+    } else {
+      if (closure.lifecycle !== "final") {
+        error("failure_closure_not_verified", "closed_by REVIEW lifecycle must be final", 2,
+          "review_lifecycle_not_final");
+      }
+      if (closure.status !== "pass") {
+        error("failure_closure_not_verified", "closed_by REVIEW status must be pass", 2,
+          "review_status_not_pass");
+      }
+      if (!closure.checklist.every((item) => item.met === true)) {
+        error("failure_closure_not_verified", "closed_by REVIEW checklist items must all be met", 2,
+          "review_checklist_unmet");
+      }
+      closurePassed = true;
+    }
     if (!closurePassed) {
       error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
     }
