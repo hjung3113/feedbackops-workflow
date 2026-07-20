@@ -44,12 +44,13 @@ EVIDENCE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 node - "$WORKTREE" "$EVIDENCE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path");
 const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
-const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:00:00Z"};
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:00:00Z"};
 const verifyFail={...verifyPass,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL"};
 for (const name of ["F-1","F-2","F-3"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyFail));
 fs.writeFileSync(path.join(root,"hard-fact.json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"old-pass.json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"wrong-issue.json"),JSON.stringify({...verifyFail,issue:999}));
+fs.writeFileSync(path.join(root,"contradictory-fail.json"),JSON.stringify({...verifyFail,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
 const review={schema_version:"1",artifact_type:"review",lifecycle:"final",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"security review",met:true}]};
 fs.writeFileSync(path.join(root,"security.json"),JSON.stringify(review));
 fs.writeFileSync(path.join(root,"oracle.json"),"oracle evidence\n");
@@ -62,9 +63,10 @@ CLOSURE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path");
 const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
-const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:01:00Z"};
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",created_at:"2026-07-20T00:01:00Z"};
 for (const name of ["F-1-closed","F-2-closed"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"wrong-branch.json"),JSON.stringify({...verifyPass,branch:"other"}));
+fs.writeFileSync(path.join(root,"unrelated-pass.json"),JSON.stringify({...verifyPass,verify_cmd:"smoke verify --filter unrelated"}));
 fs.writeFileSync(path.join(root,"zero-pass.json"),JSON.stringify({...verifyPass,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
 const review={schema_version:"1",artifact_type:"review",lifecycle:"draft",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"unfinished review",met:false}]};
 fs.writeFileSync(path.join(root,"draft-review.json"),JSON.stringify(review));
@@ -103,6 +105,7 @@ make_failure_state() {
     const path = require("path");
     const [file, origins, worktree, head] = process.argv.slice(1);
     const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    const actionFor={environment:"environment_fix",dispatch_contract:"contract_fix",implementation:"implementation_fix",test_oracle:"oracle_fix",verification_harness:"harness_fix",integration_drift:"integration_fix"};
     const evidence = (index) => {
       const relative = ".review/evidence/F-" + (index + 1) + ".json";
       const content = fs.readFileSync(path.join(worktree, relative));
@@ -117,7 +120,7 @@ make_failure_state() {
         secondary_origins: [],
         failed_ac_ids: ["AC-" + (index + 1)],
         owner: "CONDUCTOR",
-        next_action: {kind: "diagnosis", summary: "classify and route the failure"},
+        next_action: {kind: actionFor[origin], summary: "apply the origin-compatible remedy"},
         evidence: [evidence(index)]
       }))
     };
@@ -127,6 +130,10 @@ make_failure_state() {
 
 make_failure_state "$TMP_DIR/different.json" "implementation,test_oracle"
 assert_case "different origins allow the second normal redispatch" 0 "$TMP_DIR/different.json" "allow_normal" "null"
+
+cp "$TMP_DIR/different.json" "$TMP_DIR/unrouted.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].next_action.kind="diagnosis"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unrouted.json"
+assert_case "normal write redispatch waits for origin-compatible action routing" 1 "$TMP_DIR/unrouted.json" "routing_required" "null"
 
 make_failure_state "$TMP_DIR/same.json" "test_oracle,test_oracle"
 assert_case "two consecutive equal primary origins trip the circuit" 1 "$TMP_DIR/same.json" "diagnosis_required" "same_origin"
@@ -139,7 +146,7 @@ node -e '
     const relative=".review/evidence/F-"+(index+1)+"-closed.json";
     const content=fs.readFileSync(path.join(worktree,relative));
     failure.status="closed";
-    failure.closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+    failure.closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:failure.failed_ac_ids};
   });
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$TMP_DIR/closed-history.json" "$WORKTREE" "$CLOSURE_HEAD"
@@ -154,7 +161,7 @@ node -e '
   const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
   const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
   const relative=".review/evidence/plain.json"; const content=fs.readFileSync(path.join(worktree,relative));
-  value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+  value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$TMP_DIR/plain-closure.json" "$WORKTREE" "$EVIDENCE_HEAD"
 assert_case "closure labels cannot turn plain text into verifier evidence" 2 "$TMP_DIR/plain-closure.json" "error" "null"
@@ -165,25 +172,26 @@ for closure_case in zero-pass draft-review; do
     const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
     const [file,worktree,head,name]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
     const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
-    value.round_control.failures[0].closed_by={kind:name==="draft-review"?"review":"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+    value.round_control.failures[0].closed_by={kind:name==="draft-review"?"review":"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids,checklist_item:name==="draft-review"?"unfinished review":undefined};
     fs.writeFileSync(file,JSON.stringify(value));
   ' "$TMP_DIR/$closure_case-closure.json" "$WORKTREE" "$CLOSURE_HEAD" "$closure_case"
 done
 assert_case "zero-test PASS cannot close a failed round" 2 "$TMP_DIR/zero-pass-closure.json" "error" "null"
 assert_case "draft review with unmet checklist cannot close a failed round" 2 "$TMP_DIR/draft-review-closure.json" "error" "null"
 
-for closure_case in old-pass wrong-branch; do
+for closure_case in old-pass wrong-branch unrelated-pass; do
   cp "$TMP_DIR/closed-history.json" "$TMP_DIR/$closure_case-lineage.json"
   node -e '
     const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
     const [file,worktree,name,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
     const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
-    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head};
+    value.round_control.failures[0].closed_by={kind:"verify",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:value.round_control.failures[0].failed_ac_ids};
     fs.writeFileSync(file,JSON.stringify(value));
   ' "$TMP_DIR/$closure_case-lineage.json" "$WORKTREE" "$closure_case" "$([ "$closure_case" = "old-pass" ] && printf '%s' "$EVIDENCE_HEAD" || printf '%s' "$CLOSURE_HEAD")"
 done
 assert_case "closure evidence must be newer than the failed-round evidence" 2 "$TMP_DIR/old-pass-lineage.json" "error" "null"
 assert_case "closure verifier must match the live worktree branch" 2 "$TMP_DIR/wrong-branch-lineage.json" "error" "null"
+assert_case "closure verifier must run the canonical verification scope" 2 "$TMP_DIR/unrelated-pass-lineage.json" "error" "null"
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/interleaved-cycle.json"
 node -e '
@@ -297,6 +305,18 @@ assert_case "manifest update must end at the current ROUND-STATE revision" 2 "$T
 cp "$TMP_DIR/same.json" "$TMP_DIR/no-verifier-evidence.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].kind="dispatch_log"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/no-verifier-evidence.json"
 assert_case "failed ACs require verifier or review evidence" 2 "$TMP_DIR/no-verifier-evidence.json" "error" "null"
+
+cp "$TMP_DIR/same.json" "$TMP_DIR/contradictory-failure.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const [file,worktree]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const relative=".review/evidence/contradictory-fail.json"; const content=fs.readFileSync(path.join(worktree,relative)); value.round_control.failures[0].evidence[0].path=relative; value.round_control.failures[0].evidence[0].content_sha256=crypto.createHash("sha256").update(content).digest("hex");
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$TMP_DIR/contradictory-failure.json" "$WORKTREE"
+assert_case "zero-failure contradictory FAIL cannot authorize redispatch" 2 "$TMP_DIR/contradictory-failure.json" "error" "null"
+
+cp "$TMP_DIR/different.json" "$TMP_DIR/origin-action-mismatch.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].primary_origin="environment"; v.round_control.failures[0].next_action.kind="implementation_fix"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/origin-action-mismatch.json"
+assert_case "primary origin constrains the routed next action" 2 "$TMP_DIR/origin-action-mismatch.json" "error" "null"
 
 cp "$TMP_DIR/same.json" "$TMP_DIR/wrong-evidence-issue.json"
 node -e '

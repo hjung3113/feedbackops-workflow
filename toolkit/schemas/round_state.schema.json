@@ -217,12 +217,18 @@
               "closed_by": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["kind", "path", "content_sha256", "head_sha"],
+                "required": ["kind", "path", "content_sha256", "head_sha", "closes_ac_ids"],
                 "properties": {
                   "kind": { "enum": ["verify", "review"] },
                   "path": { "type": "string", "minLength": 1 },
                   "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-                  "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+                  "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+                  "closes_ac_ids": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "checklist_item": { "type": "string", "minLength": 1 }
                 }
               }
             }

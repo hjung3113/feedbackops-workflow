@@ -193,10 +193,26 @@ function isAncestor(ancestor, descendant) {
   } catch (e) { return false; }
 }
 
+function commandHasScope(command, scope) {
+  const tokens = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return tokens.some((token) => {
+    const unquoted = token.replace(/^(["'])(.*)\1$/, "$2");
+    return unquoted === scope || unquoted.endsWith("=" + scope);
+  });
+}
+
 const control = state.round_control || { failures: [] };
 const failures = control.failures;
 const ids = new Set();
 let openCycleStarted = false;
+const originAction = {
+  environment: "environment_fix",
+  dispatch_contract: "contract_fix",
+  implementation: "implementation_fix",
+  test_oracle: "oracle_fix",
+  verification_harness: "harness_fix",
+  integration_drift: "integration_fix"
+};
 for (let index = 0; index < failures.length; index += 1) {
   const failure = failures[index];
   if (ids.has(failure.id) || failure.dispatch_ordinal !== index + 1) {
@@ -210,13 +226,16 @@ for (let index = 0; index < failures.length; index += 1) {
   if (failure.secondary_origins.includes(failure.primary_origin)) {
     error("secondary_origin_conflict", "primary origin cannot also be secondary");
   }
+  if (failure.next_action.kind !== "diagnosis" && failure.next_action.kind !== originAction[failure.primary_origin]) {
+    error("origin_action_mismatch", "failure next action does not match its primary origin");
+  }
   if (!failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review")) {
     error("verifier_evidence_missing", "every failed round requires verifier or review evidence");
   }
   const failureArtifacts = failure.evidence.map((reference) => ({ reference, artifact: validateEvidence(reference) }));
   const hasFailedVerdict = failureArtifacts.some(({reference, artifact}) =>
     reference.kind === "verify"
-      ? artifact.classifier === "FAIL" || artifact.verdict.exit_code !== 0 || artifact.verdict.failed > 0
+      ? artifact.classifier === "FAIL" && (artifact.verdict.exit_code !== 0 || artifact.verdict.failed > 0)
       : reference.kind === "review" && (artifact.status === "fail" || artifact.status === "blocked"));
   if (!hasFailedVerdict) {
     error("failed_round_evidence_not_failed", "failure evidence must contain a failing VERIFY or REVIEW artifact");
@@ -233,6 +252,20 @@ for (let index = 0; index < failures.length; index += 1) {
         && closure.checklist.every((item) => item.met === true);
     if (!closurePassed) {
       error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
+    }
+    if (!sameMembers(failure.closed_by.closes_ac_ids, failure.failed_ac_ids)) {
+      error("failure_closure_scope_mismatch", "closure evidence must cover the failure AC set exactly");
+    }
+    if (failure.closed_by.kind === "verify" && !commandHasScope(closure.verify_cmd, state.contract.verify_filter)) {
+      error("failure_closure_scope_mismatch", "closure VERIFY command does not include the canonical verify filter");
+    }
+    if (failure.closed_by.kind === "review") {
+      const checklistItem = failure.closed_by.checklist_item;
+      const expectedChecklistItem = `failure:${failure.id}:${failure.failed_ac_ids.join(",")}`;
+      if (checklistItem !== expectedChecklistItem
+          || !closure.checklist.some((item) => item.item === checklistItem && item.met === true)) {
+        error("failure_closure_scope_mismatch", "closure REVIEW does not close its declared checklist item");
+      }
     }
     if (!isAncestor(failure.closed_by.head_sha, liveHead)) {
       error("failure_closure_lineage_invalid", "closure HEAD must be an ancestor of the live ROUND-STATE HEAD");
@@ -291,6 +324,9 @@ if (sameOriginStreak >= 2) trigger = "same_origin";
 else if (redispatchesCompleted >= 2) trigger = "third_redispatch";
 
 if (!trigger) {
+  if (activeFailures.some((failure) => failure.next_action.kind === "diagnosis")) {
+    decision("routing_required", false, null, null, ["origin_compatible_next_action"], 1);
+  }
   decision("allow_normal", true, "normal", null, [], 0);
 }
 
