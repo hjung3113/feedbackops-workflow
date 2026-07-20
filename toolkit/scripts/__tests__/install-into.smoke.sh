@@ -57,6 +57,7 @@ assert_portable_layout() {
 assert_current_content() {
   label="$1"; target="$2"
   assert_true "$label includes install script" test -x "$target/.agent-workflow/scripts/install-into.sh"
+  assert_true "$label includes verify result module" test -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
   assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"
@@ -102,6 +103,9 @@ prepare_gate_fixture() {
 
 assert_installed_gates() {
   label="$1"; target="$2"; scripts="$target/.agent-workflow/scripts"
+  installed_report="$target/.review/installed-verify-green.json"
+  printf '%s\n' '{"numPassedTests":1,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true}' > "$installed_report"
+  assert_exit "$label executes verify classifier" PASS bash "$scripts/verify.sh" --classify-json "$installed_report"
   assert_exit "$label executes ac-check" PASS bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS"
   assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3

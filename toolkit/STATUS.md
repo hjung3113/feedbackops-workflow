@@ -2,7 +2,7 @@
 
 _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.17
+## Current release: v0.18
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
@@ -11,6 +11,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
+- a stable `verify.sh` CLI seam whose Vitest classification and canonical VERIFY payload construction live in the internal `scripts/lib/verify-result.cjs` module;
 - an explicit REVIEWER publication path that runs Codex filesystem-read-only and host-validates its final JSON before atomically publishing the sole canonical REVIEW artifact;
 - pre-review AC-ID existence checking;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
@@ -36,6 +37,13 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 ```
 
 ## Shipped timeline
+
+### v0.18 — verifier clean-state and machine failures
+
+- Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, and passing evidence is embedded in the existing VERIFY artifact.
+- Every classifier failure exposes typed machine data, and failed canonical artifacts retain the same `code`/`expected`/`actual` records. Existing human diagnostics remain available.
+- No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `--fresh` is a stable reserved refusal until a target DB lifecycle adapter owns rebuild/drop behavior.
+- `verify.sh` remains the sole operator interface while `scripts/lib/verify-result.cjs` owns result classification, clean-probe validation, and VERIFY payload construction.
 
 ### v0.17 — dispatch liveness operator contract
 
@@ -174,7 +182,7 @@ The next generalization must be based on a second real target. The intended spli
 
 - **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
 - **P1 procedure/templates:** #9, #10, and #11 are shipped (circuit breaker, compile-atomic chunks, and canonical Standard round-0 state).
-- **P2 toolkit/procedure:** #13, #14, #17 — verifier output/freshness, integrated-head closure, and re-review capsule; #19 is shipped in `codex-safe.sh`.
+- **P2 toolkit/procedure:** #13 verifier output/freshness is shipped; #14 and #17 remain evidence-gated integrated-head closure and re-review capsule work; #19 is shipped in `codex-safe.sh`.
 - **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
 
