@@ -2,7 +2,7 @@
 
 Do not leave a reusable toolkit failure recorded only as a target-local workaround.
 
-1. Reproduce against the target's current toolkit installation and record symlink or copy mode. For copy mode, include the toolkit revision or snapshot date.
+1. Reproduce against the target's current portable-copy installation and record the toolkit revision or snapshot date.
 2. Classify the boundary as `coordination-core`, `target-adapter`, `adoption/docs`, or `unknown`. Keep it unknown when the evidence is ambiguous.
 3. Search open and closed issues in `hjung3113/feedbackops-workflow` for the same symptom.
 4. Obtain explicit authorization before any external write, then open an issue in that repository.
@@ -21,7 +21,7 @@ Include the target shape and relevant tool versions, the smallest reproducing co
 
 - Target repository shape:
 - Toolkit revision or snapshot date:
-- Install mode: symlink | copy
+- Install layout: portable copy
 - Relevant tool versions:
 - Target-owned adapter/configuration:
 

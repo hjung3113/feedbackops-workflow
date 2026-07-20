@@ -17,4 +17,4 @@ bash .github/tests/release-contract.smoke.sh
 NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh
 ```
 
-The release contract checks that product authority remains contained in `toolkit/`, current references and local Markdown links resolve in source and copy-installed contexts, and maintainer-only files do not leak into target installations.
+The release contract checks that product authority remains contained in `toolkit/`, current references and local Markdown links resolve in source and portable installed contexts, and maintainer-only files do not leak into target installations.

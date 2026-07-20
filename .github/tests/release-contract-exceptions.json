@@ -84,9 +84,9 @@
       "path": "toolkit/scripts/install-into.sh",
       "token": "legacy-review-schemas",
       "region": "legacy-link-detection",
-      "context": "SCHEMAS_LEGACY_ROOT=\"$(legacy_root_for \"$SCHEMAS_LINK\" \"/.review/schemas\")\" || SCHEMAS_LEGACY_ROOT=\"\"",
+      "context": "schemas:*'/.review/schemas')",
       "expectedCount": 1,
-      "reason": "The documented --migrate-legacy contract recognizes the former schema-link suffix."
+      "reason": "The upgrade compatibility adapter recognizes the former schema-link suffix."
     },
     {
       "path": "toolkit/scripts/__tests__/cmux-cluster.smoke.sh",
@@ -100,57 +100,25 @@
       "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
       "token": "legacy-review-schemas",
       "region": "legacy-link-fixture",
-      "context": "mkdir -p \"$legacy_root/scripts\" \"$legacy_root/.review/schemas\" \\",
+      "context": "ln -s \"$legacy_root/.review/schemas\" \"$legacy_links/.agent-workflow/schemas\"",
       "expectedCount": 1,
-      "reason": "The installer smoke creates a live old-layout fixture."
+      "reason": "The installer smoke covers upgrade from a dangling pre-separation schema link."
     },
     {
       "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
       "token": "legacy-review-schemas",
       "region": "legacy-link-fixture",
-      "context": "ln -s \"$legacy_root/.review/schemas\" \"$target/.agent-workflow/schemas\"",
+      "context": "\"$legacy_live_root/scripts\" \"$legacy_live_root/.review/schemas\" \\",
       "expectedCount": 1,
-      "reason": "The installer smoke wires the old schema-link fixture."
+      "reason": "The installer smoke creates a live pre-separation schema directory fixture."
     },
     {
       "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
       "token": "legacy-review-schemas",
       "region": "legacy-link-fixture",
-      "context": "assert_true \"$label preserves schemas link\" test \"$(readlink \"$target/.agent-workflow/schemas\")\" = \"$legacy_root/.review/schemas\"",
+      "context": "ln -s \"$legacy_live_root/.review/schemas\" \"$legacy_live/.agent-workflow/schemas\"",
       "expectedCount": 1,
-      "reason": "The installer smoke verifies old schema links are preserved on refusal or rollback."
-    },
-    {
-      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
-      "token": "legacy-review-schemas",
-      "region": "filesystem-root-legacy-fixture",
-      "context": "ln -s /.review/schemas \"$legacy_root_target/.agent-workflow/schemas\"",
-      "expectedCount": 1,
-      "reason": "The installer smoke verifies the exact filesystem-root legacy schema suffix is detected."
-    },
-    {
-      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
-      "token": "legacy-repository-scripts",
-      "region": "repository-legacy-fixture",
-      "context": "ln -s \"$REPOSITORY_ROOT/scripts\" \"$legacy_mixed/.agent-workflow/scripts\"",
-      "expectedCount": 1,
-      "reason": "The installer smoke verifies partial migration from this repository's former root scripts."
-    },
-    {
-      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
-      "token": "legacy-review-schemas",
-      "region": "repository-legacy-fixture",
-      "context": "ln -s \"$REPOSITORY_ROOT/.review/schemas\" \"$legacy_mixed/.agent-workflow/schemas\"",
-      "expectedCount": 1,
-      "reason": "The installer smoke verifies partial migration from this repository's former root schemas."
-    },
-    {
-      "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
-      "token": "legacy-repository-docs",
-      "region": "repository-legacy-fixture",
-      "context": "ln -s \"$REPOSITORY_ROOT/docs/agents\" \"$legacy_mixed/.agent-workflow/docs/agents\"",
-      "expectedCount": 1,
-      "reason": "The installer smoke verifies partial migration from this repository's former root docs."
+      "reason": "The installer smoke covers upgrade from a live pre-separation schema link."
     }
   ]
 }
