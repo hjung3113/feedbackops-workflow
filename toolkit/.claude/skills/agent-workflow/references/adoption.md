@@ -21,6 +21,8 @@ Every target must explicitly tier its initial write. Standard/Full Cluster work 
 
 Dispatch REVIEWER with `cmux-dispatch.sh --produce-review`, not the legacy liveness-only `--read-only` flag. The installed wrapper keeps reviewer commands filesystem-read-only, captures the final JSON host-side, and publishes the canonical REVIEW only after schema, issue, and live-HEAD validation. A target must not replace this with pane transcription or a second review manifest.
 
+Adopt the playbook's dispatch liveness operator rules unchanged: preserve `cmux-dispatch.sh`'s direct exit code, accept only current-launch RUN/BLOCKER identity (`mtime + started_at`), and never derive completion from RUN status or artifact absence. Target-specific orchestration may display these signals but must still bind canonical REVIEW/VERIFY to live HEAD.
+
 ## Install
 
 From the toolkit repository:
