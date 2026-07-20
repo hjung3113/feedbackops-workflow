@@ -135,8 +135,16 @@ mkdir -p "$ADMIT_WT/.review/evidence"
 git init -q "$ADMIT_WT"
 git -C "$ADMIT_WT" config user.email smoke@example.test
 git -C "$ADMIT_WT" config user.name smoke
-printf '%s\n' 'failed verifier evidence' > "$ADMIT_WT/.review/evidence/F-1.json"
-git -C "$ADMIT_WT" add .review/evidence/F-1.json
+git -C "$ADMIT_WT" commit --allow-empty -qm baseline
+ADMIT_EVIDENCE_HEAD="$(git -C "$ADMIT_WT" rev-parse HEAD)"
+node - "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD" <<'NODE'
+const fs=require("fs"); const path=require("path"); const [worktree,head]=process.argv.slice(2);
+for (const issue of [307,999]) {
+  const artifact={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",created_at:"2026-07-20T00:00:00Z"};
+  fs.writeFileSync(path.join(worktree,".review/evidence/F-"+issue+".json"),JSON.stringify(artifact));
+}
+NODE
+git -C "$ADMIT_WT" add .review/evidence
 git -C "$ADMIT_WT" commit -qm evidence
 git -C "$ADMIT_WT" branch -M main
 ADMIT_HEAD="$(git -C "$ADMIT_WT" rev-parse HEAD)"
@@ -146,11 +154,19 @@ cp "$ROOT/schemas/fixtures/round_state.valid.json" "$ADMIT_WT/.review/ISSUE-307-
 node -e '
   const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
   const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
-  const evidencePath=".review/evidence/F-1.json"; const content=fs.readFileSync(path.join(worktree,evidencePath));
+  const evidencePath=".review/evidence/F-307.json"; const content=fs.readFileSync(path.join(worktree,evidencePath));
   value.issue={number:307,title:"redispatch admission"}; value.revision=5; value.base_branch="main"; value.base_sha=head; value.head_sha=head; value.worktree_path=worktree;
-  value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"implementation",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"implementation_fix",summary:"apply the classified fix"},evidence:[{kind:"verify",path:evidencePath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head}]}]};
+  value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"implementation",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"implementation_fix",summary:"apply the classified fix"},evidence:[{kind:"verify",path:evidencePath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:process.argv[4]}]}]};
   fs.writeFileSync(file,JSON.stringify(value));
-' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT" "$ADMIT_HEAD"
+' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT" "$ADMIT_HEAD" "$ADMIT_EVIDENCE_HEAD"
+
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path"); const [file,worktree]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const evidencePath=".review/evidence/F-999.json"; const content=fs.readFileSync(path.join(worktree,evidencePath)); value.issue={number:999,title:"other issue"};
+  value.round_control.failures[0].evidence[0].path=evidencePath; value.round_control.failures[0].evidence[0].content_sha256=crypto.createHash("sha256").update(content).digest("hex");
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json" "$ADMIT_WT"
 
 admission_missing="$TMP_ROOT/admission-missing.out"
 bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --dry-run >"$admission_missing" 2>&1
@@ -159,6 +175,30 @@ if [ "$ec" -eq 2 ] && grep -q "redispatch requires --round-state" "$admission_mi
   pass "write redispatch requires canonical round-control input"
 else
   fail "write redispatch requires canonical round-control input (ec=$ec: $(cat "$admission_missing"))"
+fi
+
+admission_wrong_issue="$TMP_ROOT/admission-wrong-issue.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-999-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_issue" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "does not match the dispatched issue and worktree" "$admission_wrong_issue"; then
+  pass "redispatch admission is bound to the CLI issue"
+else
+  fail "redispatch admission is bound to the CLI issue (ec=$ec: $(cat "$admission_wrong_issue"))"
+fi
+
+OTHER_WT="$TMP_ROOT/wt-other-admission"
+mkdir -p "$OTHER_WT/.review"
+git init -q "$OTHER_WT"
+git -C "$OTHER_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+printf '%s\n' 'prompt body' > "$OTHER_WT/.review/ISSUE-307-PROMPT.txt"
+printf '%s\n' '{}' > "$OTHER_WT/.review/ISSUE-307-RUN.json"
+admission_wrong_worktree="$TMP_ROOT/admission-wrong-worktree.out"
+bash "$DISPATCH" --issue 307 --worktree "$OTHER_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_wrong_worktree" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "does not match the dispatched issue and worktree" "$admission_wrong_worktree"; then
+  pass "redispatch admission is bound to the CLI worktree"
+else
+  fail "redispatch admission is bound to the CLI worktree (ec=$ec: $(cat "$admission_wrong_worktree"))"
 fi
 
 mv "$ADMIT_WT/.review/ISSUE-307-RUN.json" "$ADMIT_WT/.review/ISSUE-307-RUN.saved"
@@ -199,6 +239,16 @@ if [ "$first_ec" -eq 0 ] && [ "$second_ec" -ne 0 ] && grep -q "redispatch admiss
   pass "write redispatch admission is atomically single-use"
 else
   fail "write redispatch admission is atomically single-use (first=$first_ec second=$second_ec: $(cat "$admission_second"))"
+fi
+
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.revision=6; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+admission_revision_bump="$TMP_ROOT/admission-revision-bump.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_revision_bump" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_revision_bump"; then
+  pass "manifest revision bump cannot replay a consumed redispatch admission"
+else
+  fail "manifest revision bump cannot replay a consumed redispatch admission (ec=$ec: $(cat "$admission_revision_bump"))"
 fi
 
 # --- poll path: a STALE RUN.json from a previous run must NOT count ---
@@ -287,6 +337,16 @@ if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$first_out"; then
   pass "first dispatch with no pre-existing artifact still accepts a new RUN.json"
 else
   fail "first dispatch with no pre-existing artifact still accepts a new RUN.json (ec=$ec: $(cat "$first_out"))"
+fi
+
+rm "$STALE_WT/.review/ISSUE-306-RUN.json"
+attempt_marker_out="$TMP_ROOT/write-attempt-marker.out"
+bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --dry-run >"$attempt_marker_out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q "redispatch requires --round-state" "$attempt_marker_out"; then
+  pass "pre-launch write marker keeps a pre-RUN failure visible"
+else
+  fail "pre-launch write marker keeps a pre-RUN failure visible (ec=$ec: $(cat "$attempt_marker_out"))"
 fi
 
 # --- codex-watchdog.sh: relative --prompt-file resolves against --cwd ---

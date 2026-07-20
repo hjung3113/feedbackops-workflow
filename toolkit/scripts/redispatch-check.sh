@@ -34,6 +34,8 @@ SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
   exit 2
 }
 ROUND_STATE_SCHEMA="$SCHEMA_DIR/round_state.schema.json"
+VERIFY_SCHEMA="$SCHEMA_DIR/verify.schema.json"
+REVIEW_SCHEMA="$SCHEMA_DIR/review.schema.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -57,7 +59,7 @@ if [ -z "$round_state" ] || [ -z "$expected_revision" ]; then
   exit 2
 fi
 case "$expected_revision" in ''|*[!0-9]*|0) emit_error "invalid_manifest_revision"; exit 2 ;; esac
-if [ ! -r "$round_state" ] || [ ! -r "$SCHEMA_VALIDATOR" ] || [ ! -r "$ROUND_STATE_SCHEMA" ]; then
+if [ ! -r "$round_state" ] || [ ! -r "$SCHEMA_VALIDATOR" ] || [ ! -r "$ROUND_STATE_SCHEMA" ] || [ ! -r "$VERIFY_SCHEMA" ] || [ ! -r "$REVIEW_SCHEMA" ]; then
   emit_error "unreadable_input"
   exit 2
 fi
@@ -73,12 +75,12 @@ if [ "$fresh_status" -ne 0 ]; then
   exit 2
 fi
 
-node - "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
+node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const [roundStateFile, schemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
+const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
 
 function write(payload, exitCode) {
   process.stdout.write(JSON.stringify(payload) + "\n");
@@ -93,6 +95,8 @@ function error(code, message, exitCode = 2) {
     redispatches_completed: 0,
     classified_failures: 0,
     admission_key: null,
+    issue_number: null,
+    worktree_path: null,
     trigger: null,
     obligations: [],
     errors: [{ code }],
@@ -105,10 +109,12 @@ function sameMembers(left, right) {
   return left.every((value) => expected.has(value));
 }
 
-let state, schema, validate;
+let state, schema, verifySchema, reviewSchema, validate;
 try {
   state = JSON.parse(fs.readFileSync(roundStateFile, "utf8"));
   schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+  verifySchema = JSON.parse(fs.readFileSync(verifySchemaFile, "utf8"));
+  reviewSchema = JSON.parse(fs.readFileSync(reviewSchemaFile, "utf8"));
   ({ validate } = require(validatorFile));
 } catch (e) {
   error("invalid_round_state", "cannot parse ROUND-STATE or schema: " + e.message);
@@ -142,9 +148,10 @@ function validateEvidence(reference) {
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     error("invalid_failure_evidence", "evidence path escapes the declared worktree");
   }
-  let digest;
+  let digest, content;
   try {
-    digest = crypto.createHash("sha256").update(fs.readFileSync(realCandidate)).digest("hex");
+    content = fs.readFileSync(realCandidate);
+    digest = crypto.createHash("sha256").update(content).digest("hex");
     execFileSync("git", ["-C", worktreeRoot, "cat-file", "-e", reference.head_sha + "^{commit}"], { stdio: "ignore" });
   } catch (e) {
     error("invalid_failure_evidence", "evidence HEAD is not a commit in the declared worktree");
@@ -152,35 +159,76 @@ function validateEvidence(reference) {
   if (digest !== reference.content_sha256) {
     error("evidence_hash_mismatch", "evidence content does not match its declared sha256");
   }
+  if (reference.kind === "verify" || reference.kind === "review") {
+    let artifact;
+    try { artifact = JSON.parse(content.toString("utf8")); }
+    catch (e) { error("invalid_evidence_artifact", reference.kind + " evidence is not JSON"); }
+    const artifactSchema = reference.kind === "verify"
+      ? verifySchema
+      : (() => { const copy = {...reviewSchema}; delete copy.if; delete copy.then; return copy; })();
+    if (validate(artifactSchema, artifact).length) {
+      error("invalid_evidence_artifact", reference.kind + " evidence fails its artifact schema");
+    }
+    if (reference.kind === "review" && artifact.status === "fail"
+        && (!Array.isArray(artifact.findings) || artifact.findings.length === 0 || typeof artifact.patch_instructions !== "string")) {
+      error("invalid_evidence_artifact", "failed review evidence lacks findings or patch instructions");
+    }
+    const artifactIssue = reference.kind === "verify" ? artifact.issue : artifact.issue.number;
+    const artifactHead = reference.kind === "verify" ? artifact.head_sha : artifact.reviewed_head_sha;
+    if (artifactIssue !== state.issue.number || artifactHead !== reference.head_sha) {
+      error("evidence_identity_mismatch", reference.kind + " evidence does not match the ROUND-STATE issue and referenced HEAD");
+    }
+    return artifact;
+  }
+  return null;
 }
 
 const control = state.round_control || { failures: [] };
 const failures = control.failures;
 const ids = new Set();
+let openCycleStarted = false;
 for (let index = 0; index < failures.length; index += 1) {
   const failure = failures[index];
   if (ids.has(failure.id) || failure.dispatch_ordinal !== index + 1) {
     error("invalid_failure_sequence", "failure ids must be unique and dispatch ordinals contiguous");
   }
   ids.add(failure.id);
+  if (failure.status === "open") openCycleStarted = true;
+  else if (openCycleStarted) {
+    error("invalid_failure_cycle", "closed history must be a prefix before the active open cycle");
+  }
   if (failure.secondary_origins.includes(failure.primary_origin)) {
     error("secondary_origin_conflict", "primary origin cannot also be secondary");
   }
   if (!failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review")) {
     error("verifier_evidence_missing", "every failed round requires verifier or review evidence");
   }
-  failure.evidence.forEach(validateEvidence);
+  const failureArtifacts = failure.evidence.map((reference) => ({ reference, artifact: validateEvidence(reference) }));
+  const hasFailedVerdict = failureArtifacts.some(({reference, artifact}) =>
+    reference.kind === "verify"
+      ? artifact.classifier === "FAIL" || artifact.verdict.exit_code !== 0 || artifact.verdict.failed > 0
+      : reference.kind === "review" && (artifact.status === "fail" || artifact.status === "blocked"));
+  if (!hasFailedVerdict) {
+    error("failed_round_evidence_not_failed", "failure evidence must contain a failing VERIFY or REVIEW artifact");
+  }
   if (failure.status === "closed") {
     if (!failure.closed_by) {
       error("failure_closure_evidence_missing", "closed failures require verifier or review closure evidence");
     }
-    validateEvidence(failure.closed_by);
+    const closure = validateEvidence(failure.closed_by);
+    const closurePassed = failure.closed_by.kind === "verify"
+      ? closure.classifier === "PASS" && closure.verdict.exit_code === 0 && closure.verdict.failed === 0
+      : closure.status === "pass";
+    if (!closurePassed) {
+      error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
+    }
   }
 }
 if (control.security_stop) validateEvidence(control.security_stop.evidence);
 if (control.diagnosis) control.diagnosis.records.forEach((record) => validateEvidence(record.evidence));
 
-const activeFailures = failures.filter((failure) => failure.status === "open");
+const firstOpenIndex = failures.findIndex((failure) => failure.status === "open");
+const activeFailures = firstOpenIndex === -1 ? [] : failures.slice(firstOpenIndex);
 let sameOriginStreak = 0;
 if (activeFailures.length > 0) {
   const latestOrigin = activeFailures[activeFailures.length - 1].primary_origin;
@@ -193,6 +241,12 @@ const redispatchesCompleted = Math.max(0, activeFailures.length - 1);
 
 function decision(name, allowed, mode, trigger, obligations, exitCode) {
   const nextOrdinal = failures.length + 1;
+  const admissionIdentity = crypto.createHash("sha256").update(JSON.stringify({
+    issue: state.issue.number,
+    failure_ids: activeFailures.map((failure) => failure.id),
+    dispatch_ordinal: nextOrdinal,
+    mode
+  })).digest("hex").slice(0, 24);
   write({
     decision: name,
     redispatch_allowed: allowed,
@@ -200,7 +254,9 @@ function decision(name, allowed, mode, trigger, obligations, exitCode) {
     same_origin_streak: sameOriginStreak,
     redispatches_completed: redispatchesCompleted,
     classified_failures: activeFailures.length,
-    admission_key: allowed ? `issue-${state.issue.number}-revision-${state.revision}-dispatch-${nextOrdinal}-${mode}` : null,
+    admission_key: allowed ? `issue-${state.issue.number}-dispatch-${nextOrdinal}-${mode}-${admissionIdentity}` : null,
+    issue_number: state.issue.number,
+    worktree_path: worktreeRoot,
     trigger,
     obligations,
     errors: []

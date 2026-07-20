@@ -127,9 +127,17 @@ esac
 
 [ -n "$WS_NAME" ] || WS_NAME="codex-${ISSUE_N}"
 
+if [ "$DRY_RUN" -eq 0 ]; then
+  command -v cmux >/dev/null 2>&1 || {
+    echo "ERROR: cmux binary not found on PATH" >&2
+    exit 2
+  }
+fi
+
 RUN_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-RUN.json"
 BLOCKER_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
 DEFAULT_ROUND_STATE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-ROUND-STATE.json"
+WRITE_ATTEMPT_DIR="$ABS_WORKTREE/.review/.write-dispatch-issue-${ISSUE_N}-started"
 
 # A prior same-issue RUN/BLOCKER makes this a write-capable implementation
 # redispatch. Bind admission to canonical ROUND-STATE policy before cmux is
@@ -138,7 +146,7 @@ DEFAULT_ROUND_STATE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-ROUND-STATE.json"
 ADMISSION_KEY=""
 REDISPATCH_REQUIRED=0
 if [ "$READ_ONLY" -eq 0 ]; then
-  if [ -f "$RUN_FILE" ] || [ -f "$BLOCKER_FILE" ]; then
+  if [ -f "$RUN_FILE" ] || [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
     REDISPATCH_REQUIRED=1
   elif [ -f "$DEFAULT_ROUND_STATE" ] && node -e '
     try {
@@ -171,7 +179,7 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
   ADMISSION_FIELDS="$(node -e '
     try {
       const value=JSON.parse(process.argv[1]);
-      process.stdout.write([value.redispatch_allowed, value.dispatch_mode || "", value.classified_failures, value.admission_key || ""].join("\t"));
+      process.stdout.write([value.redispatch_allowed, value.dispatch_mode || "", value.classified_failures, value.admission_key || "", value.issue_number, value.worktree_path || ""].join("\t"));
     } catch (e) { process.exit(2); }
   ' "$ADMISSION_JSON")"
   ADMISSION_PARSE_EXIT=$?
@@ -187,6 +195,8 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
   ADMISSION_MODE="${2:-}"
   CLASSIFIED_FAILURES="${3:-0}"
   ADMISSION_KEY="${4:-}"
+  ADMISSION_ISSUE="${5:-}"
+  ADMISSION_WORKTREE="${6:-}"
   case "$CLASSIFIED_FAILURES" in
     ''|*[!0-9]*)
       echo "ERROR: redispatch gate returned an invalid failure count" >&2
@@ -203,6 +213,11 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     echo "ERROR: redispatch gate did not authorize a classified implementation failure" >&2
     exit 2
   fi
+  REAL_WORKTREE="$(cd "$ABS_WORKTREE" && pwd -P)"
+  if [ "$ADMISSION_ISSUE" != "$ISSUE_N" ] || [ "$ADMISSION_WORKTREE" != "$REAL_WORKTREE" ]; then
+    echo "ERROR: redispatch admission does not match the dispatched issue and worktree" >&2
+    exit 2
+  fi
   echo "cmux-dispatch: redispatch admission: mode=$ADMISSION_MODE key=$ADMISSION_KEY"
   if [ "$DRY_RUN" -eq 0 ]; then
     ADMISSION_DIR="$ABS_WORKTREE/.review/.redispatch-admission-$ADMISSION_KEY"
@@ -214,10 +229,12 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
 fi
 
 if [ "$DRY_RUN" -eq 0 ]; then
-  command -v cmux >/dev/null 2>&1 || {
-    echo "ERROR: cmux binary not found on PATH" >&2
-    exit 2
-  }
+  if [ "$READ_ONLY" -eq 0 ] && [ ! -d "$WRITE_ATTEMPT_DIR" ]; then
+    if ! mkdir "$WRITE_ATTEMPT_DIR" 2>/dev/null; then
+      echo "ERROR: concurrent write dispatch detected before launch" >&2
+      exit 1
+    fi
+  fi
 fi
 
 CMD="NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --cwd $ABS_WORKTREE"

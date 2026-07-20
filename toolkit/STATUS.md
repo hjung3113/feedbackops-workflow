@@ -112,8 +112,8 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 ### v0.13 — repeated-round circuit breaker
 
 - ROUND-STATE classifies every failed implementation round with one primary origin, optional secondary origins, failed AC ids, owner/action routing, and hash/HEAD-bound evidence references.
-- `redispatch-check.sh` validates the live worktree HEAD and evidence content before it blocks on two consecutive failures with the same primary origin or before a third redispatch; closed history requires explicit verifier/review closure evidence.
-- `cmux-dispatch.sh` runs that gate immediately before same-issue write redispatch and atomically consumes its state-derived admission key; dry-runs do not consume it and read-only seats remain outside the circuit.
+- `redispatch-check.sh` validates live worktree HEAD plus VERIFY/REVIEW artifact schema, issue, observed HEAD, and content hash before it blocks on two consecutive failures with the same primary origin or before a third redispatch; closed history is a verified prefix before the active open cycle.
+- `cmux-dispatch.sh` records every write attempt before cmux, binds returned admission to the CLI issue/worktree, and atomically consumes a revision-stable failure-set admission key; dry-runs do not consume it and read-only seats remain outside the circuit.
 - A tripped circuit rechecks oracle/contract first, requires a hard fact plus passing-analog parity instruction, and permits at most one manifest increment and one integrated fix batch; security findings may stop earlier.
 
 ## Compatibility boundary
