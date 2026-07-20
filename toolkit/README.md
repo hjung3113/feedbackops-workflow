@@ -101,13 +101,13 @@ NODE_OPTIONS= scripts/cmux-dispatch.sh \
   --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
   --manifest-revision 1 \
   --name issue-123-impl \
-  --model gpt-5.6-terra \
-  --effort medium
+  --allocate \
+  --allocator-role implementation
 ```
 
-`gpt-5.6-terra`는 현재 운영 환경의 구현 모델 alias입니다. 다른 계정·머신에서는 capability ordering을 유지하는 명시적 모델을 preflight하고 `--model`을 생략하지 마세요. 모든 write-capable Codex는 `cmux-dispatch.sh` → `codex-watchdog.sh` → `codex-safe.sh` 경로를 사용합니다. `codex exec` 직접 실행이나 `cmux workspace create --command ...` 수동 조립은 지원하지 않습니다.
+`gpt-5.6-terra low`가 현재 운영 환경의 기본 구현 allocation입니다. 다른 계정·머신에서는 capability ordering을 유지하는 명시적 모델을 preflight하고, 직접 모델을 고를 때만 `--model`/`--effort`를 함께 pin 하세요. 모든 write-capable Codex는 `cmux-dispatch.sh` → `codex-watchdog.sh` → `codex-safe.sh` 경로를 사용합니다. `codex exec` 직접 실행이나 `cmux workspace create --command ...` 수동 조립은 지원하지 않습니다.
 
-설치하면 프로젝트 소유 `.agent-workflow/model-alloc.json`도 함께 생성됩니다. `scripts/model-alloc.sh --role implementation`은 증거가 없으면 안전한 기본 배치만 출력하고, canonical evidence를 주면 작업량·계약 터치·재리뷰 findings에 따라 배치 근거를 JSON으로 기록합니다. `cmux-dispatch.sh --allocate --allocator-role implementation`은 Codex 구현 모델만 자동 전달합니다. Opus/Fable/Claude 역할은 Codex로 전달하지 않으며, 업그레이드는 사용자 설정 파일을 보존합니다.
+설치하면 프로젝트 소유 `.agent-workflow/model-alloc.json`도 함께 생성됩니다. `scripts/model-alloc.sh --role implementation`은 증거가 없으면 안전한 기본 배치만 출력하고, canonical evidence의 연속된 findings round·작업량·계약 터치·재리뷰에 따라 배치 근거를 JSON으로 기록합니다. `cmux-dispatch.sh --allocate --allocator-role implementation`은 Codex 구현 모델만 자동 전달합니다. Opus/Fable/Claude 역할은 Codex로 전달하지 않으며, 업그레이드는 사용자 설정 파일을 보존합니다.
 
 ### 4. 리뷰 전 계약 gate
 

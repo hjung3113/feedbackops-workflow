@@ -28,7 +28,7 @@ function readJson(file, label) { try { return JSON.parse(fs.readFileSync(file, "
 const config = readJson(configFile, "model allocation config");
 const requiredRoles = ["implementation", "reviewer", "contract_gate", "trivial_implementation"];
 if (config.schema_version !== "1" || typeof config.source !== "string" || typeof config.release !== "string" || !config.roles || !config.capabilities || !config.signals || requiredRoles.some(key => !config.roles[key])) fail("model allocation config does not satisfy schema version 1");
-for (const key of requiredRoles) { const value = config.roles[key]; if (!value || typeof value.model !== "string" || !["low", "medium", "high"].includes(value.effort)) fail(`invalid role allocation: ${key}`); }
+for (const key of requiredRoles) { const value = config.roles[key]; if (!value || typeof value.model !== "string" || !["low", "medium", "high"].includes(value.effort) || !config.capabilities[value.model] || !Number.isFinite(config.capabilities[value.model].review_capability)) fail(`invalid role allocation: ${key}`); }
 const clone = key => ({ model: config.roles[key].model, effort: config.roles[key].effort });
 let impl = clone("implementation"), review = clone("reviewer"), contract = clone("contract_gate");
 const rationale = [`config:${config.source}@${config.release}`, `role:${role}`];
@@ -36,18 +36,27 @@ if (!evidenceFile) {
   rationale.push("no_canonical_evidence: default allocation retained");
 } else {
   const evidence = readJson(evidenceFile, "canonical allocation evidence");
-  const numeric = ["changed_lines", "file_count", "review_round", "prior_findings"];
-  if (!evidence || numeric.some(key => !Number.isInteger(evidence[key]) || evidence[key] < 0) || typeof evidence.blocker !== "boolean" || !Array.isArray(evidence.touch_set) || evidence.touch_set.some(path => typeof path !== "string")) fail("canonical allocation evidence is incomplete");
+  const numeric = ["changed_lines", "file_count", "review_round"];
+  const findingRounds = evidence && evidence.consecutive_finding_rounds;
+  const distinctConsecutive = Array.isArray(findingRounds) && findingRounds.every(round => Number.isInteger(round) && round > 0) && new Set(findingRounds).size === findingRounds.length && findingRounds.every((round, index) => index === 0 || round === findingRounds[index - 1] + 1) && (findingRounds.length === 0 || findingRounds[findingRounds.length - 1] === evidence.review_round);
+  if (!evidence || numeric.some(key => !Number.isInteger(evidence[key]) || evidence[key] < 0) || !distinctConsecutive || typeof evidence.blocker !== "boolean" || !Array.isArray(evidence.touch_set) || evidence.touch_set.some(path => typeof path !== "string")) fail("canonical allocation evidence is incomplete");
   const contractTouch = evidence.touch_set.some(path => path === "packages/shared" || path.indexOf("packages/shared/") === 0 || /(^|\/)shared\//.test(path) || /contract/i.test(path));
   const large = evidence.changed_lines > config.signals.large_changed_lines || evidence.file_count > config.signals.large_file_count;
   if (contractTouch) { impl.effort = "medium"; rationale.push("exported_contract: implementation promoted; sol contract gate selected"); }
   else if (evidence.changed_lines <= config.signals.trivial_changed_lines && evidence.file_count <= 1) { impl = clone("trivial_implementation"); rationale.push("small_touch_set: trivial implementation allocation"); }
   else if (large) { impl.effort = "high"; rationale.push("large_touch_set: implementation effort promoted"); }
-  if (evidence.blocker || evidence.prior_findings >= 2) { impl.effort = "medium"; rationale.push("blocker_or_repeated_findings: implementation promoted to medium"); }
+  if (evidence.blocker || findingRounds.length >= 2) {
+    if (impl.effort === "low") impl.effort = "medium";
+    rationale.push("blocker_or_consecutive_finding_rounds: implementation promoted without demotion");
+  }
   if (evidence.review_round > 0) { review.effort = review.effort === "high" ? "medium" : "low"; rationale.push("rereview: review effort demoted"); }
-  else if (evidence.prior_findings === 0) rationale.push("zero_findings: no ungrounded escalation");
 }
 const output = { impl_model: impl.model, impl_effort: impl.effort, review_model: review.model, review_effort: review.effort, contract_model: contract.model, contract_effort: contract.effort, rationale };
-if (config.allow_review_below_implementation === true) output.rationale.push("warning: project explicitly relaxed review capability preference");
+const reviewCapability = config.capabilities[review.model].review_capability;
+const implCapability = config.capabilities[impl.model].review_capability;
+if (reviewCapability < implCapability) {
+  if (config.allow_review_below_implementation === true) output.rationale.push("warning: project explicitly relaxed review capability preference");
+  else fail("default review capability preference is violated by project config");
+}
 process.stdout.write(JSON.stringify(output) + "\n");
 NODE

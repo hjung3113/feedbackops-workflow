@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "source": "livebench",
+  "release": "2026-06-25",
+  "roles": {
+    "implementation": { "model": "gpt-5.6-terra", "effort": "low" },
+    "reviewer": { "model": "opus-4.8", "effort": "medium" },
+    "contract_gate": { "model": "gpt-5.6-sol", "effort": "medium" },
+    "trivial_implementation": { "model": "gpt-5.6-luna", "effort": "low" }
+  },
+  "capabilities": {
+    "gpt-5.6-terra": { "agentic_coding": 68, "static_coding": 78.2, "reasoning": 90.6, "input_per_million": 2.5, "output_per_million": 15 }
+  },
+  "signals": { "trivial_changed_lines": 50, "large_changed_lines": 400, "large_file_count": 8 }
+}

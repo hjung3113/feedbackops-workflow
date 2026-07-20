@@ -28,6 +28,6 @@
   "additionalProperties": false,
   "definitions": {
     "allocation": { "type": "object", "required": ["model", "effort"], "properties": { "model": { "type": "string", "minLength": 1 }, "effort": { "enum": ["low", "medium", "high"] } }, "additionalProperties": false },
-    "capability": { "type": "object", "required": ["agentic_coding", "static_coding", "reasoning", "input_per_million", "output_per_million"], "properties": { "agentic_coding": { "type": "number" }, "static_coding": { "type": "number" }, "reasoning": { "type": "number" }, "input_per_million": { "type": "number" }, "output_per_million": { "type": "number" } }, "additionalProperties": false }
+    "capability": { "type": "object", "required": ["agentic_coding", "static_coding", "reasoning", "review_capability", "input_per_million", "output_per_million"], "properties": { "agentic_coding": { "type": "number" }, "static_coding": { "type": "number" }, "reasoning": { "type": "number" }, "review_capability": { "type": "number" }, "input_per_million": { "type": "number" }, "output_per_million": { "type": "number" } }, "additionalProperties": false }
   }
 }

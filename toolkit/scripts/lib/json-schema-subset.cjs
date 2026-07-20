@@ -19,6 +19,9 @@ const supported = new Set([
   "pattern",
   "minItems",
   "uniqueItems",
+  "minProperties",
+  "definitions",
+  "$ref",
 ]);
 
 function same(left, right) {
@@ -32,7 +35,7 @@ function valueType(value) {
   return typeof value;
 }
 
-function validate(schema, value, path = "$") {
+function validate(schema, value, path = "$", root = schema) {
   const errors = [];
 
   for (const keyword of Object.keys(schema)) {
@@ -41,6 +44,14 @@ function validate(schema, value, path = "$") {
     }
   }
   if (errors.length > 0) return errors;
+
+  if (schema.$ref) {
+    const match = /^#\/definitions\/([^/]+)$/.exec(schema.$ref);
+    if (!match || !root.definitions || !root.definitions[match[1]]) {
+      return [`${path}: unresolved schema reference ${schema.$ref}`];
+    }
+    return validate(root.definitions[match[1]], value, path, root);
+  }
 
   if (Object.prototype.hasOwnProperty.call(schema, "const") && !same(value, schema.const)) {
     errors.push(`${path}: must equal ${JSON.stringify(schema.const)}`);
@@ -74,9 +85,19 @@ function validate(schema, value, path = "$") {
         }
       }
     }
+    if (schema.minProperties !== undefined && Object.keys(value).length < schema.minProperties) {
+      errors.push(`${path}: must contain at least ${schema.minProperties} properties`);
+    }
     for (const [name, childSchema] of Object.entries(properties)) {
       if (Object.prototype.hasOwnProperty.call(value, name)) {
-        errors.push(...validate(childSchema, value[name], `${path}.${name}`));
+        errors.push(...validate(childSchema, value[name], `${path}.${name}`, root));
+      }
+    }
+    if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+      for (const name of Object.keys(value)) {
+        if (!Object.prototype.hasOwnProperty.call(properties, name)) {
+          errors.push(...validate(schema.additionalProperties, value[name], `${path}.${name}`, root));
+        }
       }
     }
   }
@@ -94,7 +115,7 @@ function validate(schema, value, path = "$") {
       }
     }
     if (schema.items) {
-      value.forEach((item, index) => errors.push(...validate(schema.items, item, `${path}[${index}]`)));
+      value.forEach((item, index) => errors.push(...validate(schema.items, item, `${path}[${index}]`, root)));
     }
   }
 
