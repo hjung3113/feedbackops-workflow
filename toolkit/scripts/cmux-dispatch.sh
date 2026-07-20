@@ -43,6 +43,11 @@
 # treated as STALE — the poll only accepts an artifact whose mtime+started_at
 # changed after this dispatch (or that newly appeared).
 #
+# cmux receives only a short relative launch-runner command. Each launch gets
+# a unique runner directory, atomically populated under <worktree>/.review
+# before cmux starts, preserving the fully quoted watchdog argv without either
+# a length-sensitive inline command or same-issue seat overwrites.
+#
 # bash-3.2-compatible: no `declare -A`, no `${var,,}`, no `mapfile`.
 set -u
 
@@ -91,6 +96,42 @@ file_sig() {
 
 file_started_at() {
   node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).started_at || "unknown")); } catch (e) { process.stdout.write("unknown"); }' "$1" 2>/dev/null
+}
+
+write_launch_runner() {
+  runner_dir="$(mktemp -d "$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-launch.XXXXXX")" || return 1
+  runner="$runner_dir/launch.sh"
+  runner_tmp="$runner_dir/.launch.sh.tmp"
+  {
+    printf '%s\n' '#!/usr/bin/env bash'
+    printf 'exec env NODE_OPTIONS= '
+    printf '%q ' "$WATCHDOG" --issue "$ISSUE_N" --prompt-file "$ABS_PROMPT_FILE" --cwd "$ABS_WORKTREE"
+    [ -n "$MODEL" ] && printf '%q %q ' --model "$MODEL"
+    [ -n "$EFFORT" ] && printf '%q %q ' --effort "$EFFORT"
+    [ -n "$FIRST_PROGRESS_TIMEOUT" ] && printf '%q %q ' --first-progress-timeout "$FIRST_PROGRESS_TIMEOUT"
+    [ -n "$STALL_TIMEOUT" ] && printf '%q %q ' --stall-timeout "$STALL_TIMEOUT"
+    [ "$READ_ONLY" -eq 1 ] && printf '%q ' --read-only
+    [ "$PRODUCE_REVIEW" -eq 1 ] && printf '%q ' --produce-review
+    printf '\n'
+  } > "$runner_tmp" || {
+    rm -f "$runner_tmp"
+    rmdir "$runner_dir" 2>/dev/null || true
+    return 1
+  }
+  chmod 700 "$runner_tmp" || {
+    rm -f "$runner_tmp"
+    rmdir "$runner_dir" 2>/dev/null || true
+    return 1
+  }
+  mv -f "$runner_tmp" "$runner" || {
+    rm -f "$runner_tmp"
+    rmdir "$runner_dir" 2>/dev/null || true
+    return 1
+  }
+  runner_dir_name="${runner_dir##*/}"
+  RUNNER_RELATIVE=".review/$runner_dir_name/launch.sh"
+  RUNNER_FILE="$runner"
+  RUNNER_COMMAND="bash $RUNNER_RELATIVE"
 }
 
 require_standard_artifact_pointers() {
@@ -387,27 +428,37 @@ if [ "$DRY_RUN" -eq 0 ]; then
   fi
 fi
 
-CMD="NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --cwd $ABS_WORKTREE"
+RUNNER_RELATIVE=""
+RUNNER_FILE=""
+RUNNER_COMMAND=""
+DRY_RUNNER_RELATIVE=".review/ISSUE-${ISSUE_N}-launch.<unique>/launch.sh"
+RUNNER_PREVIEW="exec env NODE_OPTIONS= $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --cwd $ABS_WORKTREE"
 # Unpinned dispatch silently inherits the user's codex config default model,
 # which is not the workflow's per-role allocation (and breaks the invariant
 # that the reviewer outranks the implementer). Pin it at the dispatch site.
-[ -n "$MODEL" ] && CMD="$CMD --model $MODEL"
-[ -n "$EFFORT" ] && CMD="$CMD --effort $EFFORT"
+[ -n "$MODEL" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --model $MODEL"
+[ -n "$EFFORT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --effort $EFFORT"
 # Read-heavy dispatches (ARCH briefs, debate rounds, large reviews) legitimately
 # produce NO file progress for many minutes; the watchdog's 240s default
 # first-progress timeout kills them mid-read. Forward larger budgets for those
 # (or declare --read-only so heartbeat liveness applies).
-[ -n "$FIRST_PROGRESS_TIMEOUT" ] && CMD="$CMD --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
-[ -n "$STALL_TIMEOUT" ] && CMD="$CMD --stall-timeout $STALL_TIMEOUT"
-[ "$READ_ONLY" -eq 1 ] && CMD="$CMD --read-only"
-[ "$PRODUCE_REVIEW" -eq 1 ] && CMD="$CMD --produce-review"
+[ -n "$FIRST_PROGRESS_TIMEOUT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
+[ -n "$STALL_TIMEOUT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --stall-timeout $STALL_TIMEOUT"
+[ "$READ_ONLY" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --read-only"
+[ "$PRODUCE_REVIEW" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --produce-review"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"$CMD\""
+  echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"bash $DRY_RUNNER_RELATIVE\""
+  echo "runner $DRY_RUNNER_RELATIVE: $RUNNER_PREVIEW"
   exit 0
 fi
 
-echo "cmux-dispatch: issue=$ISSUE_N worktree=$ABS_WORKTREE name=$WS_NAME poll-timeout=${POLL_TIMEOUT}s"
+if ! write_launch_runner; then
+  echo "ERROR: cannot atomically record launch runner under $ABS_WORKTREE/.review" >&2
+  exit 2
+fi
+
+echo "cmux-dispatch: issue=$ISSUE_N worktree=$ABS_WORKTREE name=$WS_NAME runner=$RUNNER_RELATIVE poll-timeout=${POLL_TIMEOUT}s"
 
 # Record the identity of any PRE-EXISTING artifacts (same-issue re-dispatch,
 # e.g. with a second prompt file, is a supported pattern) so the poll below
@@ -423,7 +474,7 @@ if [ -f "$BLOCKER_FILE" ]; then
   echo "cmux-dispatch: waiting past stale BLOCKER.json (from a previous run)"
 fi
 
-cmux workspace create --name "$WS_NAME" --cwd "$ABS_WORKTREE" --command "$CMD" >/dev/null
+cmux workspace create --name "$WS_NAME" --cwd "$ABS_WORKTREE" --command "$RUNNER_COMMAND" >/dev/null
 
 elapsed=0
 while [ "$elapsed" -lt "$POLL_TIMEOUT" ]; do

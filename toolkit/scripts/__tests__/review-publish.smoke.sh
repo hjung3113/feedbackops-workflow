@@ -39,15 +39,18 @@ fi
 
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
+cwd=""
 command=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --cwd) cwd="$2"; shift 2 ;;
     --command) command="$2"; shift 2 ;;
     *) shift 1 ;;
   esac
 done
 [ -n "$command" ] || exit 8
-bash -c "$command"
+[ -n "$cwd" ] || exit 11
+(cd "$cwd" && bash -c "$command")
 EOF
 chmod +x "$BIN/cmux"
 
