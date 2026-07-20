@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# completion-check.sh — independently calculate whether a worker met its contract.
+# completion-check.sh — independently calculate whether a worker met its contract
+# and derive compile-atomic review obligations from the live diff.
 #
 # Usage: scripts/completion-check.sh --round-state <json-file> --manifest-revision <n>
 #
@@ -97,6 +98,11 @@ function discovered(id, text) {
   const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp("(^|[^A-Za-z0-9_.-])" + escaped + "([^A-Za-z0-9_.-]|$)", "m").test(text);
 }
+function isRepositoryRelative(value) {
+  return value.length > 0
+    && !value.startsWith("/")
+    && !value.split("/").includes("..");
+}
 
 let state, schema;
 try {
@@ -126,6 +132,57 @@ try {
     encoding: "utf8"
   });
 } catch (e) { error("test_discovery_failed", "target-native test discovery failed: " + e.message); }
+
+const boundary = state.contract.chunk_boundary;
+let typecheck = null;
+let compileConsumers = [];
+let reviewObligations = [];
+if (boundary) {
+  const surfaces = new Set();
+  for (const consumer of boundary.compile_consumers) {
+    if (!isRepositoryRelative(consumer)) {
+      error("invalid_chunk_boundary", "compile consumers must be repository-relative paths");
+    }
+  }
+  for (const watch of boundary.convention_watch) {
+    if (surfaces.has(watch.surface)) {
+      error("invalid_chunk_boundary", "convention watch surfaces must be unique");
+    }
+    surfaces.add(watch.surface);
+    if (!watch.trigger.every(isRepositoryRelative)) {
+      error("invalid_chunk_boundary", "convention watch triggers must be repository-relative globs");
+    }
+  }
+
+  compileConsumers = boundary.compile_consumers;
+  for (const consumer of compileConsumers) {
+    if (!state.contract.touch_allowlist.some((pattern) => globMatches(pattern, consumer))) {
+      mismatches.push({ code: "compile_consumer_outside_chunk", path: consumer });
+    }
+  }
+
+  let typecheckExit = 0;
+  try {
+    execFileSync("/bin/sh", ["-c", boundary.typecheck_command], {
+      cwd: state.worktree_path,
+      encoding: "utf8"
+    });
+  } catch (e) {
+    typecheckExit = Number.isInteger(e.status) ? e.status : 1;
+    mismatches.push({ code: "typecheck_failed", exit_code: typecheckExit });
+  }
+  typecheck = { command: boundary.typecheck_command, exit_code: typecheckExit };
+
+  reviewObligations = boundary.convention_watch
+    .filter((watch) => watch.review_by_chunk === boundary.chunk_id
+      && watch.trigger.some((pattern) => changedPaths.some((path) => globMatches(pattern, path))))
+    .map((watch) => ({
+      surface: watch.surface,
+      expected_invariant: watch.expected_invariant,
+      owner: watch.owner,
+      closed_by: watch.closed_by
+    }));
+}
 for (const path of changedPaths) {
   if (!state.contract.touch_allowlist.some((pattern) => globMatches(pattern, path))) {
     mismatches.push({ code: "changed_path_outside_allowlist", path });
@@ -151,6 +208,9 @@ process.stdout.write(JSON.stringify({
   head_sha: headSha,
   changed_paths: changedPaths,
   discovered_test_count: discoveredTestCount,
+  typecheck,
+  compile_consumers: compileConsumers,
+  review_obligations: reviewObligations,
   mismatches
 }) + "\n");
 process.exit(mismatches.length ? 1 : 0);

@@ -14,7 +14,7 @@ cmux × Claude × Codex 작업을 **분리된 워크트리, 구조화된 산출�
 - **독립 완료 계산** — CONDUCTOR가 worker prose나 `RUN.json` 대신 live `base..HEAD` diff와 target-native test discovery를 계약과 대조합니다.
 - **병렬 격리** — 작업별 워크트리와 일회성 DB를 사용해 파일·스키마·락 간섭을 막습니다.
 - **디스크가 정본** — CONDUCTOR는 대화 메모리가 아니라 `.review/*.json`만으로 상태를 복원합니다.
-- **계약 영향 스코프** — exported-contract 변경은 scope lock 전에 target-native 소비자 탐색을 수행하고, 구현 후 전체 typecheck로 결과를 gate하며, 실행 증거를 ROUND-STATE `live_probes[]`에 남깁니다.
+- **컴파일 원자 계약 스코프** — exported-contract 변경은 scope lock 전에 target-native 소비자를 열거해 같은 청크에 포함하고, 구현 후 전체 typecheck를 실행하며, 현재 diff가 trigger한 convention watch만 리뷰 범위에 넣습니다.
 - **macOS Bash 3.2 호환** — 주요 계약은 오프라인 smoke로 검증하고 GitHub Actions에서도 실행합니다.
 
 ## 빠른 시작
@@ -165,7 +165,7 @@ Release Captain ──▶ merge decision
 
 CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합니다. `RUN.json` 종료 코드는 프로세스 상태일 뿐 작업 완료 증거가 아니며, 병합 가능 여부는 현재 HEAD에서 생성된 REVIEW와 VERIFY 산출물로 판정합니다.
 
-공개 계약을 바꾸는 청크는 touch allowlist를 확정하기 전에 타겟 프로필의 repository-native 명령으로 compile-time consumer를 열거합니다. CodeGraph는 사용 가능한 선택지일 뿐 필수 의존성이 아닙니다. 구현 후에는 전체 typecheck를 결정론적 gate로 실행합니다. 각 명령과 결과는 canonical ROUND-STATE의 `live_probes[]`에 기록하며, dynamic/convention 소비자는 adversarial review의 잔여 위험으로 남깁니다. Triggered watch-item 절차는 #10에서 정의합니다.
+공개 계약을 바꾸는 청크는 touch allowlist를 확정하기 전에 타겟 프로필의 repository-native 명령으로 compile-time consumer를 열거합니다. CodeGraph는 사용 가능한 선택지일 뿐 필수 의존성이 아닙니다. 열거된 consumer는 canonical ROUND-STATE `contract.chunk_boundary.compile_consumers[]`에 기록하고 같은 청크에 포함하거나 디스패치 전에 다시 분할합니다. `completion-check.sh`는 해당 청크의 `typecheck_command`를 실행하고, live `base..HEAD` 경로가 `convention_watch[].trigger[]`와 일치할 때만 그 watch를 `review_obligations[]`로 출력합니다. 미발화 watch는 ROUND-STATE에 남지만 리뷰 프롬프트에는 들어가지 않습니다. REVIEWER는 각 obligation의 `closed_by.checklist_item`을 `met: true`와 관측 증거 note로 닫습니다. 탐색·typecheck 명령과 결과는 계속 `live_probes[]`에 남깁니다.
 
 ## 주요 도구
 
@@ -177,7 +177,7 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 | `codex-watchdog.sh` | 프로세스·파일 liveness, stall 재시도, 이중 probe 기반 refusal 분류 |
 | `codex-safe.sh` | Codex 샌드박스·cwd·모델 effort 경계, 최소 Git metadata 쓰기 권한, 실패 시 partial stash |
 | `ac-check.sh` | ROUND-STATE revision과 AC-ID 발견 여부를 검사하는 pre-review gate |
-| `completion-check.sh` | live `base..HEAD` 변경과 test discovery를 ROUND-STATE 계약에 독립 대조 |
+| `completion-check.sh` | live diff·test discovery·compile consumer·전체 typecheck·trigger된 review obligation을 ROUND-STATE에 독립 대조 |
 | `verify.sh` | Vitest JSON 분류, DB 경계, typecheck baseline, canonical VERIFY 산출물 |
 | `conductor-rebuild.sh` | `.review/*.json`에서 현재 클러스터 상태 복원 |
 | `artifact-fresh.sh` / `review-archive.sh` | 산출물 신선도 검사와 병합 후 아카이브 |

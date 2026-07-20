@@ -132,6 +132,19 @@ prepare_gate_fixture() {
     value.base_sha = base;
     value.worktree_path = worktree;
     value.contract.touch_allowlist = ["allowed/**"];
+    value.contract.chunk_boundary = {
+      chunk_id: "C1",
+      typecheck_command: "true",
+      compile_consumers: ["allowed/file.txt"],
+      convention_watch: [{
+        surface: "installed gate convention",
+        trigger: ["allowed/**"],
+        expected_invariant: "installed gate derives the same review scope",
+        owner: "REVIEWER",
+        review_by_chunk: "C1",
+        closed_by: {artifact_type: "review", checklist_item: "convention-watch:installed-gate"}
+      }]
+    };
     value.contract.test_discovery_command = "printf '\''AC-1\\n'\''";
     value.acceptance.criteria = [{id: "AC-1"}];
     value.acceptance.expected_test_count = 1;
@@ -160,7 +173,11 @@ assert_gate_contract() {
   completion_exit=$?
   if [ "$completion_exit" -eq 0 ] && node -e '
     const value = require(process.argv[1]);
-    process.exit(value.status === "pass" && value.mismatches.length === 0 ? 0 : 1);
+    process.exit(value.status === "pass"
+      && value.mismatches.length === 0
+      && value.typecheck.exit_code === 0
+      && value.compile_consumers.length === 1
+      && value.review_obligations.length === 1 ? 0 : 1);
   ' "$completion_output"; then
     ok "$label executes completion-check through product home"
   else
@@ -246,6 +263,8 @@ assert_true "copy mode includes ROUND-STATE schema" test -e "$target_copy/.agent
 assert_true "copy mode includes dependency-free schema validator" test -e "$target_copy/.agent-workflow/scripts/lib/json-schema-subset.cjs"
 assert_true "copy mode includes playbook" test -e "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook requires repository-native impact pass" grep -F -q '### Pre-scope-lock impact pass' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
+assert_true "installed playbook requires compile-atomic chunk boundaries" grep -F -q '### Compile-atomic chunk boundary' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
+assert_true "installed playbook limits review to triggered convention watches" grep -F -q 'Only watches triggered by the live `base_sha..HEAD` diff' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook requires ARCH feasibility evidence before decisions lock" grep -F -q '### ARCH feasibility evidence' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook provides reusable ARCH appendix row shape" grep -F -q 'concern | exact command | concise result | decision impact' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
 assert_true "installed playbook makes criterion id the sole AC-ID authority" grep -F -q 'its `id` is the sole AC-ID authority, and its `statement` contains an explicit precondition and observable checkpoint' "$target_copy/.agent-workflow/docs/agents/multi-agent-workflow.md"
