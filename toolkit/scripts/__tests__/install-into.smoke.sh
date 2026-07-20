@@ -110,7 +110,7 @@ prepare_gate_fixture() {
     const supersededState=JSON.parse(JSON.stringify(value)); supersededState.round_control.failures[0].evidence[0].path=supersededPath; supersededState.round_control.failures[0].evidence[0].content_sha256=crypto.createHash("sha256").update(supersededContent).digest("hex"); fs.writeFileSync(supersededDestination,JSON.stringify(supersededState));
   ' "$GATE_STATE" "$GATE_BLOCKER_STATE" "$GATE_SUPERSEDED_BLOCKER_STATE" "$target" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
-  printf '%s\n' 'implementation prompt' '<!-- agent-workflow:ac-block:start -->' '```json' '[{"id":"AC-1","statement":"the installed gate discovers AC-1"}]' '```' '<!-- agent-workflow:ac-block:end -->' > "$target/.review/ISSUE-188-PROMPT.txt"
+  printf '%s\n' 'implementation prompt' '<!-- agent-workflow:ac-block:start -->' '```json' '[{"id":"AC-1","statement":"the installed gate discovers AC-1"}]' '```' '<!-- agent-workflow:ac-block:end -->' > "$target/.review/ISSUE-188-PROMPT.md"
 }
 
 assert_installed_gates() {

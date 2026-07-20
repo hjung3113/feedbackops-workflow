@@ -99,7 +99,7 @@ NODE_OPTIONS= scripts/cmux-dispatch.sh \
   --issue 123 \
   --worktree ../wt-123 \
   --tier standard \
-  --prompt-file ../wt-123/.review/ISSUE-123-PROMPT.txt \
+  --prompt-file ../wt-123/.review/ISSUE-123-PROMPT.md \
   --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
   --manifest-revision 1 \
   --name issue-123-impl \
