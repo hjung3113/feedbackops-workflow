@@ -129,7 +129,7 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   write_marker "running" "$attempt" "" "" || true
   touch "$STAMP"
   # Model/effort are forwarded, not defaulted here: codex-safe.sh owns the
-  # policy cap (5.6 above medium is refused). Omitting them falls back to the
+  # policy cap (5.6 xhigh/max is refused; high is allowed). Omitting them falls back to the
   # user's codex config default, which is NOT the workflow's role allocation —
   # pin them at dispatch.
   if [ -n "$MODEL" ] || [ -n "$EFFORT" ] || [ "$READ_ONLY" -eq 1 ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then

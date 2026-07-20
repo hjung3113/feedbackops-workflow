@@ -88,6 +88,8 @@ SCRIPTS_DEST="$AGENT_DIR/scripts"
 SCHEMAS_DEST="$AGENT_DIR/schemas"
 DOCS_DEST="$AGENT_DIR/docs/agents"
 SKILL_DEST="$CLAUDE_SKILLS_DIR/agent-workflow"
+MODEL_ALLOC_SRC="$PRODUCT_ROOT/model-alloc.json"
+MODEL_ALLOC_DEST="$AGENT_DIR/model-alloc.json"
 
 require_source_tree() {
   local source_dir="$1"
@@ -122,6 +124,7 @@ require_source_tree "$SCRIPTS_SRC"
 require_source_tree "$SCHEMAS_SRC"
 require_source_tree "$DOCS_SRC"
 require_source_tree "$SKILL_SRC"
+[[ -r "$MODEL_ALLOC_SRC" ]] || { echo "default model allocation config is missing: $MODEL_ALLOC_SRC" >&2; exit 2; }
 reject_symlinked_managed_parent
 
 exists_node() {
@@ -233,6 +236,7 @@ STAGE_SCRIPTS="$STAGE_ROOT/scripts"
 STAGE_SCHEMAS="$STAGE_ROOT/schemas"
 STAGE_DOCS="$STAGE_ROOT/docs"
 STAGE_SKILL="$STAGE_ROOT/skill"
+STAGE_MODEL_ALLOC="$STAGE_ROOT/model-alloc.json"
 
 cleanup_stage() {
   if [[ -n "${STAGE_ROOT:-}" && -d "$STAGE_ROOT" ]]; then
@@ -253,6 +257,10 @@ if ! stage_tree "$SCRIPTS_SRC" "$STAGE_SCRIPTS" || \
    ! stage_tree "$DOCS_SRC" "$STAGE_DOCS" || \
    ! stage_tree "$SKILL_SRC" "$STAGE_SKILL"; then
   echo "install-into: staging failed; target installation was not changed." >&2
+  exit 1
+fi
+if ! cp "$MODEL_ALLOC_SRC" "$STAGE_MODEL_ALLOC"; then
+  echo "install-into: could not stage default model allocation config; target installation was not changed." >&2
   exit 1
 fi
 
@@ -294,6 +302,9 @@ restore_previous() {
       fi
     fi
   done
+  if [[ "$UPGRADE" -eq 0 ]] && exists_node "$MODEL_ALLOC_DEST"; then
+    rm -f "$MODEL_ALLOC_DEST" || restore_status=1
+  fi
   return "$restore_status"
 }
 
@@ -322,6 +333,20 @@ commit_installation() {
     mv "$staged" "$dest" || return $?
     echo "installed: $dest"
   done
+  # Project-owned configuration is seeded only on first install. Upgrades never
+  # overwrite it, including when its schema is older; operators get a warning.
+  if [[ "$UPGRADE" -eq 0 ]]; then
+    mv "$STAGE_MODEL_ALLOC" "$MODEL_ALLOC_DEST" || return $?
+    echo "installed: $MODEL_ALLOC_DEST"
+  elif [[ -f "$MODEL_ALLOC_DEST" ]]; then
+    echo "warning: preserving project-owned model allocation config: $MODEL_ALLOC_DEST" >&2
+    if ! node -e 'try { process.exit(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).schema_version === "1" ? 0 : 1); } catch (e) { process.exit(1); }' "$MODEL_ALLOC_DEST"; then
+      echo "warning: model allocation config needs an explicit schema migration; it was not overwritten" >&2
+    fi
+  else
+    mv "$STAGE_MODEL_ALLOC" "$MODEL_ALLOC_DEST" || return $?
+    echo "installed: $MODEL_ALLOC_DEST"
+  fi
 }
 
 set +e

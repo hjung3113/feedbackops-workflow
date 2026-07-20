@@ -57,6 +57,7 @@ assert_portable_layout() {
 assert_current_content() {
   label="$1"; target="$2"
   assert_true "$label includes install script" test -x "$target/.agent-workflow/scripts/install-into.sh"
+  assert_true "$label seeds default model allocation config" test -f "$target/.agent-workflow/model-alloc.json"
   assert_true "$label includes verify result module" test -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
   assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
@@ -240,6 +241,7 @@ assert_no_maintainer_leakage "$fresh"
 
 assert_exit_output "default rerun refuses existing install" 2 "--upgrade" bash "$INSTALL" "$fresh"
 printf '%s\n' customized > "$fresh/.agent-workflow/scripts/install-into.sh"
+printf '%s\n' '{"project_owned":true}' > "$fresh/.agent-workflow/model-alloc.json"
 upgrade_output="$TMP_DIR/upgrade-output.txt"
 bash "$INSTALL" "$fresh" --upgrade >"$upgrade_output" 2>&1
 upgrade_exit=$?
@@ -248,6 +250,7 @@ assert_current_content "copy upgrade" "$fresh"
 backup_root="$(sed -n 's/^upgrade backup: //p' "$upgrade_output")"
 assert_true "upgrade reports a retained backup" test -d "$backup_root"
 assert_true "upgrade backup preserves customized managed content" grep -F -q customized "$backup_root/scripts/install-into.sh"
+assert_true "upgrade preserves project-owned model allocation config" grep -F -q project_owned "$fresh/.agent-workflow/model-alloc.json"
 assert_true "upgrade preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
 
 current_links="$TMP_DIR/current-links"

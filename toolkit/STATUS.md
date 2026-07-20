@@ -14,6 +14,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 
 - isolated worktree preparation and visible cmux dispatch, with a retained atomic launch runner so cmux receives only a short relative command even when the watchdog argv contains deep paths;
 - sandboxed Codex implementation with model/effort pinning;
+- project-owned model allocation defaults, schema-validated evidence-gated Codex-only auto-dispatch, source-dated static-plus-reasoning review preference, and preserved install upgrades;
 - process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;

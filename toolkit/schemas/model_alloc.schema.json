@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent workflow model allocation configuration",
+  "type": "object",
+  "required": ["schema_version", "source", "release", "roles", "capabilities", "signals"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "source": { "type": "string", "minLength": 1 },
+    "release": { "type": "string", "minLength": 1 },
+    "roles": {
+      "type": "object",
+      "required": ["implementation", "reviewer", "contract_gate", "trivial_implementation"],
+      "additionalProperties": { "$ref": "#/definitions/allocation" }
+    },
+    "capabilities": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/definitions/capability" } },
+    "signals": {
+      "type": "object",
+      "required": ["trivial_changed_lines", "large_changed_lines", "large_file_count"],
+      "properties": {
+        "trivial_changed_lines": { "type": "integer", "minimum": 0 },
+        "large_changed_lines": { "type": "integer", "minimum": 1 },
+        "large_file_count": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "allow_review_below_implementation": { "type": "boolean" }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "allocation": { "type": "object", "required": ["model", "effort"], "properties": { "model": { "type": "string", "minLength": 1 }, "effort": { "enum": ["low", "medium", "high"] } }, "additionalProperties": false },
+    "capability": { "type": "object", "required": ["agentic_coding", "static_coding", "reasoning", "input_per_million", "output_per_million"], "properties": { "agentic_coding": { "type": "number" }, "static_coding": { "type": "number" }, "reasoning": { "type": "number" }, "input_per_million": { "type": "number" }, "output_per_million": { "type": "number" } }, "additionalProperties": false }
+  }
+}
