@@ -57,6 +57,7 @@ assert_portable_layout() {
 assert_current_content() {
   label="$1"; target="$2"
   assert_true "$label includes install script" test -x "$target/.agent-workflow/scripts/install-into.sh"
+  assert_true "$label includes verify result module" test -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
   assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"

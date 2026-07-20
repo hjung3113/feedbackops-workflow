@@ -27,6 +27,9 @@
 # bash-3.2-compatible: no `declare -A`, no `${var,,}`.
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERIFY_RESULT="$SCRIPT_DIR/lib/verify-result.cjs"
+
 usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
   echo "       verify.sh --typecheck-diff <baseline-file> <current-file>" >&2
@@ -81,91 +84,11 @@ classify_json() {
     return 1
   fi
 
-  # Parse + classify with node. The node script prints a single verdict
+  # Parse + classify with the result module. It prints a single verdict
   # line and exits 0 (PASS) or 1 (FAIL). Rule 1 (unparseable JSON),
   # rules 2-6 are all enforced inside node. Rule 7 (vitest exit) is
   # passed in and checked there too.
-  node -e '
-    var fs = require("fs");
-    var reportPath = process.argv[1];
-    var vitestEc = parseInt(process.argv[2], 10);
-    if (isNaN(vitestEc)) vitestEc = 0;
-
-    var raw, data;
-    try {
-      raw = fs.readFileSync(reportPath, "utf8");
-    } catch (e) {
-      console.error("FAIL: cannot read report: " + e.message + " (fail closed)");
-      process.exit(1);
-    }
-    try {
-      data = JSON.parse(raw);
-    } catch (e) {
-      console.error("FAIL: report is not parseable JSON (fail closed): " + e.message);
-      process.exit(1);
-    }
-    if (data === null || typeof data !== "object") {
-      console.error("FAIL: report JSON is not an object (fail closed)");
-      process.exit(1);
-    }
-
-    function num(k) {
-      var v = data[k];
-      return (typeof v === "number" && isFinite(v)) ? v : 0;
-    }
-
-    var passed       = num("numPassedTests");
-    var failed       = num("numFailedTests");
-    var pending      = num("numPendingTests");
-    var failedSuites = num("numFailedTestSuites");
-    var success      = data.success;
-    var results      = Array.isArray(data.testResults) ? data.testResults : [];
-
-    var reasons = [];
-
-    // Rule 7: a non-zero vitest exit means the run crashed; JSON may be
-    // stale/partial. FAIL even if the numbers look clean.
-    if (vitestEc !== 0) {
-      reasons.push("vitest exited non-zero (" + vitestEc + ") — run crashed; JSON may be stale/partial");
-    }
-
-    // Rule 2: discovered-but-fully-skipped suite — the false-green bug.
-    if (passed + failed === 0) {
-      reasons.push("no executable tests ran (passed+failed==0); " + pending + " pending — suite fully skipped or filter matched nothing; if integration, check DATABASE_URL/WORKSPACE_ID");
-    }
-
-    // Rule 3
-    if (failed > 0) {
-      reasons.push(failed + " failed test(s)");
-    }
-
-    // Rule 4: a suite failed during setup/import even with 0 failed tests.
-    if (failedSuites > 0) {
-      reasons.push(failedSuites + " failed test suite(s) (setup/import failure)");
-    }
-
-    // Rule 5: vitest overall verdict.
-    if (success === false) {
-      reasons.push("top-level success===false (vitest overall verdict)");
-    }
-
-    // Rule 6: any failed entry in testResults.
-    var resFailed = 0;
-    for (var i = 0; i < results.length; i++) {
-      if (results[i] && results[i].status === "failed") resFailed++;
-    }
-    if (resFailed > 0) {
-      reasons.push(resFailed + " failed testResults entr(y/ies)");
-    }
-
-    if (reasons.length > 0) {
-      console.error("FAIL: " + reasons.join("; "));
-      process.exit(1);
-    }
-
-    console.log("PASS: " + passed + " passed, " + pending + " pending, 0 failed");
-    process.exit(0);
-  ' "$report" "$vitest_ec"
+  node "$VERIFY_RESULT" classify "$report" "$vitest_ec"
   return $?
 }
 
@@ -235,63 +158,12 @@ emit_verify_artifact() {
   VERIFY_ARTIFACT_CLASSIFIER="$classifier" \
   VERIFY_ARTIFACT_CREATED_AT="$created_at" \
   VERIFY_ARTIFACT_REPORT="$report" \
-  node -e '
-    var fs = require("fs");
-    function count(data, key) {
-      var value = data && data[key];
-      return (typeof value === "number" && isFinite(value)) ? value : 0;
-    }
-
-    var data = {};
-    try {
-      data = JSON.parse(fs.readFileSync(process.env.VERIFY_ARTIFACT_REPORT, "utf8"));
-    } catch (e) {
-      data = {};
-    }
-
-    var artifact = {
-      schema_version: "1",
-      artifact_type: "verify_result",
-      producer_role: "VERIFIER",
-      issue: parseInt(process.env.VERIFY_ARTIFACT_ISSUE, 10),
-      branch: process.env.VERIFY_ARTIFACT_BRANCH || "",
-      head_sha: process.env.VERIFY_ARTIFACT_HEAD_SHA || "",
-      cwd: process.env.VERIFY_ARTIFACT_CWD || "",
-      verify_cmd: process.env.VERIFY_ARTIFACT_CMD || "",
-      env_profile: "scrubbed",
-      db_target: {
-        host: process.env.VERIFY_ARTIFACT_DB_HOST || "",
-        database: process.env.VERIFY_ARTIFACT_DB_DATABASE || "",
-        role: process.env.VERIFY_ARTIFACT_DB_ROLE || ""
-      },
-      verdict: {
-        passed: count(data, "numPassedTests"),
-        failed: count(data, "numFailedTests"),
-        pending: count(data, "numPendingTests"),
-        exit_code: parseInt(process.env.VERIFY_ARTIFACT_EXIT_CODE, 10) || 0
-      },
-      classifier: process.env.VERIFY_ARTIFACT_CLASSIFIER === "PASS" ? "PASS" : "FAIL",
-      created_at: process.env.VERIFY_ARTIFACT_CREATED_AT || ""
-    };
-
-    if (process.env.CODEX_VERSION) {
-      artifact.producer_version = "codex/" + process.env.CODEX_VERSION;
-    }
-
-    fs.writeFileSync(process.env.VERIFY_ARTIFACT_PATH, JSON.stringify(artifact, null, 2) + "\n");
-  ' || {
+  node "$VERIFY_RESULT" write-artifact || {
     echo "FAIL: unable to write verify artifact: $artifact_path" >&2
     return 1
   }
 
-  node -e '
-    var fs = require("fs");
-    var data = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-    if (!data || typeof data !== "object") process.exit(1);
-    if (data.classifier !== "PASS" && data.classifier !== "FAIL") process.exit(1);
-    if (!data.head_sha) process.exit(1);
-    if (!data.verdict || typeof data.verdict !== "object") process.exit(1);
-  ' "$artifact_path" >/dev/null 2>&1 || {
+  node "$VERIFY_RESULT" validate-artifact "$artifact_path" >/dev/null 2>&1 || {
     echo "FAIL: wrote invalid verify artifact: $artifact_path" >&2
     return 1
   }

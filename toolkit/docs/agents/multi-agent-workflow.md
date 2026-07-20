@@ -334,7 +334,7 @@ VERIFIER and REVIEWER must be different agents/sessions from the implementer. A 
 
 The verify oracle currently assumes a pnpm workspace package named `backend` tested with Vitest. The `<filter>` arg is a **Vitest test name/path filter scoped to the backend package** (it matches test file paths/names within backend), **not** a package selector — e.g. `scripts/verify.sh create-voc` runs backend tests whose path/name matches "create-voc"; passing a package name like `backend` would be treated as a name filter and likely match nothing. `scripts/verify.sh --typecheck` likewise assumes the target has `pnpm --filter backend run typecheck`. Generalizing these commands is deferred until there is a second real target and fixture.
 
-`scripts/verify.sh` loads env (`.env` and `apps/backend/.env` if present), runs the scoped vitest filter via the JSON reporter, and classifies the result. It treats as a **FAIL**:
+`scripts/verify.sh` is the stable verifier CLI seam: it loads env (`.env` and `apps/backend/.env` if present), runs the scoped vitest filter via the JSON reporter, and delegates result classification plus canonical VERIFY payload construction to the internal `scripts/lib/verify-result.cjs` module. Callers and tests use `verify.sh`; the internal module is not a second operator interface. The verifier treats as a **FAIL**:
 
 - a fully-skipped suite (`numPassedTests + numFailedTests == 0` — discovered but pending),
 - any failed test (`numFailedTests > 0`),

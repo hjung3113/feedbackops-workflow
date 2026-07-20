@@ -208,7 +208,8 @@ CONDUCTOR는 이 상태를 `scripts/conductor-rebuild.sh .review`로 복원합�
 | `ac-check.sh` | ROUND-STATE revision과 AC-ID 발견 여부를 검사하는 pre-review gate |
 | `completion-check.sh` | live diff·test discovery·compile consumer·전체 typecheck·trigger된 review obligation을 ROUND-STATE에 독립 대조 |
 | `redispatch-check.sh` | ROUND-STATE 실패 origin 이력에서 정상 재디스패치·진단·단일 통합 수정·보안 중단을 결정 |
-| `verify.sh` | Vitest JSON 분류, DB 경계, typecheck baseline, canonical VERIFY 산출물 |
+| `verify.sh` | 검증 CLI orchestration, DB 경계, typecheck baseline, canonical VERIFY 산출물 |
+| `lib/verify-result.cjs` | Vitest 결과 분류와 canonical VERIFY payload 생성을 캡슐화한 내부 모듈 |
 | `conductor-rebuild.sh` | `.review/*.json`에서 현재 클러스터 상태 복원 |
 | `artifact-fresh.sh` / `review-archive.sh` | 산출물 신선도 검사와 병합 후 아카이브 |
 | `rebase-inflight.sh` | dirty worktree를 건드리지 않는 진행 중 브랜치 rebase |

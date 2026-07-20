@@ -11,6 +11,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
+- a stable `verify.sh` CLI seam whose Vitest classification and canonical VERIFY payload construction live in the internal `scripts/lib/verify-result.cjs` module;
 - an explicit REVIEWER publication path that runs Codex filesystem-read-only and host-validates its final JSON before atomically publishing the sole canonical REVIEW artifact;
 - pre-review AC-ID existence checking;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
