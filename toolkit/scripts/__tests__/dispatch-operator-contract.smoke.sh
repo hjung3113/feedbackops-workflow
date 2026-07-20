@@ -7,6 +7,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLAYBOOK="$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
 README="$PRODUCT_ROOT/README.md"
+LIFECYCLE="$PRODUCT_ROOT/docs/agents/artifact-lifecycle.md"
+CONDUCTOR="$PRODUCT_ROOT/docs/agents/conductor-persona.md"
+ADOPTION="$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
 
 FAILURES=0
 pass() { echo "ok   - $1"; }
@@ -53,6 +56,15 @@ assert_contains "playbook binds completion evidence to live HEAD" \
 assert_contains "README points operators to the liveness rules" \
   '디스패치 오퍼레이터 규칙' \
   "$README"
+assert_contains "artifact lifecycle documents issue-scoped RUN identity" \
+  'issue-scoped liveness snapshot' \
+  "$LIFECYCLE"
+assert_contains "conductor persona preserves dispatch status and freshness" \
+  'preserve the dispatch command exit code' \
+  "$CONDUCTOR"
+assert_contains "adoption guide routes targets to operator rules" \
+  'dispatch liveness operator rules' \
+  "$ADOPTION"
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
