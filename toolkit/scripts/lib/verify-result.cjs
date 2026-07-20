@@ -21,7 +21,7 @@ function readReport(reportPath) {
   } catch (error) {
     throw new Error(`report is not parseable JSON (fail closed): ${error.message}`);
   }
-  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+  if (data === null || typeof data !== "object") {
     throw new Error("report JSON is not an object (fail closed)");
   }
   return data;

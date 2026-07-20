@@ -41,6 +41,7 @@ f_failed_suite=$(write_json failed_suite.json '{"numTotalTests":5,"numPassedTest
 f_results_failed=$(write_json results_failed.json '{"numTotalTests":31,"numPassedTests":31,"numFailedTests":0,"numPendingTests":0,"numTotalTestSuites":1,"numFailedTestSuites":0,"success":true,"testResults":[{"status":"failed"}]}')
 f_success_false=$(write_json success_false.json '{"numPassedTests":5,"numFailedTests":0,"success":false}')
 f_malformed=$(write_json malformed.json '{not json')
+f_array=$(write_json array.json '[]')
 f_missing="$TMP_DIR/does_not_exist.json"
 
 run_case "all-skipped suite is FAIL"        FAIL "$f_all_skipped"
@@ -53,6 +54,15 @@ run_case "success:false w/ passes is FAIL"  FAIL "$f_success_false"
 run_case "non-zero vitest exit is FAIL"     FAIL "$f_green" "1"
 run_case "malformed JSON is FAIL"           FAIL "$f_malformed"
 run_case "missing report file is FAIL"      FAIL "$f_missing"
+
+array_err="$TMP_DIR/array.stderr"
+bash "$VERIFY" --classify-json "$f_array" >/dev/null 2>"$array_err"
+if grep -F -q "FAIL: no executable tests ran (passed+failed==0); 0 pending" "$array_err"; then
+  echo "ok   - array report preserves classifier failure output"
+else
+  echo "NOT OK - array report preserves classifier failure output (got: $(cat "$array_err"))"
+  FAILURES=$((FAILURES + 1))
+fi
 
 echo "--- typecheck baseline diff ---"
 
