@@ -113,6 +113,66 @@ assert_installed_gates() {
   assert_exit_output "$label exposes canonical REVIEW publication" 0 "--produce-review" bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --produce-review --model gpt-5.6-sol --effort medium --dry-run
 }
 
+assert_installed_real_dispatch() {
+  label="$1"; target="$2"; scripts="$target/.agent-workflow/scripts"
+  installed_watchdog="$scripts/codex-watchdog.sh"
+  watchdog_backup="$TMP_DIR/installed-watchdog.backup"
+  cp "$installed_watchdog" "$watchdog_backup"
+  cat > "$installed_watchdog" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$0" "$@" > "$INSTALLED_WATCHDOG_LOG"
+issue=""
+cwd=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --issue) issue="$2"; shift 2 ;;
+    --cwd) cwd="$2"; shift 2 ;;
+    *) shift 1 ;;
+  esac
+done
+printf '%s\n' "{\"schema_version\":\"1\",\"artifact_type\":\"codex_run\",\"issue\":$issue,\"attempt\":1,\"started_at\":\"2026-07-21T00:00:00Z\",\"updated_at\":\"2026-07-21T00:00:00Z\",\"status\":\"running\"}" > "$cwd/.review/ISSUE-${issue}-RUN.json"
+EOF
+  chmod +x "$installed_watchdog"
+  installed_cmux_bin="$TMP_DIR/installed-cmux-bin"
+  mkdir -p "$installed_cmux_bin"
+  cat > "$installed_cmux_bin/cmux" <<'EOF'
+#!/usr/bin/env bash
+cwd=""
+command=""
+shift 2
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cwd) cwd="$2"; shift 2 ;;
+    --command) command="$2"; shift 2 ;;
+    *) shift 1 ;;
+  esac
+done
+printf '%s\n' "$command" > "$INSTALLED_CMUX_COMMAND"
+(cd "$cwd" && /bin/sh -c "$command")
+EOF
+  chmod +x "$installed_cmux_bin/cmux"
+  printf '%s\n' 'portable runner prompt' > "$target/.review/ISSUE-189-PROMPT.txt"
+  installed_dispatch_out="$TMP_DIR/installed-real-dispatch.out"
+  INSTALLED_WATCHDOG_LOG="$TMP_DIR/installed-watchdog.log" \
+  INSTALLED_CMUX_COMMAND="$TMP_DIR/installed-cmux-command.txt" \
+  CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$installed_cmux_bin:$PATH" \
+  bash "$scripts/cmux-dispatch.sh" --issue 189 --worktree "$target" --read-only --poll-timeout 3 >"$installed_dispatch_out" 2>&1
+  installed_dispatch_exit=$?
+  installed_command="$(cat "$TMP_DIR/installed-cmux-command.txt" 2>/dev/null)"
+  installed_runner_relative="${installed_command#bash }"
+  if [ "$installed_dispatch_exit" -eq 0 ] && [ "$installed_command" != "$installed_runner_relative" ] \
+    && [ "${#installed_command}" -lt 256 ] && [ -x "$target/$installed_runner_relative" ] \
+    && grep -Fx -- "$installed_watchdog" "$TMP_DIR/installed-watchdog.log" >/dev/null \
+    && grep -Fx -- "$target/.review/ISSUE-189-PROMPT.txt" "$TMP_DIR/installed-watchdog.log" >/dev/null \
+    && grep -q 'fresh RUN.json present' "$installed_dispatch_out"; then
+    ok "$label executes retained runner from portable copy"
+  else
+    not_ok "$label executes retained runner from portable copy"
+  fi
+  cp "$watchdog_backup" "$installed_watchdog"
+  chmod +x "$installed_watchdog"
+}
+
 fresh="$TMP_DIR/fresh target"
 mkdir -p "$fresh/.review"
 printf '%s\n' evidence > "$fresh/.review/keep.txt"
@@ -304,6 +364,7 @@ assert_no_maintainer_leakage "$export_target"
 
 prepare_gate_fixture "$fresh"
 assert_installed_gates "portable install" "$fresh"
+assert_installed_real_dispatch "portable install" "$fresh"
 
 assert_true "README documents copy-only install" grep -F -q 'self-contained' "$PRODUCT_ROOT/README.md"
 assert_true "README documents explicit upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/README.md"

@@ -2,11 +2,11 @@
 
 _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.18
+## Current release: v0.19
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
-- isolated worktree preparation and visible cmux dispatch;
+- isolated worktree preparation and visible cmux dispatch, with a retained atomic launch runner so cmux receives only a short relative command even when the watchdog argv contains deep paths;
 - sandboxed Codex implementation with model/effort pinning;
 - process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
@@ -37,6 +37,11 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 ```
 
 ## Shipped timeline
+
+### v0.19 — cmux launch-runner transport
+
+- `cmux-dispatch.sh` atomically records a launch-unique worktree-local executable runner before cmux creation. The runner preserves the fully quoted watchdog argv and clears `NODE_OPTIONS`, while cmux receives only `bash .review/ISSUE-N-launch.<unique>/launch.sh` under its mandatory workspace cwd. Concurrent same-issue seats cannot overwrite one another before asynchronous execution.
+- Each runner remains available for asynchronous startup and pre-RUN failures, and dispatch output identifies its exact path. Operators diagnose silent panes with `cmux read-screen --workspace <name> --scrollback --lines <N>`; `dquote>` and `heredoc>` are shell-transport evidence, not completion or liveness evidence.
 
 ### v0.18 — verifier clean-state and machine failures
 

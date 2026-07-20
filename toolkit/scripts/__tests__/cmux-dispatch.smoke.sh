@@ -262,6 +262,174 @@ else
   fail "dry-run never invokes cmux"
 fi
 
+# --- real cmux transport: deep paths must use a short relative launch runner ---
+# cmux truncates long --command values in production. Exercise the public
+# dispatcher seam with a stub that rejects inline commands at 1.5 KB, then
+# executes the supplied short command from the mandatory workspace cwd.
+DEEP_WT="$TMP_ROOT/deep runner; \$shell"
+deep_component="abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+deep_index=1
+while [ "$deep_index" -le 9 ]; do
+  DEEP_WT="$DEEP_WT/$deep_component-$deep_index"
+  deep_index=$((deep_index + 1))
+done
+mkdir -p "$DEEP_WT/.review"
+git init -q "$DEEP_WT"
+git -C "$DEEP_WT" -c user.name="Smoke Test" -c user.email="smoke@example.test" commit --allow-empty -q -m "init"
+printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-333-PROMPT.txt"
+
+RUNNER_FIXTURE="$TMP_ROOT/runner-fixture"
+mkdir -p "$RUNNER_FIXTURE"
+cp "$DISPATCH" "$RUNNER_FIXTURE/cmux-dispatch.sh"
+cat > "$RUNNER_FIXTURE/codex-watchdog.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"
+issue=""
+cwd=""
+prompt=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --issue) issue="$2"; shift 2 ;;
+    --prompt-file) prompt="$2"; shift 2 ;;
+    --cwd) cwd="$2"; shift 2 ;;
+    *) shift 1 ;;
+  esac
+done
+[ -z "${WATCHDOG_PROMPT_LOG:-}" ] || printf '%s\n' "$prompt" >> "$WATCHDOG_PROMPT_LOG"
+printf '%s\n' "{\"schema_version\":\"1\",\"artifact_type\":\"codex_run\",\"issue\":$issue,\"attempt\":1,\"started_at\":\"2026-07-21T00:00:00Z\",\"updated_at\":\"2026-07-21T00:00:00Z\",\"status\":\"running\"}" > "$cwd/.review/ISSUE-${issue}-RUN.json"
+EOF
+chmod +x "$RUNNER_FIXTURE/codex-watchdog.sh"
+
+RUNNER_BIN="$TMP_ROOT/bin-runner-cmux"
+mkdir -p "$RUNNER_BIN"
+cat > "$RUNNER_BIN/cmux" <<'EOF'
+#!/usr/bin/env bash
+cwd=""
+command=""
+shift 2
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cwd) cwd="$2"; shift 2 ;;
+    --command) command="$2"; shift 2 ;;
+    *) shift 1 ;;
+  esac
+done
+if [ "${#command}" -gt 1500 ]; then
+  echo "inline cmux command exceeds 1.5KB" >&2
+  exit 64
+fi
+case "$command" in
+  "bash .review/ISSUE-"*-launch.*/launch.sh) : ;;
+  *) echo "cmux command was not the expected relative runner: $command" >&2; exit 65 ;;
+esac
+(cd "$cwd" && /bin/sh -c "$command")
+EOF
+chmod +x "$RUNNER_BIN/cmux"
+
+runner_transport_out="$TMP_ROOT/runner-transport.out"
+WATCHDOG_ARGV_FILE="$TMP_ROOT/watchdog-argv.txt" \
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 333 --worktree "$DEEP_WT" \
+  --read-only --model gpt-5.6-terra --effort medium \
+  --first-progress-timeout 1500 --stall-timeout 900 --poll-timeout 3 >"$runner_transport_out" 2>&1
+ec=$?
+runner_333="$(find "$DEEP_WT/.review" -path '*/ISSUE-333-launch.*/launch.sh' -type f -print -quit)"
+if [ "$ec" -eq 0 ] && [ -n "$runner_333" ] && [ -x "$runner_333" ] && grep -q "fresh RUN.json present" "$runner_transport_out" \
+  && grep -Fx -- "--issue" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "333" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--prompt-file" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "$DEEP_WT/.review/ISSUE-333-PROMPT.txt" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--cwd" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "$DEEP_WT" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--model" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "gpt-5.6-terra" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--effort" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "medium" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--read-only" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--first-progress-timeout" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "1500" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--stall-timeout" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "900" "$TMP_ROOT/watchdog-argv.txt" >/dev/null; then
+  pass "deep dispatch uses a short relative runner and preserves watchdog argv"
+else
+  fail "deep dispatch uses a short relative runner and preserves watchdog argv (ec=$ec: $(cat "$runner_transport_out"))"
+fi
+
+printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-334-PROMPT.txt"
+produce_review_out="$TMP_ROOT/produce-review-runner.out"
+WATCHDOG_ARGV_FILE="$TMP_ROOT/produce-review-watchdog-argv.txt" \
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 334 --worktree "$DEEP_WT" \
+  --produce-review --model gpt-5.6-sol --effort medium --poll-timeout 3 >"$produce_review_out" 2>&1
+ec=$?
+runner_334="$(find "$DEEP_WT/.review" -path '*/ISSUE-334-launch.*/launch.sh' -type f -print -quit)"
+if [ "$ec" -eq 0 ] && [ -n "$runner_334" ] && [ -x "$runner_334" ] \
+  && grep -Fx -- "--produce-review" "$TMP_ROOT/produce-review-watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "gpt-5.6-sol" "$TMP_ROOT/produce-review-watchdog-argv.txt" >/dev/null; then
+  pass "launch runner preserves produce-review mode and pinned model"
+else
+  fail "launch runner preserves produce-review mode and pinned model (ec=$ec: $(cat "$produce_review_out"))"
+fi
+
+# Same-issue read/review seats may overlap. cmux starts asynchronously, so a
+# later dispatch must not overwrite the earlier seat's runner before cmux
+# executes it. Delay both runner executions until both workspace creates have
+# returned, then require distinct commands and the original prompt for each.
+printf '%s\n' "seat A" > "$DEEP_WT/.review/ISSUE-335-PROMPT-A.txt"
+printf '%s\n' "seat B" > "$DEEP_WT/.review/ISSUE-335-PROMPT-B.txt"
+DEFERRED_BIN="$TMP_ROOT/bin-deferred-cmux"
+mkdir -p "$DEFERRED_BIN"
+cat > "$DEFERRED_BIN/cmux" <<'EOF'
+#!/usr/bin/env bash
+command=""
+shift 2
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --command) command="$2"; shift 2 ;;
+    *) shift 1 ;;
+  esac
+done
+printf '%s\n' "$command" >> "$DEFERRED_COMMANDS"
+exit 0
+EOF
+chmod +x "$DEFERRED_BIN/cmux"
+
+DEFERRED_COMMANDS="$TMP_ROOT/deferred-commands.txt"
+: > "$DEFERRED_COMMANDS"
+DEFERRED_COMMANDS="$DEFERRED_COMMANDS" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
+bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
+  --prompt-file .review/ISSUE-335-PROMPT-A.txt --read-only --poll-timeout 5 >"$TMP_ROOT/overlap-a.out" 2>&1 &
+overlap_a_pid=$!
+overlap_wait=0
+while [ "$(wc -l < "$DEFERRED_COMMANDS")" -lt 1 ] && [ "$overlap_wait" -lt 30 ]; do
+  sleep 0.1
+  overlap_wait=$((overlap_wait + 1))
+done
+DEFERRED_COMMANDS="$DEFERRED_COMMANDS" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
+bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
+  --prompt-file .review/ISSUE-335-PROMPT-B.txt --read-only --poll-timeout 5 >"$TMP_ROOT/overlap-b.out" 2>&1 &
+overlap_b_pid=$!
+overlap_wait=0
+while [ "$(wc -l < "$DEFERRED_COMMANDS")" -lt 2 ] && [ "$overlap_wait" -lt 30 ]; do
+  sleep 0.1
+  overlap_wait=$((overlap_wait + 1))
+done
+overlap_command_a="$(sed -n '1p' "$DEFERRED_COMMANDS")"
+overlap_command_b="$(sed -n '2p' "$DEFERRED_COMMANDS")"
+(
+  cd "$DEEP_WT" || exit 1
+  WATCHDOG_ARGV_FILE="$TMP_ROOT/overlap-argv.txt" WATCHDOG_PROMPT_LOG="$TMP_ROOT/overlap-prompts.txt" /bin/sh -c "$overlap_command_a"
+)
+(
+  cd "$DEEP_WT" || exit 1
+  WATCHDOG_ARGV_FILE="$TMP_ROOT/overlap-argv.txt" WATCHDOG_PROMPT_LOG="$TMP_ROOT/overlap-prompts.txt" /bin/sh -c "$overlap_command_b"
+)
+wait "$overlap_a_pid"
+overlap_a_ec=$?
+wait "$overlap_b_pid"
+overlap_b_ec=$?
+if [ "$overlap_a_ec" -eq 0 ] && [ "$overlap_b_ec" -eq 0 ] \
+  && [ -n "$overlap_command_a" ] && [ "$overlap_command_a" != "$overlap_command_b" ] \
+  && [ "$(grep -Fxc -- "$DEEP_WT/.review/ISSUE-335-PROMPT-A.txt" "$TMP_ROOT/overlap-prompts.txt")" -eq 1 ] \
+  && [ "$(grep -Fxc -- "$DEEP_WT/.review/ISSUE-335-PROMPT-B.txt" "$TMP_ROOT/overlap-prompts.txt")" -eq 1 ]; then
+  pass "overlapping same-issue seats retain launch-unique runners"
+else
+  fail "overlapping same-issue seats retain launch-unique runners (a=$overlap_a_ec b=$overlap_b_ec commands=$overlap_command_a|$overlap_command_b prompts=$(cat "$TMP_ROOT/overlap-prompts.txt"))"
+fi
+
 # A read-only seat writes RUN.json but must remain outside the implementation
 # circuit; the first later write is still an initial write.
 READ_THEN_WRITE_WT="$TMP_ROOT/wt-read-then-write"
