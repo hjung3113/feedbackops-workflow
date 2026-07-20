@@ -75,6 +75,8 @@ prepare_gate_fixture() {
   target="$1"
   fixture="$target/.agent-workflow/schemas/fixtures/round_state.valid.json"
   GATE_STATE="$target/.review/ISSUE-188-ROUND-STATE.json"
+  GATE_BLOCKER_STATE="$target/.review/ISSUE-188-BLOCKER-ROUND-STATE.json"
+  GATE_SUPERSEDED_BLOCKER_STATE="$target/.review/ISSUE-188-SUPERSEDED-BLOCKER-ROUND-STATE.json"
   GATE_TESTS="$target/.review/discovered-tests.txt"
   git init -q "$target"
   git -C "$target" config user.email smoke@example.test
@@ -97,6 +99,15 @@ prepare_gate_fixture() {
     delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1"}]; v.acceptance.expected_test_count=1;
     v.decisions=[]; delete v.round_control; v.commit_scope.commits=[]; fs.writeFileSync(file,JSON.stringify(v));
   ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [source,destination,supersededDestination,root,head]=process.argv.slice(1); const blockerPath=".review/installed-dispatch-contract-blocker.json";
+    const blocker={schema_version:"1",artifact_type:"blocker",lifecycle:"active",producer_role:"CODEX",issue:{number:188,title:"installed dispatch contract"},head_sha:head,reason_code:"failing_precondition",blocking_fact:"the installed cmux command did not start the watchdog",attempted_commands:["cmux workspace create --command ..."],needed_decision:"repair the dispatch wrapper"};
+    const content=JSON.stringify(blocker); fs.writeFileSync(path.join(root,blockerPath),content);
+    const value=JSON.parse(fs.readFileSync(source,"utf8")); value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"dispatch_contract",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"contract_fix",summary:"repair the dispatch contract"},evidence:[{kind:"blocker",path:blockerPath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head}]}]}; fs.writeFileSync(destination,JSON.stringify(value));
+    const supersededPath=".review/installed-superseded-blocker.json"; const supersededContent=JSON.stringify({...blocker,lifecycle:"superseded"}); fs.writeFileSync(path.join(root,supersededPath),supersededContent);
+    const supersededState=JSON.parse(JSON.stringify(value)); supersededState.round_control.failures[0].evidence[0].path=supersededPath; supersededState.round_control.failures[0].evidence[0].content_sha256=crypto.createHash("sha256").update(supersededContent).digest("hex"); fs.writeFileSync(supersededDestination,JSON.stringify(supersededState));
+  ' "$GATE_STATE" "$GATE_BLOCKER_STATE" "$GATE_SUPERSEDED_BLOCKER_STATE" "$target" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
   printf '%s\n' 'implementation prompt' > "$target/.review/ISSUE-188-PROMPT.txt"
 }
@@ -109,6 +120,8 @@ assert_installed_gates() {
   assert_exit "$label executes ac-check" PASS bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS"
   assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
+  assert_exit "$label accepts dispatch-contract BLOCKER redispatch evidence" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_BLOCKER_STATE" --manifest-revision 3
+  assert_exit_output "$label rejects superseded BLOCKER redispatch evidence" 2 "superseded_evidence_artifact" bash "$scripts/redispatch-check.sh" --round-state "$GATE_SUPERSEDED_BLOCKER_STATE" --manifest-revision 3
   assert_exit "$label enforces canonical initial-write admission" PASS bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --tier full_cluster --round-state "$GATE_STATE" --manifest-revision 3 --dry-run
   assert_exit_output "$label exposes canonical REVIEW publication" 0 "--produce-review" bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --produce-review --model gpt-5.6-sol --effort medium --dry-run
 }

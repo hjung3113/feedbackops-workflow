@@ -8,6 +8,7 @@
     "number": 33,
     "title": "Add per-tenant rate limit to VOC ingest"
   },
+  "head_sha": "2222222222222222222222222222222222222222",
   "reason_code": "tier_escalation_required",
   "blocking_fact": "Implementing the rate limit requires editing src/permissions/tenantPolicy.ts (a shared permission gate) and src/voc/ingestPipeline.ts, both consumed across modules — typecheck flags 4 downstream callers of TenantPolicy.resolve.",
   "attempted_commands": ["pnpm --filter backend run typecheck"],

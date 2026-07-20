@@ -137,6 +137,7 @@ cat > "$REVIEW/ISSUE-112-BLOCKER.json" <<EOF
   "lifecycle": "active",
   "producer_role": "CODEX",
   "issue": { "number": 112, "title": "blocked case" },
+  "head_sha": "$SHA1",
   "reason_code": "missing_dependency",
   "blocking_fact": "module foo not found in src/bar.ts",
   "attempted_commands": [ "pnpm test" ],

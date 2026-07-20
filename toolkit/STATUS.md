@@ -20,6 +20,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - a repository-native pre-scope-lock consumer pass for exported contracts, followed by a full-typecheck gate with ROUND-STATE `live_probes[]` evidence;
 - compile-atomic `contract.chunk_boundary` enforcement: enumerated consumers stay inside one chunk, `completion-check.sh` executes its target-native full typecheck, and only live-diff-triggered convention watches enter review;
 - a dispatch-bound repeated-round circuit breaker keyed to canonical failure-origin codes, with live evidence validation, atomic single-use admission, oracle/contract-first diagnosis, one manifest update, one integrated fix batch, and security early stop;
+- a narrow `dispatch_contract` scoped-abort admission: a canonical BLOCKER can supply the sole failed-round evidence only after schema, issue, hash, referenced-commit, and producer-observed `head_sha` equality validation, while every other origin remains VERIFY/REVIEW-bound;
 - a reusable Full Cluster ARCH feasibility appendix and non-vacuous test-matrix template: existing `live_probes[]` records command evidence, while every matrix row is a canonical acceptance criterion whose `id` is the AC-ID authority and whose inline `statement` has a precondition and observable checkpoint, plus a positive privacy field allowlist when privacy-relevant;
 - a project-local `agent-workflow` skill plus installer-managed playbook/skill deployment;
 - a location-derived product-home interface shared by the installer and completion/acceptance gates, including Git-metadata-free exports and source/installed schema resolution;
@@ -42,6 +43,13 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 
 - `cmux-dispatch.sh` atomically records a launch-unique worktree-local executable runner before cmux creation. The runner preserves the fully quoted watchdog argv and clears `NODE_OPTIONS`, while cmux receives only `bash .review/ISSUE-N-launch.<unique>/launch.sh` under its mandatory workspace cwd. Concurrent same-issue seats cannot overwrite one another before asynchronous execution.
 - Each runner remains available for asynchronous startup and pre-RUN failures, and dispatch output identifies its exact path. Operators diagnose silent panes with `cmux read-screen --workspace <name> --scrollback --lines <N>`; `dquote>` and `heredoc>` are shell-transport evidence, not completion or liveness evidence.
+
+### v0.19 — dispatch-contract scoped abort evidence
+
+- `redispatch-check.sh` validates canonical BLOCKER schema and issue identity in addition to content hash and referenced commit checks, then requires its embedded producer-observed `head_sha` to equal the evidence reference.
+- BLOCKER lifecycle is fail-closed for admission: only `active` and `final` are consumable, while `superseded` returns the stable `superseded_evidence_artifact` machine error.
+- Only a `dispatch_contract` failure routed to `contract_fix` may use that BLOCKER as its sole failed-round evidence; the artifact union remains available elsewhere but does not weaken other origins' VERIFY/REVIEW requirement.
+- Migration: pre-v0.19 BLOCKER artifacts without `head_sha` remain historical display evidence but are not redispatch-admissible; regenerate them at the observed commit instead of copying or relabeling stale evidence.
 
 ### v0.18 — verifier clean-state and machine failures
 

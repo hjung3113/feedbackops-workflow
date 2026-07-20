@@ -57,6 +57,22 @@ assert_error_case() {
   fi
 }
 
+assert_error_code() {
+  name="$1"; state="$2"; expected_code="$3"
+  output="$TMP_DIR/output-error.json"
+  ( bash "$CHECK" --round-state "$state" --manifest-revision 5 ) >"$output" 2>/dev/null
+  actual_exit=$?
+  if [ "$actual_exit" -eq 2 ] && node -e '
+    const value=require(process.argv[1]);
+    process.exit(value.decision === "error" && value.errors[0] && value.errors[0].code === process.argv[2] ? 0 : 1);
+  ' "$output" "$expected_code"; then
+    echo "ok   - $name"
+  else
+    echo "NOT OK - $name (expected exit 2/$expected_code, got $actual_exit: $(cat "$output"))"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
 WORKTREE="$TMP_DIR/worktree"
 mkdir -p "$WORKTREE/.review/evidence"
 git init -q "$WORKTREE"
@@ -77,6 +93,13 @@ fs.writeFileSync(path.join(root,"wrong-issue.json"),JSON.stringify({...verifyFai
 fs.writeFileSync(path.join(root,"contradictory-fail.json"),JSON.stringify({...verifyFail,verdict:{passed:0,failed:0,pending:0,exit_code:0}}));
 const review={schema_version:"1",artifact_type:"review",lifecycle:"final",producer_role:"REVIEWER",issue:{number:188},reviewed_head_sha:head,status:"pass",checklist:[{item:"security review",met:true}]};
 fs.writeFileSync(path.join(root,"security.json"),JSON.stringify(review));
+const blocker={schema_version:"1",artifact_type:"blocker",lifecycle:"active",producer_role:"CODEX",issue:{number:188,title:"dispatch contract failure"},head_sha:head,reason_code:"failing_precondition",blocking_fact:"cmux command was truncated before codex-safe started",attempted_commands:["cmux workspace create --command ..."],needed_decision:"repair the dispatch wrapper"};
+fs.writeFileSync(path.join(root,"dispatch-contract-blocker.json"),JSON.stringify(blocker));
+fs.writeFileSync(path.join(root,"superseded-blocker.json"),JSON.stringify({...blocker,lifecycle:"superseded"}));
+const {head_sha,...legacyBlocker}=blocker;
+fs.writeFileSync(path.join(root,"legacy-blocker-without-head.json"),JSON.stringify(legacyBlocker));
+fs.writeFileSync(path.join(root,"malformed-blocker.json"),JSON.stringify({artifact_type:"blocker",issue:{number:188}}));
+fs.writeFileSync(path.join(root,"wrong-issue-blocker.json"),JSON.stringify({...blocker,issue:{number:999,title:"wrong issue"}}));
 fs.writeFileSync(path.join(root,"oracle.json"),"oracle evidence\n");
 fs.writeFileSync(path.join(root,"passing-analog.json"),"passing analog evidence\n");
 fs.writeFileSync(path.join(root,"plain.json"),"not a verifier artifact\n");
@@ -158,6 +181,52 @@ make_failure_state() {
 
 make_failure_state "$TMP_DIR/different.json" "implementation,test_oracle"
 assert_case "different origins allow the second normal redispatch" 0 "$TMP_DIR/different.json" "allow_normal" "null"
+
+make_blocker_failure_state() {
+  destination="$1"
+  cp "$TMP_DIR/base.json" "$destination"
+  node -e '
+    const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+    const [file,worktree,head,name,origin]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+    const relative=".review/evidence/"+name+".json"; const content=fs.readFileSync(path.join(worktree,relative));
+    value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:origin,secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:origin==="dispatch_contract"?"contract_fix":"implementation_fix",summary:"route the scoped abort"},evidence:[{kind:"blocker",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head}]}]};
+    fs.writeFileSync(file,JSON.stringify(value));
+  ' "$destination" "$WORKTREE" "$EVIDENCE_HEAD" "$2" "$3"
+}
+
+make_blocker_failure_state "$TMP_DIR/dispatch-contract-blocker.json" "dispatch-contract-blocker" "dispatch_contract"
+assert_case "dispatch-contract scoped abort admits canonical BLOCKER without REVIEW wrapper" 0 "$TMP_DIR/dispatch-contract-blocker.json" "allow_normal" "null"
+
+make_blocker_failure_state "$TMP_DIR/superseded-blocker.json" "superseded-blocker" "dispatch_contract"
+assert_error_code "superseded blocker is ignored before redispatch admission" "$TMP_DIR/superseded-blocker.json" "superseded_evidence_artifact"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-resolvable-wrong-head.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].head_sha=process.argv[2]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-resolvable-wrong-head.json" "$CLOSURE_HEAD"
+assert_case "blocker evidence rejects a resolvable commit different from the producer-observed HEAD" 2 "$TMP_DIR/blocker-resolvable-wrong-head.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/malformed-blocker.json" "malformed-blocker" "dispatch_contract"
+assert_case "malformed blocker is rejected before redispatch admission" 2 "$TMP_DIR/malformed-blocker.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/legacy-blocker.json" "legacy-blocker-without-head" "dispatch_contract"
+assert_case "legacy blocker without producer-observed HEAD is not redispatch-admissible" 2 "$TMP_DIR/legacy-blocker.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/wrong-issue-blocker.json" "wrong-issue-blocker" "dispatch_contract"
+assert_case "blocker evidence is bound to the ROUND-STATE issue" 2 "$TMP_DIR/wrong-issue-blocker.json" "error" "null"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-wrong-hash.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].content_sha256="0000000000000000000000000000000000000000000000000000000000000000"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-wrong-hash.json"
+assert_case "blocker evidence content hash is verified before admission" 2 "$TMP_DIR/blocker-wrong-hash.json" "error" "null"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-wrong-head.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].evidence[0].head_sha="0000000000000000000000000000000000000000"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-wrong-head.json"
+assert_case "blocker evidence HEAD must resolve in the declared worktree" 2 "$TMP_DIR/blocker-wrong-head.json" "error" "null"
+
+make_blocker_failure_state "$TMP_DIR/non-dispatch-blocker.json" "dispatch-contract-blocker" "implementation"
+assert_case "BLOCKER-only evidence cannot admit a non-dispatch-contract round" 2 "$TMP_DIR/non-dispatch-blocker.json" "error" "null"
+
+cp "$TMP_DIR/dispatch-contract-blocker.json" "$TMP_DIR/blocker-diagnosis-route.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].next_action.kind="diagnosis"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/blocker-diagnosis-route.json"
+assert_case "BLOCKER-only evidence requires the dispatch-contract fix route" 2 "$TMP_DIR/blocker-diagnosis-route.json" "error" "null"
 
 cp "$TMP_DIR/different.json" "$TMP_DIR/unrouted.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[0].next_action.kind="diagnosis"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unrouted.json"

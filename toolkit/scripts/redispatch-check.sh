@@ -36,6 +36,7 @@ SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT")" || {
 ROUND_STATE_SCHEMA="$SCHEMA_DIR/round_state.schema.json"
 VERIFY_SCHEMA="$SCHEMA_DIR/verify.schema.json"
 REVIEW_SCHEMA="$SCHEMA_DIR/review.schema.json"
+BLOCKER_SCHEMA="$SCHEMA_DIR/blocker.schema.json"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -59,7 +60,7 @@ if [ -z "$round_state" ] || [ -z "$expected_revision" ]; then
   exit 2
 fi
 case "$expected_revision" in ''|*[!0-9]*|0) emit_error "invalid_manifest_revision"; exit 2 ;; esac
-if [ ! -r "$round_state" ] || [ ! -r "$SCHEMA_VALIDATOR" ] || [ ! -r "$ROUND_STATE_SCHEMA" ] || [ ! -r "$VERIFY_SCHEMA" ] || [ ! -r "$REVIEW_SCHEMA" ]; then
+if [ ! -r "$round_state" ] || [ ! -r "$SCHEMA_VALIDATOR" ] || [ ! -r "$ROUND_STATE_SCHEMA" ] || [ ! -r "$VERIFY_SCHEMA" ] || [ ! -r "$REVIEW_SCHEMA" ] || [ ! -r "$BLOCKER_SCHEMA" ]; then
   emit_error "unreadable_input"
   exit 2
 fi
@@ -75,12 +76,12 @@ if [ "$fresh_status" -ne 0 ]; then
   exit 2
 fi
 
-node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
+node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$BLOCKER_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
+const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, blockerSchemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
 
 function write(payload, exitCode) {
   process.stdout.write(JSON.stringify(payload) + "\n");
@@ -110,12 +111,13 @@ function sameMembers(left, right) {
   return left.every((value) => expected.has(value));
 }
 
-let state, schema, verifySchema, reviewSchema, validate;
+let state, schema, verifySchema, reviewSchema, blockerSchema, validate;
 try {
   state = JSON.parse(fs.readFileSync(roundStateFile, "utf8"));
   schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
   verifySchema = JSON.parse(fs.readFileSync(verifySchemaFile, "utf8"));
   reviewSchema = JSON.parse(fs.readFileSync(reviewSchemaFile, "utf8"));
+  blockerSchema = JSON.parse(fs.readFileSync(blockerSchemaFile, "utf8"));
   ({ validate } = require(validatorFile));
 } catch (e) {
   error("invalid_round_state", "cannot parse ROUND-STATE or schema: " + e.message);
@@ -163,22 +165,27 @@ function validateEvidence(reference) {
   if (digest !== reference.content_sha256) {
     error("evidence_hash_mismatch", "evidence content does not match its declared sha256");
   }
-  if (reference.kind === "verify" || reference.kind === "review") {
+  if (reference.kind === "verify" || reference.kind === "review" || reference.kind === "blocker") {
     let artifact;
     try { artifact = JSON.parse(content.toString("utf8")); }
     catch (e) { error("invalid_evidence_artifact", reference.kind + " evidence is not JSON"); }
     const artifactSchema = reference.kind === "verify"
       ? verifySchema
-      : (() => { const copy = {...reviewSchema}; delete copy.if; delete copy.then; return copy; })();
+      : reference.kind === "review"
+        ? (() => { const copy = {...reviewSchema}; delete copy.if; delete copy.then; return copy; })()
+        : blockerSchema;
     if (validate(artifactSchema, artifact).length) {
       error("invalid_evidence_artifact", reference.kind + " evidence fails its artifact schema");
+    }
+    if (reference.kind === "blocker" && artifact.lifecycle === "superseded") {
+      error("superseded_evidence_artifact", "superseded BLOCKER evidence must be ignored");
     }
     if (reference.kind === "review" && artifact.status === "fail"
         && (!Array.isArray(artifact.findings) || artifact.findings.length === 0 || typeof artifact.patch_instructions !== "string")) {
       error("invalid_evidence_artifact", "failed review evidence lacks findings or patch instructions");
     }
     const artifactIssue = reference.kind === "verify" ? artifact.issue : artifact.issue.number;
-    const artifactHead = reference.kind === "verify" ? artifact.head_sha : artifact.reviewed_head_sha;
+    const artifactHead = reference.kind === "review" ? artifact.reviewed_head_sha : artifact.head_sha;
     if (artifactIssue !== state.issue.number || artifactHead !== reference.head_sha) {
       error("evidence_identity_mismatch", reference.kind + " evidence does not match the ROUND-STATE issue and referenced HEAD");
     }
@@ -230,16 +237,22 @@ for (let index = 0; index < failures.length; index += 1) {
   if (failure.next_action.kind !== "diagnosis" && failure.next_action.kind !== originAction[failure.primary_origin]) {
     error("origin_action_mismatch", "failure next action does not match its primary origin");
   }
-  if (!failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review")) {
-    error("verifier_evidence_missing", "every failed round requires verifier or review evidence");
+  const hasVerifierOrReview = failure.evidence.some((reference) => reference.kind === "verify" || reference.kind === "review");
+  const hasDispatchContractBlocker = failure.primary_origin === "dispatch_contract"
+    && failure.next_action.kind === "contract_fix"
+    && failure.evidence.some((reference) => reference.kind === "blocker");
+  if (!hasVerifierOrReview && !hasDispatchContractBlocker) {
+    error("verifier_evidence_missing", "every failed round requires verifier/review evidence or a dispatch_contract BLOCKER");
   }
   const failureArtifacts = failure.evidence.map((reference) => ({ reference, artifact: validateEvidence(reference) }));
   const hasFailedVerdict = failureArtifacts.some(({reference, artifact}) =>
     reference.kind === "verify"
       ? artifact.classifier === "FAIL" && (artifact.verdict.exit_code !== 0 || artifact.verdict.failed > 0)
-      : reference.kind === "review" && (artifact.status === "fail" || artifact.status === "blocked"));
+      : reference.kind === "review" ? (artifact.status === "fail" || artifact.status === "blocked")
+        : reference.kind === "blocker" && failure.primary_origin === "dispatch_contract"
+          && failure.next_action.kind === "contract_fix");
   if (!hasFailedVerdict) {
-    error("failed_round_evidence_not_failed", "failure evidence must contain a failing VERIFY or REVIEW artifact");
+    error("failed_round_evidence_not_failed", "failure evidence must contain a failing VERIFY/REVIEW artifact or a dispatch_contract BLOCKER");
   }
   if (failure.status === "closed") {
     if (!failure.closed_by) {
@@ -286,7 +299,7 @@ for (let index = 0; index < failures.length; index += 1) {
       error("failure_closure_lineage_invalid", "closure HEAD must be an ancestor of the live ROUND-STATE HEAD");
     }
     const failedArtifactHeads = failureArtifacts
-      .filter(({reference}) => reference.kind === "verify" || reference.kind === "review")
+      .filter(({reference}) => reference.kind === "verify" || reference.kind === "review" || reference.kind === "blocker")
       .map(({reference}) => reference.head_sha);
     if (!failedArtifactHeads.every((failedHead) => failedHead !== failure.closed_by.head_sha
         && isAncestor(failedHead, failure.closed_by.head_sha))) {
