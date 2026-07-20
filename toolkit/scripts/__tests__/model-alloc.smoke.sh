@@ -32,6 +32,19 @@ NODE
 
 assert_json "missing-config-uses-default-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"opus-4.8","review_effort":"medium"}' --role implementation
 
+node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/schema-invalid.json" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+value.capabilities["gpt-5.6-terra"].unexpected = true;
+fs.writeFileSync(process.argv[3], JSON.stringify(value));
+NODE
+"$ALLOC" --role implementation --config "$TMP_DIR/schema-invalid.json" >"$TMP_DIR/schema-invalid.out" 2>"$TMP_DIR/schema-invalid.err"
+if [ "$?" -eq 2 ] && [ ! -s "$TMP_DIR/schema-invalid.out" ] && grep -q "does not satisfy schema" "$TMP_DIR/schema-invalid.err"; then
+  pass "runtime config schema validation fails closed before output"
+else
+  fail "runtime config schema validation fails closed before output"
+fi
+
 node - "$SCRIPT_DIR/../../schemas/model_alloc.schema.json" "$SCRIPT_DIR/../../schemas/fixtures/model_alloc.valid.json" "$SCRIPT_DIR/../../schemas/fixtures/model_alloc.invalid.json" "$SCRIPT_DIR/../lib/json-schema-subset.cjs" <<'NODE'
 const fs = require("fs");
 const [schemaFile, validFile, invalidFile, validatorFile] = process.argv.slice(2);

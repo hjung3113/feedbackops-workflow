@@ -115,7 +115,7 @@ Use one appendix row per concern: `concern | exact command | concise result | de
 
 ## Model Allocation — project-owned defaults with evidence-gated adaptation
 
-The installed `.agent-workflow/model-alloc.json` is the project-owned allocation contract; its schema is `schemas/model_alloc.schema.json`. The default table carries `source: "livebench"` and `release: "2026-06-25"` alongside the capability and price data, so a benchmark refresh replaces data rather than dispatch code. Missing project config safely uses the toolkit default; malformed existing config fails closed. Fresh install seeds the file and `--upgrade` preserves it (with a warning rather than an implicit migration).
+The installed `.agent-workflow/model-alloc.json` is the project-owned allocation contract; its schema is `schemas/model_alloc.schema.json`. The default table carries `source: "livebench"` and `release: "2026-06-25"` alongside the capability and price data, so a benchmark refresh replaces data rather than dispatch code. `model-alloc.sh` validates every runtime config through that same schema before output or dispatch; missing project config safely uses the toolkit default, while malformed existing config fails closed. Fresh install seeds the file and `--upgrade` preserves it (with a warning rather than an implicit migration).
 
 | Role | Default allocation |
 |---|---|
@@ -144,7 +144,7 @@ Workload scaling (v1): review depth scales with the actual diff — ≤~50 chang
 ## Non-Negotiable Rules
 
 - **Implementation is separate from review and verification.** The same agent/session must not implement and then approve or verify its own work. Re-review uses a new clean context.
-- **Clean context is non-negotiable; review capability is enforced by default.** `model-alloc.sh` rejects a config whose reviewer capability is below implementation unless the project sets `allow_review_below_implementation: true`; only that explicit relaxation emits the allocation warning.
+- **Clean context is non-negotiable; review capability is enforced by default.** Using the source-dated LiveBench table, `model-alloc.sh` compares the deterministic unweighted sum `static_coding + reasoning` for reviewer and selected implementation models. It rejects a lower reviewer score unless the project sets `allow_review_below_implementation: true`; only that explicit relaxation emits the allocation warning.
 - **Do not run two workspace-write Codex jobs in the same repo at the same time.** `codex-safe.sh` stashes partial work on failure; concurrent jobs in one checkout can race on stash state. Parallel implementation requires separate prepared worktrees.
 - **Clear `NODE_OPTIONS=` before codex/node dispatch and verification.** cmux or shell preloads can leak `--require` instrumentation into codex/vitest children. `verify.sh` uses an explicit env allowlist, but operators should still dispatch with a clean `NODE_OPTIONS`.
 

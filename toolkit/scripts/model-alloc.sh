@@ -20,15 +20,18 @@ done
 case "$ROLE" in implementation|reviewer) ;; *) echo "ERROR: unsupported role: $ROLE" >&2; exit 2 ;; esac
 [ -n "$CONFIG" ] || CONFIG="${AGENT_WORKFLOW_MODEL_ALLOC:-$SCRIPT_DIR/../model-alloc.json}"
 
-node - "$CONFIG" "$EVIDENCE" "$ROLE" <<'NODE'
+node - "$CONFIG" "$EVIDENCE" "$ROLE" "$SCRIPT_DIR/../schemas/model_alloc.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" <<'NODE'
 const fs = require("fs");
-const [configFile, evidenceFile, role] = process.argv.slice(2);
+const [configFile, evidenceFile, role, schemaFile, validatorFile] = process.argv.slice(2);
 function fail(message) { console.error(`ERROR: ${message}`); process.exit(2); }
 function readJson(file, label) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { fail(`${label} is malformed or unreadable: ${file}`); } }
 const config = readJson(configFile, "model allocation config");
+const schema = readJson(schemaFile, "model allocation schema");
+let validate;
+try { ({ validate } = require(validatorFile)); } catch (_) { fail(`model allocation validator is unreadable: ${validatorFile}`); }
+if (validate(schema, config).length) fail("model allocation config does not satisfy schema version 1");
 const requiredRoles = ["implementation", "reviewer", "contract_gate", "trivial_implementation"];
-if (config.schema_version !== "1" || typeof config.source !== "string" || typeof config.release !== "string" || !config.roles || !config.capabilities || !config.signals || requiredRoles.some(key => !config.roles[key])) fail("model allocation config does not satisfy schema version 1");
-for (const key of requiredRoles) { const value = config.roles[key]; if (!value || typeof value.model !== "string" || !["low", "medium", "high"].includes(value.effort) || !config.capabilities[value.model] || !Number.isFinite(config.capabilities[value.model].review_capability)) fail(`invalid role allocation: ${key}`); }
+for (const key of requiredRoles) { const value = config.roles[key]; if (!config.capabilities[value.model]) fail(`invalid role allocation: ${key}`); }
 const clone = key => ({ model: config.roles[key].model, effort: config.roles[key].effort });
 let impl = clone("implementation"), review = clone("reviewer"), contract = clone("contract_gate");
 const rationale = [`config:${config.source}@${config.release}`, `role:${role}`];
@@ -52,9 +55,9 @@ if (!evidenceFile) {
   if (evidence.review_round > 0) { review.effort = review.effort === "high" ? "medium" : "low"; rationale.push("rereview: review effort demoted"); }
 }
 const output = { impl_model: impl.model, impl_effort: impl.effort, review_model: review.model, review_effort: review.effort, contract_model: contract.model, contract_effort: contract.effort, rationale };
-const reviewCapability = config.capabilities[review.model].review_capability;
-const implCapability = config.capabilities[impl.model].review_capability;
-if (reviewCapability < implCapability) {
+const reviewScore = config.capabilities[review.model].static_coding + config.capabilities[review.model].reasoning;
+const implScore = config.capabilities[impl.model].static_coding + config.capabilities[impl.model].reasoning;
+if (reviewScore < implScore) {
   if (config.allow_review_below_implementation === true) output.rationale.push("warning: project explicitly relaxed review capability preference");
   else fail("default review capability preference is violated by project config");
 }
