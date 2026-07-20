@@ -55,6 +55,33 @@ run_case "non-zero vitest exit is FAIL"     FAIL "$f_green" "1"
 run_case "malformed JSON is FAIL"           FAIL "$f_malformed"
 run_case "missing report file is FAIL"      FAIL "$f_missing"
 
+machine_err="$TMP_DIR/machine.stderr"
+bash "$VERIFY" --classify-json "$f_failed_tests" >/dev/null 2>"$machine_err"
+if node -e '
+  const fs=require("fs");
+  const line=fs.readFileSync(process.argv[1],"utf8").split("\n").find((value)=>value.startsWith("VERIFY_FAILURE_JSON="));
+  if(!line) process.exit(1);
+  const result=JSON.parse(line.slice("VERIFY_FAILURE_JSON=".length));
+  const failure=result.failures.find((item)=>item.code==="failed_tests");
+  if(!failure||failure.expected!=="0"||failure.actual!=="2") process.exit(1);
+' "$machine_err"; then
+  echo "ok   - classifier failure exposes typed expected/actual machine output"
+else
+  echo "NOT OK - classifier failure exposes typed expected/actual machine output"
+  FAILURES=$((FAILURES + 1))
+fi
+
+for invalid_case in "$f_malformed" "$f_missing"; do
+  invalid_err="$TMP_DIR/invalid-$(basename "$invalid_case").stderr"
+  bash "$VERIFY" --classify-json "$invalid_case" >/dev/null 2>"$invalid_err"
+  if grep -F -q 'VERIFY_FAILURE_JSON={"failures":[{"code":"invalid_report"' "$invalid_err"; then
+    echo "ok   - invalid report exposes typed machine output ($(basename "$invalid_case"))"
+  else
+    echo "NOT OK - invalid report exposes typed machine output ($(basename "$invalid_case"))"
+    FAILURES=$((FAILURES + 1))
+  fi
+done
+
 array_err="$TMP_DIR/array.stderr"
 bash "$VERIFY" --classify-json "$f_array" >/dev/null 2>"$array_err"
 if grep -F -q "FAIL: no executable tests ran (passed+failed==0); 0 pending" "$array_err"; then
@@ -152,6 +179,10 @@ STUB
   chmod +x "$bin/pnpm"
 }
 
+CLEAN_PROBE="$TMP_DIR/clean-probe.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"sha256:expected","actual":"sha256:expected"}]}'\''' > "$CLEAN_PROBE"
+chmod +x "$CLEAN_PROBE"
+
 run_filter_case() {
   name="$1"; expected_ec="$2"; review_shape="$3"; mode="$4"; issue="$5"
   repo="$TMP_DIR/filter-$name"
@@ -170,7 +201,7 @@ run_filter_case() {
     mkdir -p "$repo/.review"
   fi
 
-  ( cd "$repo" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_ISSUE="$issue" PNPM_STUB_MODE="$mode" VERIFY_ENV_ALLOW="PNPM_STUB_MODE" PATH="$bin:$PATH" bash "$VERIFY" smoke-filter ) >/dev/null 2>&1
+  ( cd "$repo" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" VERIFY_ISSUE="$issue" PNPM_STUB_MODE="$mode" VERIFY_ENV_ALLOW="PNPM_STUB_MODE" PATH="$bin:$PATH" bash "$VERIFY" smoke-filter ) >/dev/null 2>&1
   actual_ec=$?
   if [ "$actual_ec" -eq "$expected_ec" ]; then
     echo "ok   - $name (exit $actual_ec)"
@@ -183,14 +214,107 @@ run_filter_case() {
 run_filter_case "green-artifact-write-failure-exits-5" 5 "file" "green" 1
 run_filter_case "green-artifact-write-success-exits-0" 0 "dir" "green" 2
 if [ -f "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" ]; then
-  node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(o.artifact_type!=="verify_result"||o.producer_role!=="VERIFIER"||o.classifier!=="PASS"||!o.verdict||o.verdict.passed!==3) process.exit(1);' "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" >/dev/null 2>&1
+  node -e 'const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(o.artifact_type!=="verify_result"||o.producer_role!=="VERIFIER"||o.classifier!=="PASS"||!o.verdict||o.verdict.passed!==3||!o.clean_state||o.clean_state.checks.length!==2) process.exit(1);' "$TMP_DIR/filter-green-artifact-write-success-exits-0/.review/ISSUE-2-VERIFY.json" >/dev/null 2>&1
   if [ "$?" -eq 0 ]; then echo "ok   - green artifact has required verifier fields"; else echo "NOT OK - green artifact has required verifier fields"; FAILURES=$((FAILURES + 1)); fi
 else
   echo "NOT OK - green artifact exists"
   FAILURES=$((FAILURES + 1))
 fi
+run_filter_case "failed-run-writes-typed-failures" 1 "dir" "fail" 4
+if node -e '
+  const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  const failure=Array.isArray(o.failures)&&o.failures.find((item)=>item.code==="failed_tests");
+  if(!failure||failure.expected!=="0"||failure.actual!=="1") process.exit(1);
+' "$TMP_DIR/filter-failed-run-writes-typed-failures/.review/ISSUE-4-VERIFY.json" >/dev/null 2>&1; then
+  echo "ok   - failed artifact records typed expected/actual failures"
+else
+  echo "NOT OK - failed artifact records typed expected/actual failures"
+  FAILURES=$((FAILURES + 1))
+fi
 run_filter_case "fail-artifact-write-failure-preserves-classifier" 1 "file" "fail" 3
 run_filter_case "no-verify-issue-green-unchanged" 0 "file" "green" ""
+
+echo "--- full-module and privilege defaults ---"
+
+clean_out="$TMP_DIR/clean.out"
+VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" bash "$VERIFY" --verify-clean >"$clean_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && grep -F -q 'PASS: verification database is clean' "$clean_out"; then
+  echo "ok   - --verify-clean accepts matching sentinel and migration hash"
+else
+  echo "NOT OK - --verify-clean accepts matching sentinel and migration hash (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+DIRTY_PROBE="$TMP_DIR/dirty-probe.sh"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' '\''{"checks":[{"code":"sentinel","expected":"clean","actual":"dirty"},{"code":"migration_hash","expected":"sha256:expected","actual":"sha256:actual"}]}'\''' > "$DIRTY_PROBE"
+chmod +x "$DIRTY_PROBE"
+dirty_err="$TMP_DIR/dirty.stderr"
+VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$DIRTY_PROBE" bash "$VERIFY" --verify-clean >/dev/null 2>"$dirty_err"
+ec=$?
+if [ "$ec" -eq 1 ] && grep -F -q '"code":"sentinel","expected":"clean","actual":"dirty"' "$dirty_err" && grep -F -q '"code":"migration_hash"' "$dirty_err"; then
+  echo "ok   - --verify-clean rejects dirty state with typed differences"
+else
+  echo "NOT OK - --verify-clean rejects dirty state with typed differences (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+clean_missing_err="$TMP_DIR/clean-missing.stderr"
+VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" env -u VERIFY_CLEAN_COMMAND bash "$VERIFY" --verify-clean >/dev/null 2>"$clean_missing_err"
+ec=$?
+if [ "$ec" -eq 4 ] && grep -F -q '"code":"clean_probe_unconfigured"' "$clean_missing_err"; then
+  echo "ok   - --verify-clean requires a target clean probe"
+else
+  echo "NOT OK - --verify-clean requires a target clean probe (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+full_repo="$TMP_DIR/filter-full-module-default"
+full_bin="$full_repo/bin"
+mkdir -p "$full_repo" "$full_bin"
+git -C "$full_repo" init -q
+git -C "$full_repo" config user.email "smoke@test.local"
+git -C "$full_repo" config user.name "smoke"
+printf '%s\n' '# smoke repo' > "$full_repo/README.md"
+git -C "$full_repo" add -A
+git -C "$full_repo" commit -q -m seed
+write_pnpm_stub "$full_bin" green
+( cd "$full_repo" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" PNPM_STUB_MODE=green VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$full_bin:$PATH" bash "$VERIFY" ) >/dev/null 2>&1
+ec=$?
+if [ "$ec" -eq 0 ]; then
+  echo "ok   - no filter runs the full backend module"
+else
+  echo "NOT OK - no filter runs the full backend module (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+( cd "$full_repo" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" PNPM_STUB_MODE=green VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$full_bin:$PATH" bash "$VERIFY" --full-module ) >/dev/null 2>&1
+ec=$?
+if [ "$ec" -eq 0 ]; then
+  echo "ok   - --full-module reproduces the canonical full-module command"
+else
+  echo "NOT OK - --full-module reproduces the canonical full-module command (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+superuser_err="$TMP_DIR/superuser.stderr"
+( cd "$full_repo" && VERIFY_DATABASE_URL="postgres://postgres@127.0.0.1/verify_smoke" PATH="$full_bin:$PATH" bash "$VERIFY" smoke-filter ) >/dev/null 2>"$superuser_err"
+ec=$?
+if [ "$ec" -eq 3 ] && grep -F -q '"code":"privileged_database_role"' "$superuser_err"; then
+  echo "ok   - superuser verifier role fails closed with machine output"
+else
+  echo "NOT OK - superuser verifier role fails closed with machine output (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+fresh_err="$TMP_DIR/fresh.stderr"
+bash "$VERIFY" --fresh >/dev/null 2>"$fresh_err"
+ec=$?
+if [ "$ec" -eq 2 ] && grep -F -q '"code":"fresh_requires_adapter"' "$fresh_err"; then
+  echo "ok   - --fresh is reserved and fails with a stable machine code"
+else
+  echo "NOT OK - --fresh is reserved and fails with a stable machine code (got $ec)"
+  FAILURES=$((FAILURES + 1))
+fi
 
 echo "--- VERIFY_ISSUE without VERIFY_DATABASE_URL fails closed ---"
 
@@ -214,6 +338,12 @@ if grep -q "refusing to fall back to .env DATABASE_URL" "$no_url_err"; then
   echo "ok   - refusal message names the .env fallback"
 else
   echo "NOT OK - refusal message names the .env fallback (got: $(cat "$no_url_err"))"
+  FAILURES=$((FAILURES + 1))
+fi
+if grep -F -q '"code":"verify_database_url","expected":"explicit low-privilege VERIFY_DATABASE_URL","actual":"unset"' "$no_url_err"; then
+  echo "ok   - missing verifier URL exposes typed machine output"
+else
+  echo "NOT OK - missing verifier URL exposes typed machine output"
   FAILURES=$((FAILURES + 1))
 fi
 

@@ -35,7 +35,41 @@ usage() {
   echo "       verify.sh --typecheck-diff <baseline-file> <current-file>" >&2
   echo "       verify.sh --typecheck" >&2
   echo "       verify.sh --parse-db-url <database-url>   (hidden test mode)" >&2
-  echo "       verify.sh <vitest-filter>   (vitest test name/path filter scoped to backend; NOT a package selector)" >&2
+  echo "       verify.sh --verify-clean  (run the target-provided clean-state probe)" >&2
+  echo "       verify.sh [--full-module|<vitest-filter>] (no filter/--full-module runs the full backend module; a filter is a test name/path, NOT a package selector)" >&2
+  echo "       verify.sh --fresh           (reserved; requires a target DB lifecycle adapter)" >&2
+}
+
+emit_machine_failure() {
+  node "$VERIFY_RESULT" failure "$1" "$2" "$3" >&2
+}
+
+run_clean_preflight() {
+  if [ -z "${VERIFY_CLEAN_COMMAND:-}" ]; then
+    echo "FAIL: VERIFY_CLEAN_COMMAND is required for canonical issue verification" >&2
+    emit_machine_failure "clean_probe_unconfigured" "target clean probe command" "unset"
+    return 4
+  fi
+  VERIFY_CLEAN_RESULT_PATH="$(mktemp -t verify-clean.XXXXXX)" || {
+    emit_machine_failure "clean_probe_tempfile" "writable temporary file" "unavailable"
+    return 2
+  }
+  sh -c "$VERIFY_CLEAN_COMMAND" > "$VERIFY_CLEAN_RESULT_PATH"
+  clean_probe_ec=$?
+  if [ "$clean_probe_ec" -ne 0 ]; then
+    echo "FAIL: clean probe command exited non-zero ($clean_probe_ec)" >&2
+    emit_machine_failure "clean_probe_exit" "0" "$clean_probe_ec"
+    rm -f "$VERIFY_CLEAN_RESULT_PATH"
+    VERIFY_CLEAN_RESULT_PATH=""
+    return 1
+  fi
+  node "$VERIFY_RESULT" clean "$VERIFY_CLEAN_RESULT_PATH"
+  clean_result_ec=$?
+  if [ "$clean_result_ec" -ne 0 ]; then
+    rm -f "$VERIFY_CLEAN_RESULT_PATH"
+    VERIFY_CLEAN_RESULT_PATH=""
+  fi
+  return "$clean_result_ec"
 }
 
 # typecheck_diff <baseline-file> <current-file>
@@ -47,6 +81,7 @@ typecheck_diff() {
 
   if [ ! -f "$current" ]; then
     echo "FAIL: current typecheck file not found: $current (fail closed)" >&2
+    emit_machine_failure "typecheck_current_missing" "readable current typecheck result" "missing"
     return 1
   fi
 
@@ -61,6 +96,8 @@ typecheck_diff() {
   if [ -n "$new_lines" ]; then
     echo "FAIL: NEW typecheck error(s) not in baseline ($baseline):" >&2
     echo "$new_lines" >&2
+    new_count="$(printf '%s\n' "$new_lines" | wc -l | tr -d ' ')"
+    emit_machine_failure "new_typecheck_errors" "0" "$new_count"
     return 1
   fi
 
@@ -73,16 +110,6 @@ typecheck_diff() {
 classify_json() {
   report="$1"
   vitest_ec="$2"
-
-  # Rule 1: report missing/empty → FAIL (fail closed).
-  if [ ! -f "$report" ]; then
-    echo "FAIL: report file not found: $report (fail closed — never trust an absent report)" >&2
-    return 1
-  fi
-  if [ ! -s "$report" ]; then
-    echo "FAIL: report file is empty: $report (fail closed)" >&2
-    return 1
-  fi
 
   # Parse + classify with the result module. It prints a single verdict
   # line and exits 0 (PASS) or 1 (FAIL). Rule 1 (unparseable JSON),
@@ -134,6 +161,7 @@ emit_verify_artifact() {
   artifact_path=".review/ISSUE-${issue}-VERIFY.json"
   mkdir -p .review || {
     echo "FAIL: unable to create .review directory; cannot write verify artifact" >&2
+    emit_machine_failure "artifact_directory" "writable .review directory" "unavailable"
     return 1
   }
 
@@ -142,7 +170,7 @@ emit_verify_artifact() {
   head_sha="$(git rev-parse HEAD 2>/dev/null || printf '')"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
   cwd="$(pwd)"
-  verify_cmd="verify.sh $filter"
+  if [ -n "$filter" ]; then verify_cmd="verify.sh $filter"; else verify_cmd="verify.sh --full-module"; fi
   created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   VERIFY_ARTIFACT_PATH="$artifact_path" \
@@ -158,26 +186,42 @@ emit_verify_artifact() {
   VERIFY_ARTIFACT_CLASSIFIER="$classifier" \
   VERIFY_ARTIFACT_CREATED_AT="$created_at" \
   VERIFY_ARTIFACT_REPORT="$report" \
+  VERIFY_ARTIFACT_CLEAN_RESULT="${VERIFY_CLEAN_RESULT_PATH:-}" \
   node "$VERIFY_RESULT" write-artifact || {
     echo "FAIL: unable to write verify artifact: $artifact_path" >&2
+    emit_machine_failure "artifact_write" "valid canonical VERIFY artifact" "write failed"
     return 1
   }
 
   node "$VERIFY_RESULT" validate-artifact "$artifact_path" >/dev/null 2>&1 || {
     echo "FAIL: wrote invalid verify artifact: $artifact_path" >&2
+    emit_machine_failure "artifact_validation" "valid canonical VERIFY artifact" "invalid"
     return 1
   }
 }
 
 main() {
-  if [ "$#" -lt 1 ]; then
-    usage
+  first="${1:-}"
+  CLEAN_ONLY=0
+
+  if [ "$first" = "--verify-clean" ]; then
+    CLEAN_ONLY=1
+    first=""
+  fi
+  if [ "$first" = "--full-module" ]; then
+    first=""
+  fi
+
+  if [ "$first" = "--fresh" ]; then
+    echo "FAIL: --fresh is reserved for migration chunks or crash recovery and requires a target DB lifecycle adapter" >&2
+    emit_machine_failure "fresh_requires_adapter" "configured target DB lifecycle adapter" "unconfigured"
     exit 2
   fi
 
-  if [ "$1" = "--classify-json" ]; then
+  if [ "$first" = "--classify-json" ]; then
     if [ "$#" -lt 2 ]; then
       usage
+      emit_machine_failure "invalid_arguments" "report file argument" "missing"
       exit 2
     fi
     report="$2"
@@ -186,18 +230,20 @@ main() {
     exit $?
   fi
 
-  if [ "$1" = "--typecheck-diff" ]; then
+  if [ "$first" = "--typecheck-diff" ]; then
     if [ "$#" -lt 3 ]; then
       usage
+      emit_machine_failure "invalid_arguments" "baseline and current files" "missing"
       exit 2
     fi
     typecheck_diff "$2" "$3"
     exit $?
   fi
 
-  if [ "$1" = "--parse-db-url" ]; then
+  if [ "$first" = "--parse-db-url" ]; then
     if [ "$#" -lt 2 ]; then
       usage
+      emit_machine_failure "invalid_arguments" "database URL argument" "missing"
       exit 2
     fi
     parse_db_url "$2"
@@ -205,9 +251,9 @@ main() {
     exit 0
   fi
 
-  if [ "$1" = "--typecheck" ]; then
+  if [ "$first" = "--typecheck" ]; then
     root="$(git rev-parse --show-toplevel)"
-    cd "$root" || exit 2
+    cd "$root" || { emit_machine_failure "repository_root" "accessible Git repository root" "unavailable"; exit 2; }
     baseline=".review/typecheck-baseline.txt"
     if [ ! -f "$baseline" ]; then
       mkdir -p "$(dirname "$baseline")"
@@ -223,6 +269,7 @@ main() {
       echo "FAIL: typecheck command did not run or crashed (exit $pnpm_ec) with no parseable 'error TS' lines — fail closed" >&2
       echo "----- typecheck output (head) -----" >&2
       sed -n '1,40p' "$raw" >&2
+      emit_machine_failure "typecheck_command_exit" "0 or parseable TypeScript errors" "$pnpm_ec with no parsed errors"
       exit 1
     fi
     typecheck_diff "$baseline" "$tmp_current"
@@ -230,7 +277,7 @@ main() {
   fi
 
   # Filter mode: load env, run scoped vitest, classify.
-  filter="$1"
+  filter="$first"
 
   if [ -f ./.env ]; then
     set -a
@@ -253,26 +300,40 @@ main() {
     # of empty stdout left it unset and the suite ran against the shared dev
     # DB, producing a garbage FAIL artifact with db_target "feedbackops").
     echo "FAIL: VERIFY_ISSUE=$VERIFY_ISSUE is set but VERIFY_DATABASE_URL is unset/empty — refusing to fall back to .env DATABASE_URL (fail closed; run prepare-verify-db.sh and export its VERIFY_DATABASE_URL)" >&2
+    emit_machine_failure "verify_database_url" "explicit low-privilege VERIFY_DATABASE_URL" "unset"
     exit 4
   fi
 
   parse_db_url "${DATABASE_URL:-}"
   if [ -n "${DATABASE_URL+x}" ] && [ -n "$DATABASE_URL" ]; then
     if [ "$DB_ROLE" = "postgres" ]; then
-      echo "WARN: verifier running as superuser role 'postgres' — prefer a low-privilege role (e.g. fops_app) via VERIFY_DATABASE_URL" >&2
+      echo "FAIL: refusing to verify as superuser role 'postgres' — use a low-privilege role (e.g. fops_app) via VERIFY_DATABASE_URL" >&2
+      emit_machine_failure "privileged_database_role" "non-superuser role" "postgres"
+      exit 3
     fi
 
     case "$DB_HOST" in
       ""|"localhost"|"127.0.0.1"|"::1"|"[::1]") ;;
       *)
         echo "FAIL: refusing to verify against non-local DATABASE_URL host '$DB_HOST' (fail closed — verifier must run against a local/ephemeral DB)" >&2
+        emit_machine_failure "non_local_database" "localhost, 127.0.0.1, ::1, or local socket" "$DB_HOST"
         exit 3
         ;;
     esac
   fi
 
+  if [ "$CLEAN_ONLY" -eq 1 ] || { [ -n "${VERIFY_ISSUE+x}" ] && [ -n "$VERIFY_ISSUE" ]; }; then
+    run_clean_preflight
+    clean_ec=$?
+    if [ "$clean_ec" -ne 0 ]; then exit "$clean_ec"; fi
+    if [ "$CLEAN_ONLY" -eq 1 ]; then
+      rm -f "$VERIFY_CLEAN_RESULT_PATH"
+      exit 0
+    fi
+  fi
+
   tmp_report="$(mktemp -t verify-vitest.XXXXXX)"
-  trap 'rm -f "$tmp_report"' EXIT
+  trap 'rm -f "$tmp_report" "${VERIFY_CLEAN_RESULT_PATH:-}"' EXIT
 
   set -- env -i
   for env_name in PATH HOME SHELL TERM LANG LC_ALL TMPDIR TMP USER LOGNAME PWD NODE_OPTIONS NODE_ENV DATABASE_URL DATABASE_URL_MIGRATE WORKSPACE_ID CI; do
@@ -297,7 +358,11 @@ main() {
   # reads a faithful machine report. Proven on FeedbackOps #112: json-only →
   # 0/7 (empty messages); json+default → 7/7. Do not drop the second reporter.
   echo "VERIFIER effective DB -> host=$DB_HOST db=$DB_DATABASE role=$DB_ROLE (injected into vitest child)" >&2
-  "$@" pnpm --filter backend exec vitest run "$filter" --reporter=json --reporter=default --outputFile="$tmp_report"
+  if [ -n "$filter" ]; then
+    "$@" pnpm --filter backend exec vitest run "$filter" --reporter=json --reporter=default --outputFile="$tmp_report"
+  else
+    "$@" pnpm --filter backend exec vitest run --reporter=json --reporter=default --outputFile="$tmp_report"
+  fi
   vitest_ec=$?
 
   classify_json "$tmp_report" "$vitest_ec"
@@ -314,6 +379,7 @@ main() {
     if [ "$emit_ec" -ne 0 ]; then
       if [ "$cls_ec" -eq 0 ]; then
         echo "FAIL: green run but could not write a valid verify artifact — evidence is the product (fail closed)" >&2
+        emit_machine_failure "artifact_publication" "valid canonical VERIFY artifact" "unavailable"
         exit 5
       else
         echo "WARN: verify artifact write failed on an already-failing run; preserving test FAIL (exit $cls_ec)" >&2

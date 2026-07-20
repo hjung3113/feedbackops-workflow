@@ -11,7 +11,7 @@ Read this reference only when installing or adapting the workflow to a new targe
 | Review/archive/state reconstruction | General with conventions | The target must use the documented `.review/` names and full SHAs. |
 | `prepare-worktree.sh` | Target adapter | Assumes pnpm, `.env`, and `apps/backend/.env`. |
 | `tier-probe.sh` | TypeScript adapter | Its exported-contract heuristics target TS/TSX code. |
-| `verify.sh` | FeedbackOps-style adapter | Assumes a pnpm `backend` package tested by Vitest. |
+| `verify.sh` | FeedbackOps-style adapter | Assumes a pnpm `backend` package tested by Vitest and a target-owned clean probe producing sentinel/migration-hash JSON. |
 | `prepare-verify-db.sh` | PostgreSQL adapter | Assumes local PostgreSQL and per-issue databases. |
 | `cmux-cluster.sh` / `rebase-inflight.sh` | Convention adapter | Carry branch, pane-label, and `feature/*` assumptions. |
 
@@ -74,6 +74,8 @@ Before the first run, answer these from the target's real files:
 9. What artifact or captured result proves verification at the current HEAD?
 
 Record target-specific answers in the target's `AGENTS.md` or a small target-owned adapter document. Do not add product assumptions back to the shared skill.
+
+For the bundled verifier, the target-owned adapter document must define `VERIFY_CLEAN_COMMAND`. Its command prints exactly one JSON object containing `sentinel` and `migration_hash` checks with sanitized string `expected`/`actual` values. It owns how those facts are measured; the toolkit owns validation, fail-closed routing, machine failure output, and storage inside canonical VERIFY. Do not put a database URL, credential, or customer value in either field. Canonical issue verification refuses an absent probe. `--fresh` remains unavailable until that same target owns explicit rebuild/drop lifecycle behavior.
 
 Optional analysis services such as CodeGraph also belong to the **target repository or operator environment**, because their index must describe the code being changed. The toolkit repository itself is mostly Bash/Markdown/JSON and does not ship a project MCP config for target-only analyzers.
 
