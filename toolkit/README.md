@@ -113,6 +113,30 @@ NODE_OPTIONS= scripts/agent-workflow.sh dispatch \
   --allocator-role implementation
 ```
 
+같은 worktree와 canonical 산출물을 유지한 채 transport만 Orca로 바꾸려면 일회성 실행에는 `--orchestrator orca`를 사용합니다. 반복 실행은 환경 변수나 타겟 설정으로 고정할 수 있습니다.
+
+```bash
+# 이 호출만 Orca 사용
+NODE_OPTIONS= scripts/agent-workflow.sh dispatch \
+  --orchestrator orca \
+  --issue 123 \
+  --worktree ../wt-123 \
+  --tier standard \
+  --prompt-file ../wt-123/.review/ISSUE-123-PROMPT.md \
+  --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
+  --manifest-revision 1 \
+  --name issue-123-impl
+
+# 현재 셸의 기본 transport
+export AGENT_WORKFLOW_ORCHESTRATOR=orca
+
+# 타겟의 기본 transport (환경 변수가 없을 때 적용)
+printf '%s\n' '{"orchestrator":"orca"}' \
+  > ../wt-123/.agent-workflow/workflow-config.json
+```
+
+설정값은 `orca` 또는 `cmux`만 허용하며, 위 우선순위에 따라 언제든 명시적으로 교체할 수 있습니다. `capabilities`로 선택 전에 두 adapter를 함께 점검하고, dispatch receipt는 실제 선택된 transport를 기록합니다.
+
 `scripts/agent-workflow.sh capabilities --worktree ../wt-123`는 두 adapter의 availability와 필요한 capability 근거를 JSON으로 보여 줍니다. cmux는 admission 전에 side-effect 없는 version/help probe로 최소 `0.64.0`과 실제 `workspace create --cwd --command` 계약을 증명하고, Orca는 launch에 쓰는 `--worktree --title --command --json` 및 read-only list 인자를 모두 증명합니다. probe 실패는 marker를 소비하지 않고 `required_capability_missing`으로 종료합니다. 모든 write-capable Codex는 `agent-workflow.sh` → shared dispatch core → selected adapter → launch runner → `codex-watchdog.sh` → `codex-safe.sh` 경로를 사용합니다. `inspect --receipt <file>`은 adapter의 read-only list를 통해 external handle을 조회해 `live`, `stale`, `handle_unverifiable`로 정규화하고 runner identity도 확인합니다. Orca launch와 inspect는 같은 normalizer로 `terminal_id`, `terminalId`, `handle`, `id` 응답을 해석하므로 발급된 handle 필드가 list에서 바뀌어도 동일 identity를 유지합니다. receipt와 terminal/workspace 상태는 lifecycle 진단일 뿐 완료 authority가 아닙니다. `codex exec` 직접 실행이나 transport command 수동 조립은 지원하지 않습니다. 기존 `cmux-dispatch.sh`는 cmux를 명시 선택하는 호환 facade입니다.
 
 Shared core는 admission 전에 caller `PATH`의 `codex`를 canonical absolute executable로 확정해 runner/watchdog/safe wrapper 전체에 고정합니다. 제어된 host launch 환경만 `AGENT_WORKFLOW_CODEX_BIN`으로 absolute executable을 명시할 수 있으며, target config에는 이 권한이 없고 상대·누락·비실행 경로는 admission 전에 거부됩니다. cmux receipt도 display name을 identity로 쓰지 않고 create JSON에서 증명된 단 하나의 `id`/`workspace_id`/`workspaceId`/`ref`만 기록합니다. Create와 inspect는 같은 내부 handle module을 사용하므로 허용 키나 탐색 방식이 갈라질 수 없고, 같은 이름의 workspace가 있어도 inspect는 생성된 고유 handle만 조회합니다.

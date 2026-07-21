@@ -9,6 +9,7 @@ PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 FAILURES=0
+export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
 
 ok() { echo "ok   - $1"; }
 not_ok() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
