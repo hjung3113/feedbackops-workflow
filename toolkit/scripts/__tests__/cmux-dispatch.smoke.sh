@@ -13,6 +13,7 @@ DISPATCH="$SCRIPT_DIR/../cmux-dispatch.sh"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
 CMUX_PROBE_HELPER="$TMP_ROOT/cmux-probe-helper.sh"
 cat > "$CMUX_PROBE_HELPER" <<'EOF'
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
