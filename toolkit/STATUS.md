@@ -98,7 +98,7 @@ bash scripts/__tests__/run-all-contract.test.sh
 
 ### v0.17 — dispatch liveness operator contract
 
-- The playbook now requires operators to preserve the dispatch command's own exit code and accept issue-scoped RUN/BLOCKER files only when their `mtime + started_at` identity belongs to the current launch.
+- The playbook now requires operators to preserve the dispatch command's own exit code and accept issue-scoped RUN/BLOCKER files only when their cross-platform nanosecond `mtime + started_at` identity belongs to the current launch.
 - `status:"exited"` is explicitly process termination rather than task completion. Current retry behavior is recorded accurately: ordinary non-zero attempts retry from `running`, stall retries may move `killed_stall -> running`, and only a zero exit writes `exited` before the watchdog returns.
 - Ambiguous retry decisions combine process absence with filesystem or heartbeat progress. Missing artifacts alone are not death evidence, and completion remains bound to canonical REVIEW/VERIFY at live HEAD.
 - Sol/medium runs receive at least an eight-minute operator budget absent an earlier hard terminal signal; attempt stderr growth is an additional liveness signal, while a frozen small stderr plus a live process prompts a stdin-redirection check.

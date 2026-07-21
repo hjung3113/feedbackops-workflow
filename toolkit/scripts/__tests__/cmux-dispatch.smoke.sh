@@ -673,7 +673,7 @@ fi
 # retry the same canonical admission.
 printf '%s\n' 'bad redispatch prompt' > "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt"
 admission_bad_prompt="$TMP_ROOT/admission-bad-prompt.out"
-bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_bad_prompt" 2>&1
+PATH="$BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_bad_prompt" 2>&1
 ec=$?
 admit_common_raw="$(git -C "$ADMIT_WT" rev-parse --git-common-dir)"
 case "$admit_common_raw" in

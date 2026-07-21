@@ -101,9 +101,18 @@ usage() {
 # means the artifact is fresh.
 file_sig() {
   f="$1"
-  m="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)"
-  s="$(node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).started_at || "")); } catch (e) {}' "$f" 2>/dev/null)"
-  printf '%s|%s\n' "$m" "$s"
+  node -e '
+    const fs = require("fs");
+    try {
+      const file = process.argv[1];
+      const mtimeNs = fs.statSync(file, { bigint: true }).mtimeNs;
+      let startedAt = "";
+      try { startedAt = String(JSON.parse(fs.readFileSync(file, "utf8")).started_at || ""); } catch (error) {}
+      process.stdout.write(`${mtimeNs}|${startedAt}`);
+    } catch (error) {
+      process.stdout.write("0|");
+    }
+  ' "$f" 2>/dev/null
 }
 
 file_started_at() {
