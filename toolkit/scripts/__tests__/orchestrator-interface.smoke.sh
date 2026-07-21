@@ -102,6 +102,7 @@ cat > "$BIN/codex" <<'EOF'
 exit 0
 EOF
 chmod +x "$BIN/codex"
+export AGENT_WORKFLOW_CODEX_BIN="$BIN/codex"
 
 WT="$TMP_ROOT/choice"
 make_worktree "$WT" 501

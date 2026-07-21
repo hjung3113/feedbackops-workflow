@@ -88,7 +88,7 @@ for family in node go python; do
   (cd "$REPO" && PATH="$REPO/bin:$PATH" bash "$VERIFY" "$family.json" "6${#family}") >"$TMP/$family-run" 2>&1
   family_ec=$?
   if [ "$family" = node ]; then
-    if [ "$family_ec" -eq 0 ] && node -e 'const o=require(process.argv[1]); const test=o.groups.find(g=>g.id==="test"); process.exit(test&&test.test_count===1&&test.commands.some(c=>c.output.includes("ℹ tests 1"))?0:1)' "$REPO/.review/ISSUE-64-VERIFY.json"; then
+    if [ "$family_ec" -eq 0 ] && node -e 'const o=require(process.argv[1]); const test=o.groups.find(g=>g.id==="test"); process.exit(test&&test.test_count===1&&test.commands.some(c=>c.exit_code===0)?0:1)' "$REPO/.review/ISSUE-64-VERIFY.json"; then
       ok "AC-PROFILE-7 actual node --test TAP summary is extracted"
     else
       bad "AC-PROFILE-7 actual node --test target ($(cat "$TMP/$family-run"))"

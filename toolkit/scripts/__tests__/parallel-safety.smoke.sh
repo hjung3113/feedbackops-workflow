@@ -10,6 +10,7 @@ INTEGRATE="$ROOT/scripts/candidate-integrate.sh"
 CLOSE="$ROOT/scripts/candidate-close.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
 FAILURES=0
 pass(){ echo "ok   - $1"; }
 fail(){ echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
