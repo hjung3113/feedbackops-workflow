@@ -1,0 +1,45 @@
+{
+  "schema_version": "1",
+  "artifact_type": "telemetry_sample",
+  "sample_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "project_pseudonym": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "issue": 18,
+  "round": 1,
+  "manifest_revision": 1,
+  "attempt": 1,
+  "role": "implementation",
+  "task_class": "workflow",
+  "tier": "standard",
+  "model": "gpt-5.6-terra",
+  "effort": "low",
+  "base_sha": "1111111111111111111111111111111111111111",
+  "head_sha": "2222222222222222222222222222222222222222",
+  "transport": "cmux",
+  "started_at": "2026-07-21T00:00:00Z",
+  "ended_at": "2026-07-21T00:01:00Z",
+  "duration_ms": 60000,
+  "terminal": "transport_exit",
+  "retry_of": "",
+  "closure": null,
+  "artifacts": [
+    {
+      "kind": "round_state",
+      "path": ".review/ISSUE-18-ROUND-STATE.json",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "kind": "run",
+      "path": ".review/ISSUE-18-RUN.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "usage": {
+    "kind": "unavailable",
+    "input_tokens": null,
+    "output_tokens": null,
+    "cost": null,
+    "currency": null,
+    "source": null,
+    "provenance_version": null
+  }
+}

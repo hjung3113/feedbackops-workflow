@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "artifact_type": "codex_run",
+  "issue": 33,
+  "attempt": 1,
+  "pid": 12345,
+  "started_at": "2026-07-12T00:00:00Z",
+  "updated_at": "2026-07-12T00:00:01Z",
+  "status": "exited"
+}

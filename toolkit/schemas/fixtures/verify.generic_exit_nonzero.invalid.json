@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "artifact_type": "verify_result",
+  "producer_role": "VERIFIER",
+  "issue": 71,
+  "branch": "fix/generic-target",
+  "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "cwd": "/tmp/generic-target",
+  "verify_cmd": "target-verify.sh node-test",
+  "target_profile": "node-test",
+  "verdict": { "passed": 1, "failed": 0, "pending": 0, "exit_code": 0 },
+  "classifier": "PASS",
+  "failures": [],
+  "groups": [
+    {
+      "id": "test",
+      "required": true,
+      "commands": [
+        {
+          "argv": ["node", "--test"],
+          "cwd": ".",
+          "exit_code": 7,
+          "duration_ms": 10,
+          "output": "failed\n",
+          "output_truncated": false
+        }
+      ],
+      "test_count": 1
+    }
+  ],
+  "created_at": "2026-07-21T00:00:00Z"
+}

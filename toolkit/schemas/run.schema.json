@@ -14,5 +14,24 @@
     "updated_at": { "type": "string", "description": "ISO-8601 timestamp" },
     "status": { "enum": ["running", "exited", "killed_stall", "refused", "exhausted"] },
     "exit_code": { "type": "integer" }
-  }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["exit_code"],
+      "properties": {
+        "status": { "const": "exited" }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["exit_code"],
+      "properties": { "status": { "const": "refused" } }
+    },
+    {
+      "type": "object",
+      "properties": { "status": { "enum": ["running", "killed_stall", "exhausted"] } },
+      "not": { "type": "object", "required": ["exit_code"] }
+    }
+  ]
 }

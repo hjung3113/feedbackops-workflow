@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Local total-cost-to-green report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "window",
+    "policy",
+    "samples",
+    "chains",
+    "cohorts",
+    "suppressed_cohorts",
+    "interpretation"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "telemetry_report" },
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum_samples", "minimum_completeness"],
+      "properties": {
+        "minimum_samples": { "type": "integer", "minimum": 1 },
+        "minimum_completeness": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "samples": { "type": "integer", "minimum": 0 },
+    "chains": { "type": "array", "items": { "$ref": "#/definitions/chain" } },
+    "cohorts": { "type": "array", "items": { "$ref": "#/definitions/cohort" } },
+    "suppressed_cohorts": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "interpretation": { "type": "string", "minLength": 1 }
+  },
+  "definitions": {
+    "chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chain_id",
+        "project_pseudonym",
+        "issue",
+        "round",
+        "manifest_revision",
+        "sample_ids",
+        "green",
+        "complete",
+        "attempts",
+        "retries",
+        "wall_time_ms",
+        "roles",
+        "allocation_mode",
+        "allocations",
+        "observed_cost",
+        "estimated_cost",
+        "unavailable_samples",
+        "usage_completeness"
+      ],
+      "properties": {
+        "chain_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "project_pseudonym": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "issue": { "type": "integer", "minimum": 1 },
+        "round": { "type": "integer", "minimum": 0 },
+        "manifest_revision": { "type": "integer", "minimum": 1 },
+        "sample_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "green": { "type": "boolean" },
+        "complete": { "type": "boolean" },
+        "attempts": { "type": "integer", "minimum": 1 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "wall_time_ms": { "type": "integer", "minimum": 0 },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "implementation",
+              "review",
+              "verification",
+              "contract_gate"
+            ]
+          }
+        },
+        "allocation_mode": { "enum": ["single_model", "mixed_model"] },
+        "allocations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["attempt", "role", "task_class", "tier", "model", "effort", "usage_kind"],
+            "properties": {
+              "attempt": { "type": "integer", "minimum": 1 },
+              "role": { "enum": ["implementation", "review", "verification", "contract_gate"] },
+              "task_class": { "enum": ["feature", "bugfix", "refactor", "docs", "test", "workflow"] },
+              "tier": { "enum": ["trivial", "standard", "full_cluster"] },
+              "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+              "effort": { "enum": ["low", "medium", "high"] },
+              "usage_kind": { "enum": ["observed", "estimated", "unavailable"] }
+            }
+          }
+        },
+        "observed_cost": { "type": "number", "minimum": 0 },
+        "estimated_cost": { "type": "number", "minimum": 0 },
+        "unavailable_samples": { "type": "integer", "minimum": 0 },
+        "usage_completeness": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "cohort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "sample_count",
+        "chain_count",
+        "complete_green_chains",
+        "observed_cost",
+        "estimated_cost",
+        "unavailable_samples",
+        "usage_completeness"
+      ],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "chain_count": { "type": "integer", "minimum": 1 },
+        "complete_green_chains": { "type": "integer", "minimum": 0 },
+        "observed_cost": { "type": "number", "minimum": 0 },
+        "estimated_cost": { "type": "number", "minimum": 0 },
+        "unavailable_samples": { "type": "integer", "minimum": 0 },
+        "usage_completeness": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

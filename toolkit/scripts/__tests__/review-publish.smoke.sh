@@ -39,6 +39,9 @@ fi
 
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 cwd=""
 command=""
 while [ "$#" -gt 0 ]; do
@@ -50,7 +53,8 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$command" ] || exit 8
 [ -n "$cwd" ] || exit 11
-(cd "$cwd" && bash -c "$command")
+(cd "$cwd" && bash -c "$command") >/dev/null 2>&1 || :
+printf '%s\n' '{"id":"review-publish-smoke-workspace"}'
 EOF
 chmod +x "$BIN/cmux"
 

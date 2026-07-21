@@ -1,0 +1,4 @@
+{
+  "schema_version": "1", "artifact_type": "candidate_evidence_set", "producer_role": "WORKER",
+  "issue": 0, "round": 0, "manifest_revision": 0, "plan_revision": 0, "candidate_head": "bad", "attempt_id": "", "created_at": "not-a-time", "evidence": []
+}

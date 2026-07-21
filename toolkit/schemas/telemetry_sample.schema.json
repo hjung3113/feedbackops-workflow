@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Local attempt telemetry sample",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "sample_id",
+    "project_pseudonym",
+    "issue",
+    "round",
+    "manifest_revision",
+    "attempt",
+    "role",
+    "task_class",
+    "tier",
+    "model",
+    "effort",
+    "base_sha",
+    "head_sha",
+    "transport",
+    "started_at",
+    "ended_at",
+    "duration_ms",
+    "terminal",
+    "retry_of",
+    "closure",
+    "artifacts",
+    "usage"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "telemetry_sample" },
+    "sample_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "project_pseudonym": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "issue": { "type": "integer", "minimum": 1 },
+    "round": { "type": "integer", "minimum": 0 },
+    "manifest_revision": { "type": "integer", "minimum": 1 },
+    "attempt": { "type": "integer", "minimum": 1 },
+    "role": {
+      "enum": ["implementation", "review", "verification", "contract_gate"]
+    },
+    "task_class": {
+      "enum": ["feature", "bugfix", "refactor", "docs", "test", "workflow"]
+    },
+    "tier": { "enum": ["trivial", "standard", "full_cluster"] },
+    "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+    "effort": { "enum": ["low", "medium", "high"] },
+    "base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "transport": { "enum": ["cmux", "orca", "local"] },
+    "started_at": { "type": "string", "minLength": 1 },
+    "ended_at": { "type": "string", "minLength": 1 },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "terminal": {
+      "enum": [
+        "green",
+        "failed",
+        "blocked",
+        "transport_exit",
+        "refused",
+        "exhausted",
+        "killed_stall"
+      ]
+    },
+    "retry_of": { "type": "string", "pattern": "^$|^[0-9a-f]{64}$" },
+    "closure": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["source", "sha256", "value"],
+      "properties": {
+        "source": { "type": "string", "pattern": "^\\.review/ISSUE-[0-9]+-CLOSURE\\.json$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "value": { "type": "object" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/definitions/artifact" }
+    },
+    "usage": { "$ref": "#/definitions/usage" }
+  },
+  "definitions": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "sha256"],
+      "properties": {
+        "kind": {
+          "enum": ["round_state", "run", "review", "verify", "blocker", "candidate_closure", "integration", "candidate_evidence"]
+        },
+        "path": { "type": "string", "pattern": "^[^/].*" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "input_tokens",
+        "output_tokens",
+        "cost",
+        "currency",
+        "source",
+        "provenance_version"
+      ],
+      "properties": {
+        "kind": { "enum": ["observed", "estimated", "unavailable"] },
+        "input_tokens": { "type": ["integer", "null"] },
+        "output_tokens": { "type": ["integer", "null"] },
+        "cost": { "type": ["number", "null"] },
+        "currency": { "enum": ["USD", null] },
+        "source": {
+          "enum": [
+            "provider_usage",
+            "local_token_estimator",
+            "operator_pricing_estimate",
+            null
+          ]
+        },
+        "provenance_version": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9._-]{1,64}$"
+        }
+      }
+    }
+  }
+}

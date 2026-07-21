@@ -2,7 +2,7 @@
 
 This directory is the complete distributable `agent-workflow` product root. Root `AGENTS.md` still applies; this file adds product-scoped rules.
 
-- `scripts/`, `schemas/`, `docs/`, `.claude/skills/agent-workflow/`, `README.md`, `STATUS.md`, `.env.example`, and the `CLAUDE.md` instruction pointer are product authorities.
+- `scripts/` (including the transport-neutral core and adapters), `schemas/`, `docs/`, `.claude/skills/agent-workflow/`, `README.md`, `STATUS.md`, `.env.example`, and the `CLAUDE.md` instruction pointer are product authorities.
 - Keep scripts compatible with macOS Bash 3.2. Do not use `declare -A`, `mapfile`, or `${var,,}`.
 - Test behavior through source commands and temporary portable-copy installations, including upgrade from recognized historical symlink layouts. Run the affected smoke and `NODE_OPTIONS= bash scripts/__tests__/run-all.sh` before completion.
 - A script, schema, or workflow-contract change must update the affected product playbook, README, STATUS, installer coverage, and skill references in the same commit.

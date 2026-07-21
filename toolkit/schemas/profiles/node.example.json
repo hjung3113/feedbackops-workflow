@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"node-test","runtime":{"executables":["node","npm"]},"setup":[{"argv":["npm","ci"]}],"verification":{"output_bytes":8192,"groups":[{"id":"test","required":true,"commands":[{"argv":["node","--test"]}],"test_count":{"pattern":"(?:ℹ |# )?tests ([0-9]+)","group":1}},{"id":"lint","required":true,"commands":[{"argv":["npm","run","lint"]}]}]}}

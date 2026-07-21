@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"fixture","runtime":{"executables":["node"]},"environment":{"required":["PATH"],"allow":["CI"]},"setup":[],"verification":{"groups":[{"id":"tests","required":true,"commands":[{"argv":["node","--test"],"cwd":".","env_allow":["CI"]}],"test_count":{"pattern":"([0-9]+) tests","group":1}}]}}

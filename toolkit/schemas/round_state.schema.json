@@ -56,10 +56,23 @@
     "contract": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["objective", "touch_allowlist", "verify_filter", "test_discovery_command"],
+      "required": [
+        "objective",
+        "touch_allowlist",
+        "prohibitions",
+        "verify_filter",
+        "test_discovery_command"
+      ],
       "properties": {
         "objective": { "type": "string", "minLength": 1 },
         "touch_allowlist": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "prohibitions": {
+          "description": "Canonical structured prohibitions rendered verbatim into worker and re-review guidance; never reconstruct these with natural-language regexes.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
@@ -70,7 +83,12 @@
         "chunk_boundary": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["chunk_id", "typecheck_command", "compile_consumers", "convention_watch"],
+          "required": [
+            "chunk_id",
+            "typecheck_command",
+            "compile_consumers",
+            "convention_watch"
+          ],
           "properties": {
             "chunk_id": { "type": "string", "minLength": 1 },
             "typecheck_command": { "type": "string", "minLength": 1 },
@@ -84,7 +102,14 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["surface", "trigger", "expected_invariant", "owner", "review_by_chunk", "closed_by"],
+                "required": [
+                  "surface",
+                  "trigger",
+                  "expected_invariant",
+                  "owner",
+                  "review_by_chunk",
+                  "closed_by"
+                ],
                 "properties": {
                   "surface": { "type": "string", "minLength": 1 },
                   "trigger": {
@@ -126,7 +151,11 @@
             "additionalProperties": false,
             "required": ["id", "statement"],
             "properties": {
-              "id": { "type": "string", "minLength": 1, "pattern": "^[^\\r\\n]+$" },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\r\\n]+$"
+              },
               "statement": { "type": "string", "minLength": 1 }
             }
           }
@@ -172,19 +201,45 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "dispatch_ordinal", "status", "primary_origin", "secondary_origins", "failed_ac_ids", "owner", "next_action", "evidence"],
+            "required": [
+              "id",
+              "dispatch_ordinal",
+              "status",
+              "primary_origin",
+              "secondary_origins",
+              "failed_ac_ids",
+              "owner",
+              "next_action",
+              "evidence"
+            ],
             "properties": {
               "id": { "type": "string", "minLength": 1 },
               "dispatch_ordinal": { "type": "integer", "minimum": 1 },
               "status": { "enum": ["open", "closed"] },
               "primary_origin": {
-                "enum": ["environment", "dispatch_contract", "implementation", "test_oracle", "verification_harness", "integration_drift"],
+                "enum": [
+                  "environment",
+                  "dispatch_contract",
+                  "implementation",
+                  "test_oracle",
+                  "verification_harness",
+                  "integration_drift"
+                ],
                 "description": "The redispatch gate gives a BLOCKER-only failure-evidence exception only to dispatch_contract; all other origins still require failed VERIFY or REVIEW evidence."
               },
               "secondary_origins": {
                 "type": "array",
                 "uniqueItems": true,
-                "items": { "enum": ["environment", "dispatch_contract", "implementation", "test_oracle", "verification_harness", "integration_drift"] }
+                "items": {
+                  "enum": [
+                    "environment",
+                    "dispatch_contract",
+                    "implementation",
+                    "test_oracle",
+                    "verification_harness",
+                    "integration_drift"
+                  ]
+                }
               },
               "failed_ac_ids": {
                 "type": "array",
@@ -197,7 +252,17 @@
                 "additionalProperties": false,
                 "required": ["kind", "summary"],
                 "properties": {
-                  "kind": { "enum": ["environment_fix", "contract_fix", "implementation_fix", "oracle_fix", "harness_fix", "integration_fix", "diagnosis"] },
+                  "kind": {
+                    "enum": [
+                      "environment_fix",
+                      "contract_fix",
+                      "implementation_fix",
+                      "oracle_fix",
+                      "harness_fix",
+                      "integration_fix",
+                      "diagnosis"
+                    ]
+                  },
                   "summary": { "type": "string", "minLength": 1 }
                 }
               },
@@ -212,23 +277,45 @@
                   "required": ["kind", "path", "content_sha256", "head_sha"],
                   "properties": {
                     "kind": {
-                      "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"],
+                      "enum": [
+                        "verify",
+                        "review",
+                        "blocker",
+                        "live_probe",
+                        "dispatch_log",
+                        "diff"
+                      ],
                       "description": "blocker is eligible as sole failed evidence only under the failure-level dispatch_contract exception enforced by redispatch-check.sh, including producer/reference head_sha equality."
                     },
                     "path": { "type": "string", "minLength": 1 },
-                    "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-                    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+                    "content_sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "head_sha": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40}$"
+                    }
                   }
                 }
               },
               "closed_by": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["kind", "path", "content_sha256", "head_sha", "closes_ac_ids"],
+                "required": [
+                  "kind",
+                  "path",
+                  "content_sha256",
+                  "head_sha",
+                  "closes_ac_ids"
+                ],
                 "properties": {
                   "kind": { "enum": ["verify", "review"] },
                   "path": { "type": "string", "minLength": 1 },
-                  "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "content_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
                   "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
                   "closes_ac_ids": {
                     "type": "array",
@@ -253,9 +340,21 @@
               "additionalProperties": false,
               "required": ["kind", "path", "content_sha256", "head_sha"],
               "properties": {
-                "kind": { "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"] },
+                "kind": {
+                  "enum": [
+                    "verify",
+                    "review",
+                    "blocker",
+                    "live_probe",
+                    "dispatch_log",
+                    "diff"
+                  ]
+                },
                 "path": { "type": "string", "minLength": 1 },
-                "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "content_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
                 "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
               }
             }
@@ -280,18 +379,41 @@
                 "additionalProperties": false,
                 "required": ["kind", "summary", "evidence"],
                 "properties": {
-                  "kind": { "enum": ["oracle_contract_recheck", "hard_fact", "passing_analog"] },
+                  "kind": {
+                    "enum": [
+                      "oracle_contract_recheck",
+                      "hard_fact",
+                      "passing_analog"
+                    ]
+                  },
                   "summary": { "type": "string", "minLength": 1 },
-                  "instruction": { "const": "guess_forbidden_copy_passing_analog_to_parity" },
+                  "instruction": {
+                    "const": "guess_forbidden_copy_passing_analog_to_parity"
+                  },
                   "evidence": {
                     "type": "object",
                     "additionalProperties": false,
                     "required": ["kind", "path", "content_sha256", "head_sha"],
                     "properties": {
-                      "kind": { "enum": ["verify", "review", "blocker", "live_probe", "dispatch_log", "diff"] },
+                      "kind": {
+                        "enum": [
+                          "verify",
+                          "review",
+                          "blocker",
+                          "live_probe",
+                          "dispatch_log",
+                          "diff"
+                        ]
+                      },
                       "path": { "type": "string", "minLength": 1 },
-                      "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-                      "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" }
+                      "content_sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "head_sha": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{40}$"
+                      }
                     }
                   }
                 }

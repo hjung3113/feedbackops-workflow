@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 RUN_SCHEMA="$SCRIPT_DIR/../../schemas/run.schema.json"
 RUN_FIXTURE="$SCRIPT_DIR/../../schemas/fixtures/run.valid.json"
+RUN_INVALID_FIXTURE="$SCRIPT_DIR/../../schemas/fixtures/run.invalid.json"
+SCHEMA_VALIDATOR="$SCRIPT_DIR/../lib/json-schema-subset.cjs"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
@@ -206,7 +208,20 @@ status="$(marker_status "$WT_F/.review/ISSUE-207-RUN.json")"
 [ -f "$WT_F/.review/ISSUE-207-attempt2-stderr.log" ] && pass "successful probe reaches retry attempt" || fail "successful probe reaches retry attempt"
 
 validate_marker_basic "$RUN_FIXTURE" && pass "run fixture valid shape" || fail "run fixture valid shape"
-node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$RUN_SCHEMA" >/dev/null 2>&1 && pass "run schema parses" || fail "run schema parses"
+node - "$SCHEMA_VALIDATOR" "$RUN_SCHEMA" "$RUN_FIXTURE" "$RUN_INVALID_FIXTURE" <<'NODE'
+const fs = require("fs");
+const { validate } = require(process.argv[2]);
+const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const valid = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+const invalid = JSON.parse(fs.readFileSync(process.argv[5], "utf8"));
+const nonterminalWithExit = { ...valid, status: "running" };
+if (validate(schema, valid).length || !validate(schema, invalid).length || !validate(schema, nonterminalWithExit).length) process.exit(1);
+NODE
+if [ "$?" -eq 0 ]; then
+  pass "run schema accepts terminal exited/0 and rejects invalid terminal/nonterminal exit semantics"
+else
+  fail "run schema valid/invalid fixture semantics"
+fi
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then

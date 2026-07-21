@@ -9,6 +9,7 @@ PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 FAILURES=0
+export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
 
 ok() { echo "ok   - $1"; }
 not_ok() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
@@ -59,7 +60,41 @@ assert_current_content() {
   assert_true "$label includes install script" test -x "$target/.agent-workflow/scripts/install-into.sh"
   assert_true "$label seeds default model allocation config" test -f "$target/.agent-workflow/model-alloc.json"
   assert_true "$label includes verify result module" test -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
+  assert_true "$label includes review capsule renderer" test -x "$target/.agent-workflow/scripts/review-capsule.sh"
+  assert_true "$label includes review capsule schema" test -e "$target/.agent-workflow/schemas/review_capsule.schema.json"
+  assert_true "$label includes local telemetry command" test -x "$target/.agent-workflow/scripts/telemetry.sh"
+  assert_true "$label includes shared RFC3339 parser" test -e "$target/.agent-workflow/scripts/lib/rfc3339.cjs"
+  assert_true "$label includes shared cmux handle normalizer" test -e "$target/.agent-workflow/scripts/lib/cmux-handles.cjs"
+  assert_true "$label includes telemetry sample semantic validator" test -e "$target/.agent-workflow/scripts/lib/telemetry-sample.cjs"
+  assert_true "$label includes telemetry schemas" test -e "$target/.agent-workflow/schemas/telemetry_sample.schema.json"
+  assert_true "$label includes telemetry report schema" test -e "$target/.agent-workflow/schemas/telemetry_report.schema.json"
+  assert_true "$label includes semantic closure telemetry fixtures" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.closure.valid.json"
+  assert_true "$label includes invalid semantic closure telemetry fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.closure.invalid.json"
+  assert_true "$label includes candidate closure schema" test -e "$target/.agent-workflow/schemas/candidate_closure.schema.json"
+  assert_true "$label includes candidate closure RFC3339 fixture" test -e "$target/.agent-workflow/schemas/fixtures/candidate_closure.timestamp.invalid.json"
+  assert_true "$label includes candidate integration schema" test -e "$target/.agent-workflow/schemas/integration_result.schema.json"
+  assert_true "$label includes candidate evidence schema" test -e "$target/.agent-workflow/schemas/candidate_evidence_set.schema.json"
   assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
+  assert_true "$label includes invalid RUN fixture" test -e "$target/.agent-workflow/schemas/fixtures/run.invalid.json"
+  assert_true "$label includes target profile schema" test -e "$target/.agent-workflow/schemas/target-profile.schema.json"
+  assert_true "$label includes Node target profile example" test -e "$target/.agent-workflow/schemas/profiles/node.example.json"
+  assert_true "$label includes generic target verifier" test -x "$target/.agent-workflow/scripts/target-verify.sh"
+  assert_true "$label includes transport-neutral CLI" test -x "$target/.agent-workflow/scripts/agent-workflow.sh"
+  assert_true "$label includes shared dispatch core" test -x "$target/.agent-workflow/scripts/dispatch-core.sh"
+  assert_true "$label includes cmux adapter" test -x "$target/.agent-workflow/scripts/adapters/cmux.sh"
+  assert_true "$label includes Orca adapter" test -x "$target/.agent-workflow/scripts/adapters/orca.sh"
+  assert_true "$label includes receipt schema" test -e "$target/.agent-workflow/schemas/transport_receipt.schema.json"
+  assert_true "$label includes workflow config example" test -e "$target/.agent-workflow/docs/agents/workflow-config.example.json"
+  assert_true "$label includes parallel planner" test -x "$target/.agent-workflow/scripts/parallel-plan.sh"
+  assert_true "$label includes candidate integrator" test -x "$target/.agent-workflow/scripts/candidate-integrate.sh"
+  assert_true "$label includes candidate closure" test -x "$target/.agent-workflow/scripts/candidate-close.sh"
+  assert_true "$label installs final review lifecycle guard" grep -F -q 'value.lifecycle !== "final"' "$target/.agent-workflow/scripts/lib/candidate-close.cjs"
+  assert_true "$label installs active PR draft lifecycle guard" grep -F -q 'value.lifecycle !== "active"' "$target/.agent-workflow/scripts/lib/candidate-close.cjs"
+  assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
+  assert_true "$label includes execution plan schema" test -e "$target/.agent-workflow/schemas/execution_plan.schema.json"
+  assert_true "$label includes candidate closure schema" test -e "$target/.agent-workflow/schemas/candidate_closure.schema.json"
+  assert_true "$label installs direct closure bindings" grep -q '"closure_binding"' "$target/.agent-workflow/schemas/review.schema.json"
+  assert_true "$label installs RFC3339 closure timestamps" grep -F -q '(?:Z|[+-]\\d{2}:\\d{2})' "$target/.agent-workflow/schemas/candidate_closure.schema.json"
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"
 }
@@ -192,6 +227,9 @@ EOF
   mkdir -p "$installed_cmux_bin"
   cat > "$installed_cmux_bin/cmux" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 cwd=""
 command=""
 shift 2
@@ -203,7 +241,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 printf '%s\n' "$command" > "$INSTALLED_CMUX_COMMAND"
-(cd "$cwd" && /bin/sh -c "$command")
+(cd "$cwd" && /bin/sh -c "$command") >/dev/null 2>&1 || :
+printf '%s\n' '{"id":"installed-portable-workspace"}'
 EOF
   chmod +x "$installed_cmux_bin/cmux"
   printf '%s\n' 'portable runner prompt' > "$target/.review/ISSUE-189-PROMPT.txt"

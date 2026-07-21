@@ -13,10 +13,45 @@ DISPATCH="$SCRIPT_DIR/../cmux-dispatch.sh"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
+CMUX_PROBE_HELPER="$TMP_ROOT/cmux-probe-helper.sh"
+cat > "$CMUX_PROBE_HELPER" <<'EOF'
+if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then echo '{"workspaces":[]}'; exit 0; fi
+EOF
+export CMUX_PROBE_HELPER
 
 FAILURES=0
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
+
+# Asynchronous cmux fixtures are event-driven. Wait on the observable condition
+# up to a declared deadline instead of sleeping a fixed span, and name the
+# condition that never held when the deadline expires, so a timeout reports the
+# missing event rather than a downstream race.
+wait_for_condition() {
+  condition_name="$1"
+  deadline_seconds="$2"
+  shift 2
+  wait_polls=0
+  wait_limit=$((deadline_seconds * 10))
+  while [ "$wait_polls" -lt "$wait_limit" ]; do
+    if "$@"; then
+      return 0
+    fi
+    sleep 0.1
+    wait_polls=$((wait_polls + 1))
+  done
+  fail "condition not met within ${deadline_seconds}s: $condition_name"
+  return 1
+}
+
+deferred_commands_at_least() {
+  [ -f "$DEFERRED_COMMANDS" ] || return 1
+  [ "$(wc -l < "$DEFERRED_COMMANDS")" -ge "$1" ]
+}
 make_round_state() {
   issue="$1"
   worktree="$2"
@@ -299,6 +334,7 @@ BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 echo "CMUX WAS CALLED" >&2
 exit 1
 EOF
@@ -330,6 +366,12 @@ printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-333-PROMPT.txt"
 RUNNER_FIXTURE="$TMP_ROOT/runner-fixture"
 mkdir -p "$RUNNER_FIXTURE"
 cp "$DISPATCH" "$RUNNER_FIXTURE/cmux-dispatch.sh"
+cp "$SCRIPT_DIR/../dispatch-core.sh" "$RUNNER_FIXTURE/dispatch-core.sh"
+mkdir -p "$RUNNER_FIXTURE/adapters" "$TMP_ROOT/schemas" "$RUNNER_FIXTURE/lib"
+cp "$SCRIPT_DIR/../adapters/cmux.sh" "$RUNNER_FIXTURE/adapters/cmux.sh"
+cp "$ROOT/schemas/transport_receipt.schema.json" "$TMP_ROOT/schemas/transport_receipt.schema.json"
+cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-subset.cjs"
+cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
 cat > "$RUNNER_FIXTURE/codex-watchdog.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"
@@ -353,6 +395,7 @@ RUNNER_BIN="$TMP_ROOT/bin-runner-cmux"
 mkdir -p "$RUNNER_BIN"
 cat > "$RUNNER_BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 cwd=""
 command=""
 shift 2
@@ -372,6 +415,7 @@ case "$command" in
   *) echo "cmux command was not the expected relative runner: $command" >&2; exit 65 ;;
 esac
 (cd "$cwd" && /bin/sh -c "$command")
+printf '%s\n' '{"id":"cmux-runner"}'
 EOF
 chmod +x "$RUNNER_BIN/cmux"
 
@@ -417,12 +461,14 @@ fi
 # later dispatch must not overwrite the earlier seat's runner before cmux
 # executes it. Delay both runner executions until both workspace creates have
 # returned, then require distinct commands and the original prompt for each.
+# The waits below are condition/deadline bound, not fixed sleeps (AC-OBS-3).
 printf '%s\n' "seat A" > "$DEEP_WT/.review/ISSUE-335-PROMPT-A.txt"
 printf '%s\n' "seat B" > "$DEEP_WT/.review/ISSUE-335-PROMPT-B.txt"
 DEFERRED_BIN="$TMP_ROOT/bin-deferred-cmux"
 mkdir -p "$DEFERRED_BIN"
 cat > "$DEFERRED_BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 command=""
 shift 2
 while [ $# -gt 0 ]; do
@@ -432,6 +478,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 printf '%s\n' "$command" >> "$DEFERRED_COMMANDS"
+printf '%s\n' '{"id":"cmux-deferred"}'
 exit 0
 EOF
 chmod +x "$DEFERRED_BIN/cmux"
@@ -442,20 +489,14 @@ DEFERRED_COMMANDS="$DEFERRED_COMMANDS" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$DEFE
 bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
   --prompt-file .review/ISSUE-335-PROMPT-A.txt --read-only --poll-timeout 5 >"$TMP_ROOT/overlap-a.out" 2>&1 &
 overlap_a_pid=$!
-overlap_wait=0
-while [ "$(wc -l < "$DEFERRED_COMMANDS")" -lt 1 ] && [ "$overlap_wait" -lt 30 ]; do
-  sleep 0.1
-  overlap_wait=$((overlap_wait + 1))
-done
+wait_for_condition "seat A workspace create recorded its launch command" 3 \
+  deferred_commands_at_least 1
 DEFERRED_COMMANDS="$DEFERRED_COMMANDS" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
 bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
   --prompt-file .review/ISSUE-335-PROMPT-B.txt --read-only --poll-timeout 5 >"$TMP_ROOT/overlap-b.out" 2>&1 &
 overlap_b_pid=$!
-overlap_wait=0
-while [ "$(wc -l < "$DEFERRED_COMMANDS")" -lt 2 ] && [ "$overlap_wait" -lt 30 ]; do
-  sleep 0.1
-  overlap_wait=$((overlap_wait + 1))
-done
+wait_for_condition "seat B workspace create recorded its launch command" 3 \
+  deferred_commands_at_least 2
 overlap_command_a="$(sed -n '1p' "$DEFERRED_COMMANDS")"
 overlap_command_b="$(sed -n '2p' "$DEFERRED_COMMANDS")"
 (
@@ -477,6 +518,17 @@ if [ "$overlap_a_ec" -eq 0 ] && [ "$overlap_b_ec" -eq 0 ] \
   pass "overlapping same-issue seats retain launch-unique runners"
 else
   fail "overlapping same-issue seats retain launch-unique runners (a=$overlap_a_ec b=$overlap_b_ec commands=$overlap_command_a|$overlap_command_b prompts=$(cat "$TMP_ROOT/overlap-prompts.txt"))"
+fi
+
+# An asynchronous fixture event that never arrives must be reported by name
+# rather than falling through into an unrelated downstream assertion (AC-OBS-3).
+never_true() { return 1; }
+timeout_report="$(wait_for_condition "fixture event that never arrives" 1 never_true 2>&1)"
+if printf '%s\n' "$timeout_report" \
+  | grep -F -q -- 'condition not met within 1s: fixture event that never arrives'; then
+  pass "missing asynchronous event fails with the named condition"
+else
+  fail "missing asynchronous event fails with the named condition (report=$timeout_report)"
 fi
 
 # A read-only seat writes RUN.json but must remain outside the implementation
@@ -621,7 +673,7 @@ fi
 # retry the same canonical admission.
 printf '%s\n' 'bad redispatch prompt' > "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt"
 admission_bad_prompt="$TMP_ROOT/admission-bad-prompt.out"
-bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_bad_prompt" 2>&1
+PATH="$BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_bad_prompt" 2>&1
 ec=$?
 admit_common_raw="$(git -C "$ADMIT_WT" rev-parse --git-common-dir)"
 case "$admit_common_raw" in
@@ -655,7 +707,9 @@ ADMIT_BIN="$TMP_ROOT/bin-admission-cmux"
 mkdir -p "$ADMIT_BIN"
 cat > "$ADMIT_BIN/cmux" <<EOF
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":307,"attempt":2,"started_at":"2026-07-20T10:00:00Z","updated_at":"2026-07-20T10:00:00Z","status":"running"}' > "$ADMIT_WT/.review/ISSUE-307-RUN.json"
+printf '%s\n' '{"id":"cmux-admit"}'
 exit 0
 EOF
 chmod +x "$ADMIT_BIN/cmux"
@@ -777,6 +831,8 @@ NOOP_BIN="$TMP_ROOT/bin-noop-cmux"
 mkdir -p "$NOOP_BIN"
 cat > "$NOOP_BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
+printf '%s\n' '{"id":"cmux-noop"}'
 exit 0
 EOF
 chmod +x "$NOOP_BIN/cmux"
@@ -800,7 +856,9 @@ FRESH_BIN="$TMP_ROOT/bin-fresh-cmux"
 mkdir -p "$FRESH_BIN"
 cat > "$FRESH_BIN/cmux" <<EOF
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":304,"attempt":1,"started_at":"2026-07-14T09:00:00Z","updated_at":"2026-07-14T09:00:00Z","status":"running"}' > "$STALE_WT/.review/ISSUE-304-RUN.json"
+printf '%s\n' '{"id":"cmux-fresh"}'
 exit 0
 EOF
 chmod +x "$FRESH_BIN/cmux"
@@ -835,7 +893,9 @@ FRESH306_BIN="$TMP_ROOT/bin-fresh306-cmux"
 mkdir -p "$FRESH306_BIN"
 cat > "$FRESH306_BIN/cmux" <<EOF
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":306,"attempt":1,"started_at":"2026-07-14T09:00:00Z","updated_at":"2026-07-14T09:00:00Z","status":"running"}' > "$STALE_WT/.review/ISSUE-306-RUN.json"
+printf '%s\n' '{"id":"cmux-fresh306"}'
 exit 0
 EOF
 chmod +x "$FRESH306_BIN/cmux"
@@ -869,7 +929,9 @@ RACE_BIN="$TMP_ROOT/bin-race-cmux"
 mkdir -p "$RACE_BIN"
 cat > "$RACE_BIN/cmux" <<EOF
 #!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
 printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":308,"attempt":1,"started_at":"2026-07-20T11:00:00Z","updated_at":"2026-07-20T11:00:00Z","status":"running"}' > "$RACE_WT/.review/ISSUE-308-RUN.json"
+printf '%s\n' '{"id":"cmux-race"}'
 exit 0
 EOF
 chmod +x "$RACE_BIN/cmux"

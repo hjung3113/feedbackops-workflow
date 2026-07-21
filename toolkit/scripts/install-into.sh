@@ -381,7 +381,8 @@ cat <<EOF
 Next steps:
   - Invoke the project skill: /agent-workflow
   - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
-  - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/cmux-dispatch.sh
+  - Choose cmux or Orca:      copy $TARGET_ROOT/.agent-workflow/docs/agents/workflow-config.example.json
+  - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/agent-workflow.sh dispatch
   - Verify target fit before using the bundled backend/Vitest verify.sh adapter.
   - Copy .env.example from the distributable toolkit package when needed.
 EOF

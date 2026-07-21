@@ -1,0 +1,13 @@
+{
+  "schema_version": "1", "artifact_type": "execution_plan", "lifecycle": "active", "producer_role": "CONDUCTOR",
+  "issue": 14, "round": 1, "manifest_revision": 1, "plan_revision": 1,
+  "base_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "seats": [
+    { "id": "api", "write_set": { "mode": "exact", "paths": ["src/api"] }, "depends_on": [] },
+    { "id": "ui", "write_set": { "mode": "exact", "paths": ["src/ui"] }, "depends_on": [] }
+  ],
+  "integration_order": ["api", "ui"],
+  "parallel_policy": { "shared_mutation_paths": ["package-lock.json"], "database_isolation": "not_required", "environment_isolation": "isolated_per_seat", "rate_limit_budget": "not_required" },
+  "required_evidence": ["review", "verification", "pr_draft", "completion", "seat_outcome"],
+  "candidate_closure": { "retry_policy": "complete_fresh_same_head_set", "require_clean_candidate": true, "unresolved_blockers": "deny" }
+}

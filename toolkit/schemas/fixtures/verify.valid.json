@@ -6,7 +6,7 @@
   "issue": 33,
   "branch": "fix/33-artifact-fresh",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
-  "cwd": "/Users/hyojung/Desktop/2026/FeedbackOps",
+  "cwd": "/workspace/feedbackops",
   "verify_cmd": "scripts/verify.sh --filter voc-list",
   "env_profile": "scrubbed",
   "db_target": {

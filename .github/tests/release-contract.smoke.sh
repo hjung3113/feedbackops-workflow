@@ -85,9 +85,50 @@ assert_exists "product README" "$PRODUCT_ROOT/README.md"
 assert_exists "product STATUS" "$PRODUCT_ROOT/STATUS.md"
 assert_exists "product env example" "$PRODUCT_ROOT/.env.example"
 assert_exists "product scripts" "$PRODUCT_ROOT/scripts/ac-check.sh"
+assert_exists "transport-neutral public CLI" "$PRODUCT_ROOT/scripts/agent-workflow.sh"
+assert_exists "shared dispatch core" "$PRODUCT_ROOT/scripts/dispatch-core.sh"
+assert_exists "cmux transport adapter" "$PRODUCT_ROOT/scripts/adapters/cmux.sh"
+assert_exists "Orca transport adapter" "$PRODUCT_ROOT/scripts/adapters/orca.sh"
 assert_exists "product smoke suite" "$PRODUCT_ROOT/scripts/__tests__/run-all.sh"
 assert_exists "product schemas" "$PRODUCT_ROOT/schemas/round_state.schema.json"
+assert_exists "target profile schema" "$PRODUCT_ROOT/schemas/target-profile.schema.json"
+assert_exists "target profile examples" "$PRODUCT_ROOT/schemas/profiles/node.example.json"
+assert_exists "target-neutral verifier" "$PRODUCT_ROOT/scripts/target-verify.sh"
+assert_exists "transport receipt schema" "$PRODUCT_ROOT/schemas/transport_receipt.schema.json"
+assert_exists "review capsule schema" "$PRODUCT_ROOT/schemas/review_capsule.schema.json"
+assert_exists "review capsule renderer" "$PRODUCT_ROOT/scripts/review-capsule.sh"
+assert_exists "parallel planner" "$PRODUCT_ROOT/scripts/parallel-plan.sh"
+assert_exists "candidate integrator" "$PRODUCT_ROOT/scripts/candidate-integrate.sh"
+assert_exists "candidate closure gate" "$PRODUCT_ROOT/scripts/candidate-close.sh"
+assert_exists "shared RFC3339 parser" "$PRODUCT_ROOT/scripts/lib/rfc3339.cjs"
+assert_exists "shared cmux handle normalizer" "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+assert_exists "telemetry sample semantic validator" "$PRODUCT_ROOT/scripts/lib/telemetry-sample.cjs"
+assert_contains "closure requires final review lifecycle" 'value.lifecycle !== "final"' "$PRODUCT_ROOT/scripts/lib/candidate-close.cjs"
+assert_contains "closure requires active PR draft lifecycle" 'value.lifecycle !== "active"' "$PRODUCT_ROOT/scripts/lib/candidate-close.cjs"
+assert_exists "product smoke suite" "$PRODUCT_ROOT/scripts/__tests__/run-all.sh"
+assert_exists "product schemas" "$PRODUCT_ROOT/schemas/round_state.schema.json"
+assert_exists "execution plan schema" "$PRODUCT_ROOT/schemas/execution_plan.schema.json"
+assert_exists "candidate evidence schema" "$PRODUCT_ROOT/schemas/candidate_evidence_set.schema.json"
+assert_exists "candidate closure schema" "$PRODUCT_ROOT/schemas/candidate_closure.schema.json"
+assert_exists "completion evidence schema" "$PRODUCT_ROOT/schemas/completion_evidence.schema.json"
+assert_exists "seat outcome schema" "$PRODUCT_ROOT/schemas/seat_outcome.schema.json"
+assert_contains "review schema carries direct closure binding" '"closure_binding"' "$PRODUCT_ROOT/schemas/review.schema.json"
+assert_contains "verification schema carries direct closure binding" '"closure_binding"' "$PRODUCT_ROOT/schemas/verify.schema.json"
+assert_contains "PR draft schema carries direct closure binding" '"closure_binding"' "$PRODUCT_ROOT/schemas/pr_draft.schema.json"
+assert_contains "candidate timestamps use RFC3339 shape" '(?:Z|[+-]\\d{2}:\\d{2})' "$PRODUCT_ROOT/schemas/candidate_closure.schema.json"
+assert_exists "telemetry sample schema" "$PRODUCT_ROOT/schemas/telemetry_sample.schema.json"
+assert_exists "telemetry report schema" "$PRODUCT_ROOT/schemas/telemetry_report.schema.json"
+assert_exists "semantic closure telemetry fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_sample.closure.valid.json"
+assert_exists "invalid semantic closure telemetry fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_sample.closure.invalid.json"
+assert_exists "candidate closure schema" "$PRODUCT_ROOT/schemas/candidate_closure.schema.json"
+assert_exists "candidate closure RFC3339 fixture" "$PRODUCT_ROOT/schemas/fixtures/candidate_closure.timestamp.invalid.json"
+assert_exists "candidate integration schema" "$PRODUCT_ROOT/schemas/integration_result.schema.json"
+assert_exists "candidate evidence schema" "$PRODUCT_ROOT/schemas/candidate_evidence_set.schema.json"
+assert_exists "local telemetry command" "$PRODUCT_ROOT/scripts/telemetry.sh"
 assert_exists "product schema fixtures" "$PRODUCT_ROOT/schemas/fixtures/round_state.valid.json"
+assert_exists "invalid RUN schema fixture" "$PRODUCT_ROOT/schemas/fixtures/run.invalid.json"
+assert_contains "shared core pins the resolved Codex executable" 'AGENT_WORKFLOW_CODEX_BIN=' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
+assert_contains "cmux create and inspect share unique id fields" '"workspace_id", "workspaceId", "ref"' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
 assert_exists "product playbook" "$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
 assert_exists "product conductor persona" "$PRODUCT_ROOT/docs/agents/conductor-persona.md"
 assert_exists "product visual reviewer persona" "$PRODUCT_ROOT/docs/agents/visual-reviewer-persona.md"
@@ -95,6 +136,7 @@ assert_exists "product historical trial log" "$PRODUCT_ROOT/docs/agents/workflow
 assert_exists "product issue reporting" "$PRODUCT_ROOT/docs/agents/issue-reporting.md"
 assert_exists "canonical product skill" "$PRODUCT_ROOT/.claude/skills/agent-workflow/SKILL.md"
 assert_exists "product adoption guide" "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
+assert_exists "workflow config example" "$PRODUCT_ROOT/docs/agents/workflow-config.example.json"
 
 assert_exists "root maintainer instructions" "$REPOSITORY_ROOT/AGENTS.md"
 assert_exists "root Claude pointer" "$REPOSITORY_ROOT/CLAUDE.md"
@@ -161,7 +203,7 @@ assert_contains "root README routes to product README" 'toolkit/README.md' "$REP
 assert_contains "trial log remains marked historical" 'Historical record' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "trial log preserves dated legacy evidence" 'feature/31-idem-audit-assertion' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "product instructions forbid duplicate authority" 'Do not recreate an `agent-workflow` authority outside this product root.' "$PRODUCT_ROOT/AGENTS.md"
-assert_contains "source dispatch requires canonical initial state" 'initial write requires --round-state and --manifest-revision' "$PRODUCT_ROOT/scripts/cmux-dispatch.sh"
+assert_contains "shared dispatch core requires canonical initial state" 'initial write requires --round-state and --manifest-revision' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
 assert_exists "product Claude pointer" "$PRODUCT_ROOT/CLAUDE.md"
 assert_contains "root instructions identify Matt development skills" 'Matt Pocock skills under `.agents/skills/`' "$REPOSITORY_ROOT/AGENTS.md"
 
@@ -316,7 +358,7 @@ assert_command "copy scripts are not symlinked to source" test ! -L "$copy_targe
 assert_command "copy schemas are not symlinked to source" test ! -L "$copy_target/.agent-workflow/schemas"
 assert_command "copy docs are not symlinked to source" test ! -L "$copy_target/.agent-workflow/docs/agents"
 assert_command "copy skill is not symlinked to source" test ! -L "$copy_target/.claude/skills/agent-workflow"
-assert_contains "copy preserves canonical initial-state admission" 'initial write requires --round-state and --manifest-revision' "$copy_target/.agent-workflow/scripts/cmux-dispatch.sh"
+assert_contains "copy preserves canonical initial-state admission" 'initial write requires --round-state and --manifest-revision' "$copy_target/.agent-workflow/scripts/dispatch-core.sh"
 printf '%s\n' '[source-only](../../../README.md)' \
   > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
 assert_rejects "installed target-owned Markdown link fails" 'escapes its documented context' \
@@ -351,6 +393,16 @@ if bash "$PRODUCT_ROOT/scripts/__tests__/run-all.sh" --list | grep -F -x -q 'ins
   ok "full product suite includes installer contract"
 else
   not_ok "full product suite includes installer contract"
+fi
+
+# The runner's own contract test must stay outside the live inventory: the
+# runner discovers work by the *.smoke.sh suffix and would otherwise re-enter
+# itself.
+assert_exists "smoke runner contract test" "$PRODUCT_ROOT/scripts/__tests__/run-all-contract.test.sh"
+if bash "$PRODUCT_ROOT/scripts/__tests__/run-all.sh" --list | grep -F -q 'run-all-contract'; then
+  not_ok "smoke runner contract test stays outside the live inventory"
+else
+  ok "smoke runner contract test stays outside the live inventory"
 fi
 
 echo "---"

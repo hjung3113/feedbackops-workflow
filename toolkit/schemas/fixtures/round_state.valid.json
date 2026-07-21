@@ -4,7 +4,10 @@
   "lifecycle": "active",
   "producer_role": "CONDUCTOR",
   "issue": { "number": 188, "title": "shared contract change" },
-  "tier": { "name": "full_cluster", "rationale": "changes a shared exported contract" },
+  "tier": {
+    "name": "full_cluster",
+    "rationale": "changes a shared exported contract"
+  },
   "revision": 4,
   "updated_at": "2026-07-20T12:00:00Z",
   "base_branch": "develop",
@@ -14,6 +17,7 @@
   "contract": {
     "objective": "change the shared contract without leaving compile-time consumers behind",
     "touch_allowlist": ["packages/shared/**", "apps/backend/**"],
+    "prohibitions": ["no network", "no push", "no merge", "no issue mutation"],
     "verify_filter": "shared-contract",
     "test_discovery_command": "pnpm --filter backend exec vitest --list",
     "chunk_boundary": {
@@ -38,12 +42,21 @@
   "acceptance": {
     "expected_test_count": 2,
     "criteria": [
-      { "id": "AC-1", "statement": "all compile-time consumers are enumerated" },
+      {
+        "id": "AC-1",
+        "statement": "all compile-time consumers are enumerated"
+      },
       { "id": "AC-2", "statement": "the scoped verifier passes" }
     ]
   },
   "decisions": [
-    { "id": "D-1", "revision": 4, "status": "decided", "summary": "keep the change compile-atomic", "rationale": "partial consumers caused an extra review round" }
+    {
+      "id": "D-1",
+      "revision": 4,
+      "status": "decided",
+      "summary": "keep the change compile-atomic",
+      "rationale": "partial consumers caused an extra review round"
+    }
   ],
   "prior_findings": [],
   "round_control": {
@@ -56,7 +69,10 @@
         "secondary_origins": [],
         "failed_ac_ids": ["AC-2"],
         "owner": "CONDUCTOR",
-        "next_action": { "kind": "contract_fix", "summary": "repair the dispatch contract before another implementation attempt" },
+        "next_action": {
+          "kind": "contract_fix",
+          "summary": "repair the dispatch contract before another implementation attempt"
+        },
         "evidence": [
           {
             "kind": "blocker",
@@ -74,7 +90,10 @@
         "secondary_origins": ["implementation"],
         "failed_ac_ids": ["AC-2"],
         "owner": "CONDUCTOR",
-        "next_action": { "kind": "contract_fix", "summary": "repair the dispatch contract before another implementation attempt" },
+        "next_action": {
+          "kind": "contract_fix",
+          "summary": "repair the dispatch contract before another implementation attempt"
+        },
         "evidence": [
           {
             "kind": "blocker",
@@ -121,21 +140,41 @@
           }
         }
       ],
-      "manifest_update": { "from_revision": 3, "to_revision": 4, "decision_id": "D-1" },
-      "integrated_fix_batch": { "dispatch_ordinal": 3, "failure_ids": ["F-1", "F-2"], "status": "ready" }
+      "manifest_update": {
+        "from_revision": 3,
+        "to_revision": 4,
+        "decision_id": "D-1"
+      },
+      "integrated_fix_batch": {
+        "dispatch_ordinal": 3,
+        "failure_ids": ["F-1", "F-2"],
+        "status": "ready"
+      }
     }
   },
   "commit_scope": {
     "commits": [
-      { "sha": "2222222222222222222222222222222222222222", "subject": "feat: update shared contract" }
+      {
+        "sha": "2222222222222222222222222222222222222222",
+        "subject": "feat: update shared contract"
+      }
     ]
   },
   "live_probes": [
-    { "command": "pnpm --filter backend run typecheck", "exit_code": 0, "observed_at": "2026-07-20T11:55:00Z", "summary": "no new TypeScript errors" }
+    {
+      "command": "pnpm --filter backend run typecheck",
+      "exit_code": 0,
+      "observed_at": "2026-07-20T11:55:00Z",
+      "summary": "no new TypeScript errors"
+    }
   ],
   "artifact_pointers": [
     { "artifact_type": "pr_draft", "path": ".review/ISSUE-188-PR-DRAFT.json" },
     { "artifact_type": "review", "path": ".review/ISSUE-188-REVIEW.json" },
-    { "artifact_type": "verify_result", "path": ".review/ISSUE-188-VERIFY.json", "head_sha": "2222222222222222222222222222222222222222" }
+    {
+      "artifact_type": "verify_result",
+      "path": ".review/ISSUE-188-VERIFY.json",
+      "head_sha": "2222222222222222222222222222222222222222"
+    }
   ]
 }

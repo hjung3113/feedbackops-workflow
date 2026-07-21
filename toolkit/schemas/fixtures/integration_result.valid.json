@@ -1,0 +1,8 @@
+{
+  "schema_version": "1", "artifact_type": "integration_result", "producer_role": "CONDUCTOR",
+  "issue": 14, "round": 1, "manifest_revision": 1, "plan_revision": 1,
+  "plan_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base_head": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "status": "pass",
+  "steps": [{ "seat_id": "api", "source_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "changed_paths": ["src/api/index.js"], "status": "integrated", "resulting_head": "cccccccccccccccccccccccccccccccccccccccc" }],
+  "candidate_head": "cccccccccccccccccccccccccccccccccccccccc", "candidate_clean": true, "created_at": "2026-07-21T00:00:00Z"
+}
