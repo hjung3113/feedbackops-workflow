@@ -127,7 +127,7 @@ assert_exists "candidate evidence schema" "$PRODUCT_ROOT/schemas/candidate_evide
 assert_exists "local telemetry command" "$PRODUCT_ROOT/scripts/telemetry.sh"
 assert_exists "product schema fixtures" "$PRODUCT_ROOT/schemas/fixtures/round_state.valid.json"
 assert_exists "invalid RUN schema fixture" "$PRODUCT_ROOT/schemas/fixtures/run.invalid.json"
-assert_contains "shared core pins the resolved Codex executable" 'AGENT_WORKFLOW_CODEX_BIN=' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
+assert_contains "shared core pins the selected capability-probed runtime executable" 'AGENT_WORKFLOW_RUNTIME_BIN=' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
 assert_contains "cmux create and inspect share unique id fields" '"workspace_id", "workspaceId", "ref"' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
 assert_exists "product playbook" "$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
 assert_exists "product conductor persona" "$PRODUCT_ROOT/docs/agents/conductor-persona.md"

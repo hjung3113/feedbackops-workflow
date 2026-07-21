@@ -1,6 +1,43 @@
 # Multi-Agent Workflow — Operating Playbook
 
-This file is the detailed operating authority for the transport-selectable Orca/cmux × Claude × Codex workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
+This file is the detailed operating authority for the transport-selectable Orca/cmux × Codex/Claude Code/OpenCode workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
+
+## Distribution, runtime, role, and transport axes
+
+`install-into.sh <target> --profile feedbackops|generic` is the sole
+distribution selector. `feedbackops` preserves the named compatibility
+adapters and their pnpm, Vitest, PostgreSQL, tracker, labels, domain, layout,
+and maintainer conventions. `generic` installs target-neutral docs and skill
+only; it inherits none of those facts. The installed generic assets under
+`scripts/install-profiles/generic/` are the generic distribution authority.
+
+Dispatch has independent distribution profile, runtime
+(`codex|claude|opencode`), role
+(`conductor|architect|implementation|reviewer|verifier|visual|release`), and
+transport (`cmux|orca`) axes. Profile supplies target adoption facts; runtime
+supplies execution/isolation capability; role supplies workflow responsibility;
+transport supplies pane/worktree lifecycle. None implies another. CLI >
+environment > target config applies independently to transport, runtime, and
+role. Legacy omitted runtime/role resolve to Codex/implementation only for
+compatibility.
+
+Before admission, the public capability probe and shared core prove selected
+runtime/role/mode and selected transport. Missing capability, unsupported
+isolation, or invalid configuration fails before admission with a
+machine-readable reason; no runtime, role, model, or transport fallback is
+permitted. RUN/receipt runtime, role, and observed-version fields are
+diagnostic provenance, never completion authority: only fresh canonical REVIEW
+and VERIFY evidence bound to live HEAD completes work.
+
+OpenCode requires an explicit deny-first permission JSON. Both top-level
+`permission` and the named primary `agent["agent-workflow"].permission` deny
+`*`, `external_directory`, `webfetch`, and `websearch`; write explicitly allows
+`edit` and `bash` in both scopes so implementation can build, test, and use Git,
+while read denies both. The adapter supplies that exact
+JSON through `OPENCODE_CONFIG_CONTENT` and invokes `opencode run --agent
+agent-workflow`; it never accepts OpenCode's default-agent fallback. A model
+choice cannot waive this gate. Codex, Claude Code, and OpenCode may each
+conduct or perform any role only after their own capability probe passes.
 
 The coordination model consumes one target-owned profile (`schemas/target-profile.schema.json`) for target facts. `target-verify.sh` is target-neutral; `verify.sh` remains the explicit FeedbackOps pnpm/Vitest/Postgres compatibility adapter. `prepare-worktree.sh` and `tier-probe.sh` retain their legacy adapters in this wave; profile-driven setup/tier migration is deferred to avoid two competing partial parsers. Read `.claude/skills/agent-workflow/references/adoption.md` before adoption.
 
@@ -102,7 +139,7 @@ The gate trips over one explicit active cycle: verified-closed history must be a
 
 A tripped circuit admits at most one `integrated_fix` batch. ROUND-STATE diagnosis records are an ordered prefix: (1) recheck oracle and contract first, (2) capture one reproducible hard fact, and (3) identify a passing analog with the fixed `guess_forbidden_copy_passing_analog_to_parity` instruction. This means: do not guess; copy the known-green wiring to parity; if it remains red, report a blocker instead of committing another speculative patch. The optional singleton `manifest_update` permits at most one revision increment and its `to_revision` must equal the current ROUND-STATE revision. The singleton integrated batch must cover every open failure while retaining each failure's AC ids and evidence. `cmux-dispatch.sh` consumes its admission key atomically before launch; once the batch status is `used`, `redispatch-check.sh` also returns `diagnosis_exhausted`. Another implementation batch needs an explicit new decision or blocker, not an automatic redispatch.
 
-The gate is read-only and deterministic. Exit 0 allows exactly the emitted `dispatch_mode` (`normal` or `integrated_fix`); exit 1 denies dispatch with the calculated trigger and obligations; exit 2 rejects malformed, stale, contradictory, or uncheckable state. It never reads prompt prose, model telemetry, RUN/HEARTBEAT, stderr text, or pane state. ROUND-STATE remains the sole ledger and CONDUCTOR remains its sole writer.
+The gate is read-only and deterministic. Exit 0 allows exactly the emitted `dispatch_mode` (`normal` or `integrated_fix`); exit 1 denies dispatch with the calculated trigger and obligations; exit 2 rejects malformed, stale, contradictory, or uncheckable state. It never reads prompt prose, model telemetry, RUN/HEARTBEAT, stderr text, or pane state. ROUND-STATE remains the sole ledger and CONDUCTOR its semantic owner; in read-only conductor-control mode, the locked host publisher is the sole byte writer after validating the conductor's proposal.
 
 ### ARCH feasibility evidence
 
@@ -156,7 +193,7 @@ Workload scaling (v1): review depth scales with the actual diff — ≤~50 chang
 
 ## CONDUCTOR
 
-The **CONDUCTOR** is the 5th role: the orchestrator. Claude Opus, in a **dedicated pane OUTSIDE all clusters**, overseeing every in-flight cluster (one CONDUCTOR, not one per cluster). It dispatches work to the worker roles (ARCHITECT, CODEX, REVIEWER, VERIFIER, VISUAL) and tracks chunk state.
+The **CONDUCTOR** is the orchestrator role, executed by the explicitly selected Codex, Claude Code, or OpenCode runtime in a **dedicated pane OUTSIDE all clusters**, overseeing every in-flight cluster (one CONDUCTOR, not one per cluster). It dispatches work to the worker roles (ARCHITECT, implementation, REVIEWER, VERIFIER, VISUAL) and tracks chunk state.
 
 - **READ-ONLY on product code.** CONDUCTOR never edits source files — any source edit is *role bleed*, a defect. It reads `.review/*.json` and dispatches.
 - **Disk is truth.** It reads worker state EXCLUSIVELY from `.review/*.json` via `scripts/conductor-rebuild.sh` — never inferred from pane scrollback or prose. It holds no in-memory-only state and is rotatable/reconstructable.
@@ -192,14 +229,14 @@ Every issue has one **Release Captain**. The Captain owns merge readiness with o
 
 ## Codex Sandbox Rule
 
-All write-capable task dispatches MUST go through `scripts/codex-safe.sh`, which enforces:
+All write-capable **Codex** executions reached through the shared runtime adapter MUST delegate to `scripts/codex-safe.sh`, which enforces:
 
 - `--sandbox workspace-write` (no read/write outside the working root)
 - `--cd <worktree>` on the codex call (locks codex's writable root to one worktree). The wrapper's own CLI flag is `--cwd`; it maps that to codex's `-C/--cd`.
 - `sandbox_workspace_write.writable_roots=["<resolved Git metadata dir>"]` when `--cwd` is a Git checkout or linked worktree (see below)
 - abort-time `workflow-stash.sh` (preserve partial diff on non-zero exit)
 
-Direct `codex exec` is forbidden for implementation and review tasks. The cheap model-availability preflight in "Model Allocation" is the only direct non-task exception; it uses `--skip-git-repo-check`, requests an exact harmless reply, and must not carry project work.
+Direct `codex exec` is forbidden for implementation and review tasks. Claude Code and OpenCode use their own typed runtime isolation contracts above; this Codex-specific wrapper is not their authority. The cheap model-availability preflight in "Model Allocation" is the only direct non-task exception; it uses `--skip-git-repo-check`, requests an exact harmless reply, and must not carry project work.
 
 #### Why a Git checkout needs its metadata directory as a writable root
 
@@ -217,29 +254,57 @@ The failure mode is nasty because it is **silent and looks behavioural**: codex 
 
 **Diagnostic lesson:** a scratch-repo repro under `/tmp` shows the bug **passing** — codex's sandbox makes `/tmp` writable by default, which masks it. Reproduce this class of bug in a worktree of the real repo, not a temp fixture.
 
-### Codex stall watchdog
+### Runtime-neutral stall watchdog
 
-Dispatch CODEX through `scripts/codex-watchdog.sh --issue <N> --prompt-file <file> --cwd <worktree>` when running automated clusters. The watchdog calls `scripts/codex-safe.sh` by absolute path, so the sandbox and stash rules still come from the single sanctioned wrapper. Clear `NODE_OPTIONS=` for the dispatch. `--prompt-file` may be relative — it is resolved against `--cwd`, not the calling shell's cwd (see incident below) — or absolute. On startup the watchdog echoes its resolved config (`issue`, `prompt-file`, `cwd`) so pane scrollback always shows what it actually tried.
+New dispatches run through `scripts/agent-watchdog.sh`, which invokes the typed
+`agent-runtime.sh` boundary with the selected runtime, role, mode, pinned
+executable, model/effort, and OpenCode permission file. `codex-watchdog.sh`
+remains only a legacy direct-call compatibility path; it is not the public
+multi-runtime authority. Codex write/review execution still delegates inside
+the runtime adapter to hardened `codex-safe.sh`, preserving its Git metadata,
+stash, effort-cap, and atomic review-publication invariants.
 
-Liveness is **process + filesystem progress**, never stdout first-token output. The watchdog waits for the codex-safe process to stay alive and for files in the worktree to advance (`find -newer`, excluding `.git` and `node_modules`). If no file progress appears within `--first-progress-timeout` or later stalls for `--stall-timeout`, it kills the process tree and retries up to `--max-retries`. For a deliberately read-heavy dispatch, pass the liveness option `--read-only`: codex-safe rewrites `<worktree>/.review/HEARTBEAT-ISSUE-<N>.json` every 20 seconds while its child is alive, so thinking-heavy work satisfies that same mtime check; this legacy name does not change the Codex filesystem sandbox. REVIEWER uses `--produce-review`, described below, for an enforced read-only sandbox and canonical output publication.
+Liveness is process plus filesystem progress, never stdout first-token output.
+The shared watchdog excludes `.git`, `.review`, and `node_modules` from the
+progress scan, applies first-progress and stall budgets, kills the process tree
+on a stall, and permits `MAX_RETRIES + 1` total attempts. Each attempt first
+publishes `running`, republishes it with the child PID, and on failure stores
+`ISSUE-N-agent-attempt<K>-stderr.log`. Explicit auth/model/permission/capability
+diagnostics refuse immediately; otherwise two failed selected-runtime probes
+separated by the configured gap refuse. Stall and ordinary non-zero failures
+retry when budget remains. Exhaustion writes `exhausted` and exits non-zero.
 
-After a non-stall non-zero exit, the watchdog does not inspect stderr. It preserves the diagnostic log at `<worktree>/.review/ISSUE-<N>-attempt<k>-stderr.log` and echoes that path, then probes Codex directly with a low-effort `reply exactly OK` request (overridable by `CODEX_WATCHDOG_PROBE_CMD`). A passing probe means transient failure and retries. One failed probe is inconclusive: after 10 seconds (overridable by `CODEX_WATCHDOG_PROBE_GAP`) it probes once more; only two failed probes mean model/auth-level refusal, write `status:"refused"`, and exit 4.
+Each shared attempt writes `ISSUE-N-RUN.json` as `artifact_type:"agent_run"`
+with selected `runtime`, `role`, observed `runtime_version`, and status
+`running|exited|killed_stall|refused|exhausted`. `attempt` is a watchdog process
+attempt counter, not an admission ordinal or workflow failure round; retries do
+not consume redispatch admission. `exited` is written only after a zero process
+exit and any requested host publication gate succeeds. It proves termination,
+not completion. Legacy `codex_run` remains schema-readable only for historical
+compatibility. No RUN shape has `completed` or `failed` status.
 
-Each attempt writes `<worktree>/.review/ISSUE-<N>-RUN.json` with `artifact_type: "codex_run"` and status `running | exited | killed_stall | refused | exhausted` (schema `schemas/run.schema.json`). This marker is a dispatch liveness record, not verification evidence.
-
-**RUN.json terminal-state contract — read this before writing any polling logic.** `status:"running"` while the codex-safe process is alive and still attempting. Terminal states are `status:"exited"` (codex process finished; `exit_code` present — `exit_code === 0` means the *process* finished cleanly, it does **not** mean the task succeeded; task success is judged by commits + a canonical `VERIFY.json` artifact, never by exit code alone), `status:"killed_stall"` (watchdog killed it for no progress), `status:"refused"` (probe says model/auth-level failure; retry is futile), and `status:"exhausted"` (retries used up). There is no `"completed"` or `"failed"` string anywhere in this schema — do not poll for them. A `.review/ISSUE-<N>-BLOCKER.json` file appearing instead of/alongside `RUN.json` is a scoped abort (codex chose to stop, not crash).
+`--produce-review` requires reviewer read mode and host-validates canonical
+review JSON against live HEAD before publication. `--conductor-control`
+requires conductor read mode. The untrusted runtime may propose exactly one
+ROUND-STATE publication; `conductor-control-publish.sh` takes a host lock,
+schema/issue/live-HEAD/worktree/base/revision/path-validates it, and atomically
+publishes only `.review/ISSUE-N-ROUND-STATE.json`. The conductor runtime never
+gets product-code write permission from this mode. A denied proposal publishes
+nothing and makes the RUN refused/non-successful.
 
 ### `agent-workflow.sh` — explicit Orca/cmux selection over one correctness core
 
-The public interface has three commands: `capabilities`, `dispatch`, and `inspect`. `dispatch` chooses exactly one adapter by CLI `--orchestrator`, then `AGENT_WORKFLOW_ORCHESTRATOR`, then target-local `.agent-workflow/workflow-config.json`. If none is configured, the value is unknown, or the selected adapter cannot prove its required capabilities, dispatch fails before write admission. There is no implicit default and no fallback. The config accepts only `{"orchestrator":"cmux|orca"}`; copy [the installed example](workflow-config.example.json) rather than adding command fields.
+The public interface has three commands: `capabilities`, `dispatch`, and `inspect`. `dispatch` resolves `orchestrator`, `runtime`, and `role` independently by CLI, then the matching `AGENT_WORKFLOW_*` environment value, then target-local `.agent-workflow/workflow-config.json`. The config accepts exactly those three string axes; copy [the installed example](workflow-config.example.json) rather than adding command or executable fields. Missing transport, unknown values, or failed selected transport/runtime/role capability fails before write admission. Runtime/role omission maps to Codex/implementation only for legacy compatibility; it is not runtime fallback.
 
-`dispatch-core.sh` remains the sole owner of prompt/ROUND-STATE validation, issue/worktree/HEAD binding, atomic initial and redispatch admission, unique runner creation, RUN/BLOCKER freshness, polling timeout, and exit classification. Both adapters receive the same typed seat request: seat name, exact existing worktree, and launch-runner-relative path. They cannot receive arbitrary target-configured argv. Every successful launch atomically publishes schema-valid `.review/ISSUE-<N>-TRANSPORT.json` with adapter capability evidence, external handle, worktree and runner identity, and timestamps. It is explicitly non-authoritative. `agent-workflow.sh inspect --receipt <path>` uses the selected adapter's read-only list operation to query the external handle, then normalizes it to `live`, `stale` (missing handle), or `handle_unverifiable` (failed/malformed probe). Orca uses one normalizer for launch and inspect and accepts the runtime handle keys `terminal_id`, `terminalId`, `handle`, and `id`; unknown keys do not become identities. A changed or missing runner also forces `stale`. These are transport diagnostics only; completion still requires canonical REVIEW/VERIFY evidence at live HEAD.
+`dispatch-core.sh` remains the sole owner of prompt/ROUND-STATE validation, issue/worktree/HEAD binding, atomic initial and redispatch admission, unique runner creation, RUN/BLOCKER freshness, polling timeout, and exit classification. Both transport adapters receive the same typed seat request and cannot receive arbitrary target-configured argv. Every new launch atomically publishes schema-valid `.review/ISSUE-<N>-TRANSPORT.json` schema v2 with selected runtime, role, observed runtime version, adapter capability evidence, external handle, worktree/runner identity, and timestamps. It is explicitly non-authoritative. Schema v1 receipts remain readable as legacy transport-only evidence; missing v2 runtime provenance is interpreted only as legacy Codex/implementation for inspection display, never as proof of a current dispatch. `inspect` normalizes external handle/runner state to `live`, `stale`, or `handle_unverifiable`; none completes work.
+
+The typed `role` is an admission, access-mode, and provenance contract; it is not a runtime-specific hidden persona prompt. The canonical prompt/capsule supplied by the conductor remains the explicit source of role instructions and task scope. This keeps the same auditable prompt semantics across Codex, Claude Code, and OpenCode instead of silently injecting different vendor behavior.
 
 The cmux adapter creates one workspace with the exact `--cwd` and short runner command. Before admission it runs only side-effect-free version/help probes: cmux must be at least `0.64.0`, `workspace create` must exist, and its documented create flags must include `--cwd` and `--command`. A present binary whose probes exit non-zero is unavailable. The Orca adapter first proves `orca terminal create` supports every launch flag (`--worktree`, `--title`, `--command`, `--json`) and that read-only terminal listing supports `--worktree` and `--json`; it then creates one fresh bare-shell terminal with `--worktree path:<exact-worktree>` and the same short runner. It does not create or open a repository/worktree/UI, inject another agent, focus the GUI, reuse a supplied handle, or fall back. Missing proof returns `required_capability_missing` before admission and does not consume a marker. `cmux-dispatch.sh` remains an explicit-cmux compatibility facade over this same core.
 
-Before any admission, the shared core resolves `codex` from the caller's `PATH` to one canonical absolute executable and pins that path into the retained runner, watchdog probes, and safe wrapper. `AGENT_WORKFLOW_CODEX_BIN` is a host/operator-only override for controlled launch environments; it must already be an absolute executable path and is rejected before admission otherwise. Target workflow config cannot set or inject an executable. This prevents an Orca terminal with a different inherited `PATH` from silently selecting another Codex installation. cmux create success is similarly identity-strict: create and inspect share one internal handle module that accepts only documented `id`, `workspace_id`, `workspaceId`, or `ref` values. Create requires exactly one unique value, never the requested display name, and read-only inspection matches only that exact handle.
+Before admission, the shared core resolves the selected runtime from its runtime-specific host seam (`AGENT_WORKFLOW_CODEX_BIN`, `AGENT_WORKFLOW_CLAUDE_BIN`, or `AGENT_WORKFLOW_OPENCODE_BIN`) or caller `PATH` to one canonical absolute executable. It exports only the generic absolute `AGENT_WORKFLOW_RUNTIME_BIN` pin into the retained runner, shared watchdog probes, and runtime adapter. Relative, missing, non-executable, mismatched, or unavailable pins fail before admission; target workflow config cannot set one. This prevents a transport terminal with a different inherited PATH from changing runtime identity. cmux handle creation/inspection remains identity-strict as documented below.
 
-Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca> --issue <N> --worktree <path> ...` for new callers. Use `scripts/agent-workflow.sh capabilities --worktree <path>` before operator setup. The remaining correctness options below are shared across both transports.
+Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role <role> --issue <N> --worktree <path> ...` for new callers. Add `--read-only --conductor-control` only for the narrow conductor ROUND-STATE publication mode. Use `capabilities` before operator setup. The remaining correctness options below are shared across transports and runtimes.
 
 ### Historical cmux incident and compatibility contract
 
@@ -248,14 +313,14 @@ Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca> --issue <N> -
 Do not hand-roll `cmux new-workspace`, `orca terminal create`, or a watchdog command. New callers use the public interface above with optional planned-write arguments `--execution-plan <json> --seat <id>`. Existing `scripts/cmux-dispatch.sh --issue <N> --worktree <path> ...` calls retain their explicit-cmux behavior and accept the same correctness arguments. Initial writes require an explicit tier. Standard/Full Cluster initial writes and every redispatch require the canonical ROUND-STATE arguments; Trivial initial writes retain the `pr_draft`-only contract, and read-only seats remain outside write admission:
 
 - Defaults: `--prompt-file` = `<worktree>/.review/ISSUE-<N>-PROMPT.md` (the legacy `.txt` path remains accepted for compatibility), `--name` = `codex-<N>`, `--poll-timeout` = `300`.
-- **Either explicit pins or an explicit allocator mode is required.** `--model`/`--effort` are forwarded through `codex-watchdog.sh` to `codex-safe.sh`; `--allocate --allocator-role implementation` resolves and forwards the same explicit pair before launch. Until 2026-07-15 neither script accepted pins, so a dispatched implementer silently inherited `~/.codex/config.toml` instead of the Model Allocation role assignment. Omitting both mechanisms is a defect, not a default. `codex-safe.sh` remains the sole owner of the policy cap: 5.6 `high` is permitted, while `xhigh` and `max` are refused.
-- **`--read-only` is a liveness option:** it is forwarded to the watchdog, which gives codex-safe a heartbeat file so deliberate read-heavy work remains live. It does not change the `workspace-write` sandbox and must not be treated as a product-code permission control.
-- **`--produce-review` is the REVIEWER publication mode and requires explicit `--model` plus `--effort`.** It implies heartbeat liveness, stays outside write admission, runs Codex with `--sandbox read-only`, captures only the final message to a hidden same-directory temporary file, and grants no Git writable root or failure stash. After a zero process exit, the host validates the canonical review schema plus `producer_role`, CLI issue, live HEAD, and the fail-verdict requirements, then atomically renames the temporary file to `.review/ISSUE-<N>-REVIEW.json`. Invalid or non-zero output removes the temporary file and never replaces an existing canonical REVIEW. Pane prose is never converted into evidence.
-- **`--first-progress-timeout` and `--stall-timeout` are forwarded only when supplied; the watchdog consumes those liveness budgets rather than passing them to codex-safe.**
+- **Either explicit pins or an explicit allocator mode is required.** `--model`/`--effort` are forwarded through `agent-watchdog.sh` to the selected runtime adapter; `--allocate --allocator-role implementation` resolves and forwards the same explicit pair before launch. Omitting both mechanisms is a defect, not a default. For Codex write/review seats the adapter delegates to the compatibility-hardened `codex-safe.sh`, which remains the sole owner of its 5.6 effort cap: `high` is permitted, while `xhigh` and `max` are refused.
+- **`--read-only` selects a typed read seat:** the runtime-neutral watchdog launches the selected adapter in read mode. Codex uses `--sandbox read-only`, Claude uses permission mode `plan`, and OpenCode requires the installed deny-first read config plus the named `agent-workflow` primary agent. It remains outside write admission.
+- **`--produce-review` is the runtime-neutral REVIEWER publication mode and requires explicit `--model` plus `--effort`.** It stays outside write admission. Codex delegates atomic canonical publication to `codex-safe.sh`; Claude/OpenCode return one captured candidate to the host. In every path the host accepts only a schema-valid review bound to the CLI issue and live HEAD. Invalid or non-zero output is a terminal `refused` run and never replaces an existing canonical REVIEW. Pane prose is never converted into evidence.
+- **`--first-progress-timeout` and `--stall-timeout` are forwarded only when supplied; `agent-watchdog.sh` consumes those liveness budgets rather than passing them to the runtime adapter.**
 - Validates the worktree exists and is an actual git worktree, the prompt file exists, and (unless `--dry-run`) that the selected adapter proves its typed capabilities — all before consuming admission, with a machine-readable reason naming what's wrong.
 - Before a Standard/Full Cluster initial write, validates the complete canonical ROUND-STATE against `schemas/round_state.schema.json`, requires active lifecycle, pins the CLI issue, tier, and manifest revision, binds `worktree_path` and `head_sha` to the live checkout, and rejects a `base_sha` that is not the live merge-base with `base_branch`. Standard also requires `pr_draft` and `review` pointers. Redispatch accepts only the same canonical path, so escalation extends that artifact; no Standard-only mini-state or second authority exists.
 - Planned write seats supply `--execution-plan` and `--seat` together. The canonical plan must live at `.review/ISSUE-N-EXECUTION-PLAN.json`; its issue/revision/base/worktree/seat/write-set binding is validated before any existing admission is consumed, then its immutable Git-common seat binding is consumed after prompt/redispatch gates and before the write marker. Read-only and REVIEWER seats cannot consume it.
-- Absolutizes both the worktree and prompt-file paths, then atomically writes a launch-unique `<worktree>/.review/ISSUE-<N>-launch.<unique>/launch.sh`. That executable preserves the fully shell-quoted `exec env NODE_OPTIONS= <abs codex-watchdog.sh> --issue <N> --prompt-file <abs-prompt> --cwd <abs-worktree>` argv (plus pinned model, effort, liveness, and mode flags). cmux receives only the short relative `bash .review/ISSUE-<N>-launch.<unique>/launch.sh` command while retaining mandatory `--cwd <abs-worktree>` on its workspace. Unique paths prevent a later same-issue read/review seat from replacing an earlier runner before asynchronous cmux execution. Each runner is retained for diagnosis and its exact relative path is printed at launch; do not replace it with an issue-wide or absolute inline command.
+- Absolutizes both the worktree and prompt-file paths, then atomically writes a launch-unique `<worktree>/.review/ISSUE-<N>-launch.<unique>/launch.sh`. That executable preserves the fully shell-quoted `exec env NODE_OPTIONS= AGENT_WORKFLOW_RUNTIME_BIN=<abs-selected-runtime> <abs agent-watchdog.sh> --issue <N> --runtime <runtime> --role <role> --prompt-file <abs-prompt> --cwd <abs-worktree>` argv (plus pinned model, effort, liveness, and mode flags). cmux receives only the short relative `bash .review/ISSUE-<N>-launch.<unique>/launch.sh` command while retaining mandatory `--cwd <abs-worktree>` on its workspace. Unique paths prevent a later same-issue seat from replacing an earlier runner before asynchronous execution. Each runner is retained for diagnosis and its exact relative path is printed at launch; do not replace it with an issue-wide or absolute inline command.
 - `--dry-run` prints the selected typed launch and runner preview, then exits 0 without calling the transport or recording a runner — the test seam. The legacy facade retains its historical cmux preview.
 - On a real run it polls every 5s up to `--poll-timeout` for `<worktree>/.review/ISSUE-<N>-RUN.json` or `-BLOCKER.json`. A **fresh** artifact appearing means the dispatch is alive (or scoped-aborted) and it exits 0. Timeout with no fresh artifact means the watchdog never started — it exits non-zero with a diagnostic pointing at the workspace pane.
 

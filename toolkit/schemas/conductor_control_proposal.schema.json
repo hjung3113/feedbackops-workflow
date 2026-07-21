@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Untrusted Conductor Control Proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "issue", "head_sha", "actions"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "artifact_type": { "const": "conductor_control_proposal" },
+    "issue": { "type": "integer", "minimum": 1 },
+    "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "artifact_type", "relative_path", "content"],
+        "properties": {
+          "kind": { "const": "publish" },
+          "artifact_type": { "const": "round_state" },
+          "relative_path": { "type": "string", "minLength": 1 },
+          "content": { "type": "object" }
+        }
+      }
+    }
+  }
+}

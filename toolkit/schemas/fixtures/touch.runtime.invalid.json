@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "artifact_type": "touch",
+  "lifecycle": "active",
+  "producer_role": "CODEX",
+  "producer_runtime": "codex",
+  "producer_version": "0.144.0",
+  "issue": { "number": 33 },
+  "files": ["src/example.ts"],
+  "escalation_required": false
+}

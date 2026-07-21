@@ -1,0 +1,18 @@
+{
+  "schema_version": "2",
+  "artifact_type": "transport_receipt",
+  "authoritative": false,
+  "issue": 42,
+  "adapter": "orca",
+  "adapter_version": "orca 1.0",
+  "capabilities": ["terminal.create"],
+  "external_handle": "terminal-42",
+  "worktree_path": "/tmp/example",
+  "runner": {
+    "path": "/tmp/example/.review/ISSUE-42-launch.abcd/launch.sh",
+    "relative_path": ".review/ISSUE-42-launch.abcd/launch.sh",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "launched_at": "2026-07-21T00:00:00Z",
+  "created_at": "2026-07-21T00:00:00Z"
+}

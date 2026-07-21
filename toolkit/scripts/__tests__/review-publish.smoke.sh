@@ -62,6 +62,12 @@ cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 output=""
 sandbox=""
+if [ "${1:-}" = "--version" ]; then echo 'codex review smoke 1.0'; exit 0; fi
+if [ "${1:-}" = "--help" ]; then echo 'Commands: exec'; exit 0; fi
+if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--help" ]; then
+  echo 'exec --sandbox --cd --model --config --output-last-message'
+  exit 0
+fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output-last-message) output="$2"; shift 2 ;;
@@ -100,7 +106,7 @@ chmod +x "$BIN/codex"
 
 run_review() {
   mode="$1"
-  REVIEW_STUB_MODE="$mode" CMUX_DISPATCH_POLL_INTERVAL=1 CODEX_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_PROBE_GAP=0 CODEX_WATCHDOG_PROBE_CMD=false PATH="$BIN:$PATH" \
+  REVIEW_STUB_MODE="$mode" CMUX_DISPATCH_POLL_INTERVAL=1 AGENT_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_PROBE_GAP=0 CODEX_WATCHDOG_PROBE_CMD=false PATH="$BIN:$PATH" \
     bash "$DISPATCH" --issue 370 --worktree "$WT" --produce-review --model gpt-5.6-sol --effort medium --poll-timeout 5
 }
 

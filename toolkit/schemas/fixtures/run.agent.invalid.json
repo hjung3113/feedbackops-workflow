@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "artifact_type": "agent_run",
+  "runtime": "claude",
+  "role": "conductor",
+  "issue": 33,
+  "attempt": 1,
+  "started_at": "2026-07-12T00:00:00Z",
+  "updated_at": "2026-07-12T00:00:01Z",
+  "status": "exited",
+  "exit_code": 0
+}

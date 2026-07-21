@@ -2,6 +2,33 @@
 
 _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagreement._
 
+## In progress: v0.21 generic distribution and runtime symmetry
+
+- Installation has explicit `feedbackops|generic` profiles. FeedbackOps remains
+  a named compatibility path; generic installed assets must not inherit its
+  verification, tracker, labels, domain, layout, or maintainer assumptions.
+- Runtime (`codex|claude|opencode`), role (including conductor), and transport
+  (`cmux|orca`) are independent admitted axes. Capability probe, observed
+  runtime version, RUN/receipt provenance, and no-fallback failures are part
+  of the contract; only fresh canonical REVIEW and VERIFY evidence at live HEAD
+  retains completion authority.
+- OpenCode is deny-first: a permission JSON denies `*`, write explicitly allows
+  edit, and read does not. Missing/invalid configuration is admission failure,
+  not permission to substitute another runtime.
+- `agent-watchdog.sh` is the shared retry/liveness authority and publishes
+  runtime/role/version-bound `agent_run` markers; watchdog attempts are not
+  redispatch ordinals. `codex-watchdog.sh`/`codex_run` remain legacy-compatible.
+- OpenCode config is injected as `OPENCODE_CONFIG_CONTENT` and must define the
+  deny-first named primary `agent-workflow`; invocation pins `--agent
+  agent-workflow` to reject built-in/default-agent fallback.
+- Transport receipt schema v2 requires runtime provenance. Schema v1 remains
+  legacy-readable but non-authoritative. The selected runtime executable is
+  resolved to one absolute pin before admission and cannot come from target
+  config.
+- Read-only `--conductor-control` accepts one untrusted ROUND-STATE proposal and
+  delegates the only write to a locked host publisher with schema, issue,
+  live-HEAD, worktree, base, path, and revision checks.
+
 ## Current release: v0.20
 
 ## Current integrated capabilities
@@ -28,13 +55,13 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
 - isolated worktree preparation and explicit Orca/cmux dispatch through one shared correctness core, with a retained atomic launch runner so either adapter receives only a short relative command even when the watchdog argv contains deep paths;
-- sandboxed Codex implementation with model/effort pinning;
+- runtime-neutral dispatch with capability-probed Codex, Claude Code, or OpenCode execution; Codex write/review delegates to its hardened sandbox wrapper;
 - project-owned model allocation defaults, schema-validated evidence-gated Codex-only auto-dispatch, source-dated static-plus-reasoning review preference, and preserved install upgrades;
-- process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
+- shared process + filesystem liveness, per-runtime retry/refusal probes, and runtime-provenance RUN markers;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
 - a stable `verify.sh` CLI seam whose Vitest classification and canonical VERIFY payload construction live in the internal `scripts/lib/verify-result.cjs` module;
-- an explicit REVIEWER publication path that runs Codex filesystem-read-only and host-validates its final JSON before atomically publishing the sole canonical REVIEW artifact;
+- an explicit runtime-neutral REVIEWER publication path that requires read mode and host-validates final JSON before atomically publishing the sole canonical REVIEW artifact;
 - pre-review AC-ID existence checking;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
@@ -209,7 +236,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 | Area | Current status |
 |---|---|
-| Dispatch, watchdog, artifact lifecycle | Reusable across Git repositories with cmux + Codex |
+| Dispatch, watchdog, artifact lifecycle | Reusable across Git repositories with cmux or Orca plus Codex, Claude Code, or OpenCode |
 | target profile + `target-verify.sh` | Reusable structured setup/runtime/verification contract |
 | `prepare-worktree.sh` | pnpm plus root/`apps/backend` env layout |
 | `tier-probe.sh` | TypeScript/TSX exported-contract heuristics |
@@ -222,12 +249,12 @@ Profile-driven preparation and tier routing remain deferred until they can consu
 ## Key operating facts
 
 - A process exit or worker prose is not completion evidence. Review and verification must match the live HEAD.
-- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected Orca/cmux adapter → `codex-watchdog.sh` → `codex-safe.sh`; `cmux-dispatch.sh` is the explicit-cmux compatibility facade.
+- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected Orca/cmux adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `codex-watchdog.sh` and `cmux-dispatch.sh` remain compatibility paths.
 - Read-only seats use `--read-only`; optional first-progress/stall budgets are forwarded only when supplied.
 - Parallel write chunks require separate worktrees. FeedbackOps-style DB suites also require separate throwaway databases.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
 - `VERIFY_ISSUE` without `VERIFY_DATABASE_URL` fails closed instead of using a shared `.env` DB.
-- A failed refusal probe is inconclusive; only two failures separated by the configured gap produce `status:"refused"`.
+- Generic transient failures require two failed selected-runtime probes separated by the configured gap before `status:"refused"`. Reviewer non-zero output and explicit auth/model/permission/capability diagnostics are terminal refusals immediately; stalls retry up to the configured limit.
 - Write-capable Codex receives only the resolved Git metadata dir for either a linked worktree or plain checkout, never a broader checkout or parent root.
 
 ## Open roadmap

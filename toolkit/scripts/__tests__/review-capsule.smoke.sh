@@ -3,7 +3,20 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"; RENDER="$SCRIPT_DIR/../review-capsule.sh"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT; FAILURES=0
-export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
+if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
+  RUNTIME_FAKE="$TMP/codex-runtime-fake"
+  cat > "$RUNTIME_FAKE" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'codex capsule smoke 1.0'; exit 0 ;;
+  --help) echo 'Commands: exec'; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; } ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$RUNTIME_FAKE"
+  export AGENT_WORKFLOW_CODEX_BIN="$RUNTIME_FAKE"
+fi
 ok(){ echo "ok   - $1"; }; bad(){ echo "NOT OK - $1"; FAILURES=$((FAILURES+1)); }
 run(){ (cd "$REPO" && bash "$RENDER" --issue 17 --worktree "$REPO" --round-state .review/ISSUE-17-ROUND-STATE.json --prompt .review/ISSUE-17-PROMPT.md --pr-draft .review/ISSUE-17-PR-DRAFT.json --review .review/ISSUE-17-REVIEW.json --manifest-revision 3 --target-tokens "${TOKENS:-1200}" "$@"); }
 REPO="$TMP/target"; mkdir -p "$REPO/.review"; git -C "$REPO" init -q; git -C "$REPO" config user.email smoke@example.test; git -C "$REPO" config user.name smoke

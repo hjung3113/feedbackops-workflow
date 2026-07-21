@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "artifact_type": "pr_draft",
+  "lifecycle": "active",
+  "producer_role": "WORKER",
+  "producer_runtime": "claude",
+  "issue": { "number": 31, "title": "Missing runtime version" },
+  "branch": "feature/issue-31",
+  "base_sha": "e86c685a1b2c3d4e5f60718293a4b5c6d7e8f901",
+  "head_sha": "b8b6332c4d5e6f708192a3b4c5d6e7f809102132",
+  "files_touched": [{ "path": "src/example.ts", "change": "edit" }],
+  "verify_cmd": "npm test",
+  "status": "ready_for_review"
+}

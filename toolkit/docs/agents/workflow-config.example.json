@@ -1,3 +1,5 @@
 {
-  "orchestrator": "cmux"
+  "orchestrator": "cmux",
+  "runtime": "codex",
+  "role": "implementation"
 }

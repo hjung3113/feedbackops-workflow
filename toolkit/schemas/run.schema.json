@@ -1,20 +1,40 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Codex Run Marker",
+  "title": "Agent Run Marker",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "artifact_type", "issue", "attempt", "started_at", "updated_at", "status"],
   "properties": {
     "schema_version": { "const": "1" },
-    "artifact_type": { "const": "codex_run" },
+    "artifact_type": { "enum": ["codex_run", "agent_run"] },
     "issue": { "type": "integer" },
     "attempt": { "type": "integer", "minimum": 1 },
     "pid": { "type": "integer" },
     "started_at": { "type": "string", "description": "ISO-8601 timestamp" },
     "updated_at": { "type": "string", "description": "ISO-8601 timestamp" },
     "status": { "enum": ["running", "exited", "killed_stall", "refused", "exhausted"] },
-    "exit_code": { "type": "integer" }
+    "exit_code": { "type": "integer" },
+    "runtime": { "enum": ["codex", "claude", "opencode"], "description": "Selected runtime for an agent_run marker." },
+    "role": { "enum": ["conductor", "architect", "implementation", "reviewer", "verifier", "visual", "release"], "description": "Workflow role performed by the runtime." },
+    "runtime_version": { "type": "string", "minLength": 1, "description": "Observed runtime CLI version at admission." }
   },
+  "allOf": [
+    {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["artifact_type"],
+          "properties": { "artifact_type": { "const": "codex_run" } },
+          "not": { "type": "object", "required": ["runtime"] }
+        },
+        {
+          "type": "object",
+          "required": ["artifact_type", "runtime", "role", "runtime_version"],
+          "properties": { "artifact_type": { "const": "agent_run" } }
+        }
+      ]
+    }
+  ],
   "oneOf": [
     {
       "type": "object",

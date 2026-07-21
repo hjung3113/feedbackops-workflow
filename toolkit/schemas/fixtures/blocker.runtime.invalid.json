@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "artifact_type": "blocker",
+  "lifecycle": "active",
+  "producer_role": "WORKER",
+  "producer_runtime": "unsupported",
+  "producer_version": "1.2.3",
+  "issue": { "number": 33, "title": "Invalid runtime" },
+  "head_sha": "2222222222222222222222222222222222222222",
+  "reason_code": "failing_precondition",
+  "blocking_fact": "The required executable is unavailable.",
+  "attempted_commands": ["runtime --version"],
+  "needed_decision": "Provide the required executable."
+}
