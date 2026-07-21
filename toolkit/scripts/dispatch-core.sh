@@ -53,7 +53,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WATCHDOG="$SCRIPT_DIR/codex-watchdog.sh"
+WATCHDOG="$SCRIPT_DIR/agent-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
 PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
 PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
@@ -63,6 +63,9 @@ RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
 ISSUE_N=""
 ADAPTER=""
+RUNTIME="codex"
+ROLE="implementation"
+RUNTIME_PERMISSION_FILE=""
 WORKTREE=""
 PROMPT_FILE=""
 WS_NAME=""
@@ -78,6 +81,7 @@ ROUND_STATE=""
 MANIFEST_REVISION=""
 READ_ONLY=0
 PRODUCE_REVIEW=0
+CONDUCTOR_CONTROL=0
 REREVIEW=0
 REVIEW_CAPSULE=""
 EXECUTION_PLAN=""
@@ -88,7 +92,7 @@ POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter cmux|orca --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter cmux|orca --runtime codex|claude|opencode --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -126,16 +130,15 @@ write_launch_runner() {
   {
     printf '%s\n' '#!/usr/bin/env bash'
     printf 'exec env NODE_OPTIONS= '
-    if [ -n "$CODEX_BIN_PIN" ]; then
-      printf '%q ' "AGENT_WORKFLOW_CODEX_BIN=$CODEX_BIN_PIN"
-    fi
-    printf '%q ' "$WATCHDOG" --issue "$ISSUE_N" --prompt-file "$ABS_PROMPT_FILE" --cwd "$ABS_WORKTREE"
+    printf '%q ' "AGENT_WORKFLOW_RUNTIME_BIN=$RUNTIME_BIN_PIN"
+    printf '%q ' "$WATCHDOG" --runtime "$RUNTIME" --role "$ROLE" --mode "$RUNTIME_MODE" --issue "$ISSUE_N" --prompt-file "$ABS_PROMPT_FILE" --cwd "$ABS_WORKTREE"
     [ -n "$MODEL" ] && printf '%q %q ' --model "$MODEL"
     [ -n "$EFFORT" ] && printf '%q %q ' --effort "$EFFORT"
     [ -n "$FIRST_PROGRESS_TIMEOUT" ] && printf '%q %q ' --first-progress-timeout "$FIRST_PROGRESS_TIMEOUT"
     [ -n "$STALL_TIMEOUT" ] && printf '%q %q ' --stall-timeout "$STALL_TIMEOUT"
-    [ "$READ_ONLY" -eq 1 ] && printf '%q ' --read-only
     [ "$PRODUCE_REVIEW" -eq 1 ] && printf '%q ' --produce-review
+    [ "$CONDUCTOR_CONTROL" -eq 1 ] && printf '%q ' --conductor-control
+    [ -n "$RUNTIME_PERMISSION_FILE" ] && printf '%q %q ' --opencode-permission-file "$RUNTIME_PERMISSION_FILE"
     printf '\n'
   } > "$runner_tmp" || {
     rm -f "$runner_tmp"
@@ -179,6 +182,9 @@ NODE
 while [ $# -gt 0 ]; do
   case "$1" in
     --adapter) ADAPTER="$2"; shift 2 ;;
+    --runtime) RUNTIME="$2"; shift 2 ;;
+    --role) ROLE="$2"; shift 2 ;;
+    --runtime-permission-file) RUNTIME_PERMISSION_FILE="$2"; shift 2 ;;
     --issue) ISSUE_N="$2"; shift 2 ;;
     --worktree) WORKTREE="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
@@ -195,6 +201,7 @@ while [ $# -gt 0 ]; do
     --manifest-revision) MANIFEST_REVISION="$2"; shift 2 ;;
     --read-only) READ_ONLY=1; shift 1 ;;
     --produce-review) PRODUCE_REVIEW=1; shift 1 ;;
+    --conductor-control) CONDUCTOR_CONTROL=1; shift 1 ;;
     --re-review) REREVIEW=1; shift 1 ;;
     --review-capsule) REVIEW_CAPSULE="$2"; shift 2 ;;
     --execution-plan) EXECUTION_PLAN="$2"; shift 2 ;;
@@ -207,6 +214,8 @@ done
 
 [ -n "$ADAPTER" ] || { echo "missing --adapter" >&2; usage; exit 2; }
 case "$ADAPTER" in cmux|orca) ;; *) echo "unknown adapter: $ADAPTER" >&2; exit 2 ;; esac
+case "$RUNTIME" in codex|claude|opencode) ;; *) echo "unknown runtime: $RUNTIME" >&2; exit 2 ;; esac
+case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
 [ -n "$WORKTREE" ] || { echo "missing --worktree" >&2; usage; exit 2; }
 if [ "$ALLOCATE" -eq 1 ] && { [ -n "$MODEL" ] || [ -n "$EFFORT" ]; }; then
@@ -217,6 +226,10 @@ if [ "$ALLOCATE" -eq 1 ] && [ "$ALLOCATOR_ROLE" != "implementation" ]; then
   echo "ERROR: v1 auto-dispatch supports only the Codex implementation allocator role" >&2
   exit 2
 fi
+if [ "$ALLOCATE" -eq 1 ] && [ "$RUNTIME" != "codex" ]; then
+  echo "ERROR: model allocation is runtime-scoped and currently supports only codex" >&2
+  exit 2
+fi
 if [ "$ALLOCATE" -eq 0 ] && { [ -n "$ALLOCATOR_ROLE" ] || [ -n "$ALLOC_EVIDENCE" ]; }; then
   echo "ERROR: --allocator-role and --alloc-evidence require --allocate" >&2
   exit 2
@@ -225,10 +238,42 @@ if [ "$READ_ONLY" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
   echo "ERROR: --read-only and --produce-review are mutually exclusive" >&2
   exit 2
 fi
+if [ "$CONDUCTOR_CONTROL" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
+  echo "ERROR: --conductor-control and --produce-review are mutually exclusive" >&2
+  exit 2
+fi
 if [ "$PRODUCE_REVIEW" -eq 1 ] && { [ -z "$MODEL" ] || [ -z "$EFFORT" ]; }; then
   echo "ERROR: --produce-review requires explicit --model and --effort" >&2
   exit 2
 fi
+if [ "$PRODUCE_REVIEW" -eq 1 ] && [ "$ROLE" != "reviewer" ]; then
+  echo "ERROR: --produce-review requires --role reviewer" >&2
+  exit 2
+fi
+if [ "$ROLE" = "reviewer" ] && [ "$PRODUCE_REVIEW" -eq 0 ]; then
+  echo "ERROR: --role reviewer requires --produce-review" >&2
+  exit 2
+fi
+if [ "$CONDUCTOR_CONTROL" -eq 1 ] && { [ "$ROLE" != conductor ] || [ "$READ_ONLY" -eq 0 ]; }; then
+  echo "ERROR: --conductor-control requires --role conductor --read-only; source-writing role bleed is denied" >&2
+  exit 2
+fi
+case "$ROLE" in
+  conductor|architect|verifier|visual|release)
+    if [ "$READ_ONLY" -eq 0 ]; then
+      echo "ERROR: role $ROLE requires --read-only; source-writing role bleed is denied" >&2
+      exit 2
+    fi
+    ;;
+  implementation)
+    if [ "$READ_ONLY" -eq 1 ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then
+      echo "ERROR: implementation role requires a write-capable non-review dispatch" >&2
+      exit 2
+    fi
+    ;;
+esac
+RUNTIME_MODE="read"
+[ "$ROLE" = "implementation" ] && RUNTIME_MODE="write"
 if [ "$REREVIEW" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 0 ]; then
   echo "ERROR: --re-review requires --produce-review" >&2
   exit 2
@@ -248,25 +293,42 @@ fi
 
 [ -d "$WORKTREE" ] || { echo "ERROR: worktree does not exist: $WORKTREE" >&2; exit 2; }
 ABS_WORKTREE="$(cd "$WORKTREE" && pwd)"
-CODEX_BIN_PIN="${AGENT_WORKFLOW_CODEX_BIN:-}"
-if [ -z "$CODEX_BIN_PIN" ]; then
-  CODEX_BIN_PIN="$(command -v codex 2>/dev/null)"
-  if [ -z "$CODEX_BIN_PIN" ]; then
-    echo "ERROR: codex executable is unavailable on the caller PATH" >&2
-    exit 2
-  fi
+RUNTIME_ADAPTER="$SCRIPT_DIR/agent-runtime.sh"
+[ -x "$RUNTIME_ADAPTER" ] || { echo "ERROR: runtime_adapter_missing: $RUNTIME_ADAPTER" >&2; exit 2; }
+RUNTIME_CAPABILITY_JSON="$(bash "$RUNTIME_ADAPTER" capabilities --runtime "$RUNTIME" 2>/dev/null)"
+runtime_capability_status=$?
+if [ "$runtime_capability_status" -ne 0 ] || [ -z "$RUNTIME_CAPABILITY_JSON" ]; then
+  echo "ERROR: required_runtime_capability_missing: $RUNTIME capability probe failed; no fallback attempted" >&2
+  exit 2
 fi
-if [ -n "$CODEX_BIN_PIN" ]; then
-  case "$CODEX_BIN_PIN" in
-    /*) ;;
-    *) echo "ERROR: invalid AGENT_WORKFLOW_CODEX_BIN: expected an absolute executable path" >&2; exit 2 ;;
-  esac
-  if [ ! -f "$CODEX_BIN_PIN" ] || [ ! -x "$CODEX_BIN_PIN" ]; then
-    echo "ERROR: invalid AGENT_WORKFLOW_CODEX_BIN: not an executable file: $CODEX_BIN_PIN" >&2
-    exit 2
+RUNTIME_BIN_PIN="$(node - "$RUNTIME_CAPABILITY_JSON" "$RUNTIME" "$ROLE" <<'NODE'
+try {
+  const value = JSON.parse(process.argv[2]);
+  const expected = process.argv[3];
+  const role = process.argv[4];
+  if (value.runtime !== expected || value.available !== true || !Array.isArray(value.roles) || !value.roles.includes(role)) process.exit(2);
+  if (typeof value.executable !== "string" || !value.executable.startsWith("/")) process.exit(2);
+  process.stdout.write(value.executable);
+} catch (error) { process.exit(2); }
+NODE
+)" || {
+  reason="$(node -e 'try { process.stdout.write(JSON.parse(process.argv[1]).reason_code || "required_runtime_capability_missing") } catch (e) { process.stdout.write("required_runtime_capability_missing") }' "$RUNTIME_CAPABILITY_JSON")"
+  echo "ERROR: $reason: runtime=$RUNTIME role=$ROLE unavailable; no fallback attempted" >&2
+  exit 2
+}
+if [ "$RUNTIME" = "opencode" ]; then
+  if [ -z "$RUNTIME_PERMISSION_FILE" ]; then
+    if [ "$ROLE" = "implementation" ]; then
+      RUNTIME_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-write.json"
+    else
+      RUNTIME_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-read.json"
+    fi
   fi
-  CODEX_BIN_DIR="$(cd "$(dirname "$CODEX_BIN_PIN")" && pwd -P)" || exit 2
-  CODEX_BIN_PIN="$CODEX_BIN_DIR/$(basename "$CODEX_BIN_PIN")"
+  case "$RUNTIME_PERMISSION_FILE" in
+    /*) ;;
+    *) RUNTIME_PERMISSION_FILE="$ABS_WORKTREE/$RUNTIME_PERMISSION_FILE" ;;
+  esac
+  [ -r "$RUNTIME_PERMISSION_FILE" ] || { echo "ERROR: opencode_permission_config_missing: $RUNTIME_PERMISSION_FILE" >&2; exit 2; }
 fi
 if [ "$REREVIEW" -eq 1 ]; then
   if [ -z "$REVIEW_CAPSULE" ]; then
@@ -366,7 +428,13 @@ esac
   exit 2
 }
 
-[ -n "$WS_NAME" ] || WS_NAME="codex-${ISSUE_N}"
+if [ -z "$WS_NAME" ]; then
+  if [ "$RUNTIME" = "codex" ] && [ "$ROLE" = "implementation" ]; then
+    WS_NAME="codex-${ISSUE_N}"
+  else
+    WS_NAME="$RUNTIME-$ROLE-${ISSUE_N}"
+  fi
+fi
 
 # Capability proof is deliberately before all write-admission markers and
 # runner creation. A selected adapter that cannot prove its exact typed-seat
@@ -689,8 +757,8 @@ RUNNER_FILE=""
 RUNNER_COMMAND=""
 DRY_RUNNER_RELATIVE=".review/ISSUE-${ISSUE_N}-launch.<unique>/launch.sh"
 RUNNER_PREVIEW="exec env NODE_OPTIONS="
-[ -n "$CODEX_BIN_PIN" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW AGENT_WORKFLOW_CODEX_BIN=$CODEX_BIN_PIN"
-RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --cwd $ABS_WORKTREE"
+RUNNER_PREVIEW="$RUNNER_PREVIEW AGENT_WORKFLOW_RUNTIME_BIN=$RUNTIME_BIN_PIN"
+RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --runtime $RUNTIME --role $ROLE --mode $RUNTIME_MODE --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --cwd $ABS_WORKTREE"
 # Unpinned dispatch silently inherits the user's codex config default model,
 # which is not the workflow's per-role allocation (and breaks the invariant
 # that the reviewer outranks the implementer). Pin it at the dispatch site.
@@ -702,8 +770,9 @@ RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --issue $ISSUE_N --prompt-file $ABS_PR
 # (or declare --read-only so heartbeat liveness applies).
 [ -n "$FIRST_PROGRESS_TIMEOUT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
 [ -n "$STALL_TIMEOUT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --stall-timeout $STALL_TIMEOUT"
-[ "$READ_ONLY" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --read-only"
 [ "$PRODUCE_REVIEW" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --produce-review"
+[ "$CONDUCTOR_CONTROL" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --conductor-control"
+[ -n "$RUNTIME_PERMISSION_FILE" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --opencode-permission-file $RUNTIME_PERMISSION_FILE"
 
 if [ "$DRY_RUN" -eq 1 ]; then
   if [ "$ADAPTER" = "cmux" ]; then
@@ -749,12 +818,14 @@ fi
 RECEIPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-TRANSPORT.json"
 RUNNER_SHA="$(node -e 'const fs=require("fs"),crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$RUNNER_FILE")"
 CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" <<'NODE'
+node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" <<'NODE'
 const fs = require("fs");
-const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt] = process.argv.slice(2);
+const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt, runtime, role, runtimeCapabilitiesJson] = process.argv.slice(2);
+const runtimeCapabilities = JSON.parse(runtimeCapabilitiesJson);
 const value = {
-  schema_version: "1", artifact_type: "transport_receipt", authoritative: false,
+  schema_version: "2", artifact_type: "transport_receipt", authoritative: false,
   issue: Number(issue), adapter, adapter_version: version,
+  runtime, role, runtime_version: runtimeCapabilities.version,
   capabilities: JSON.parse(capabilitiesJson), external_handle: handle,
   worktree_path: worktree,
   runner: { path: runnerPath, relative_path: runnerRelative, sha256: runnerSha },

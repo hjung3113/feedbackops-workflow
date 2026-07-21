@@ -9,7 +9,22 @@ PRODUCT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 FAILURES=0
-export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
+# Installed dispatch capability-probes the selected runtime. Keep the portable
+# smoke hermetic with a Codex-shaped fake instead of /usr/bin/true.
+if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
+  RUNTIME_FAKE="$TMP_DIR/codex-runtime-fake"
+  cat > "$RUNTIME_FAKE" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'codex install smoke 1.0'; exit 0 ;;
+  --help) echo 'Commands: exec'; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; } ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$RUNTIME_FAKE"
+  export AGENT_WORKFLOW_CODEX_BIN="$RUNTIME_FAKE"
+fi
 
 ok() { echo "ok   - $1"; }
 not_ok() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
@@ -105,6 +120,27 @@ assert_no_maintainer_leakage() {
   assert_true "install excludes root instructions" test ! -e "$target/AGENTS.md"
   assert_true "install excludes maintainer tracker" test ! -e "$target/docs/agents/issue-tracker.md"
   assert_true "install excludes plans" test ! -e "$target/docs/plans"
+}
+
+assert_generic_profile() {
+  target="$1"
+  assert_true "generic install records generic profile" grep -F -q '"profile":"generic"' "$target/.agent-workflow/install-profile.json"
+  assert_true "generic install retains target-neutral verifier" test -x "$target/.agent-workflow/scripts/target-verify.sh"
+  assert_true "generic install excludes FeedbackOps verifier" test ! -e "$target/.agent-workflow/scripts/verify.sh"
+  assert_true "generic install excludes FeedbackOps DB adapter" test ! -e "$target/.agent-workflow/scripts/prepare-verify-db.sh"
+  assert_true "generic install excludes FeedbackOps worktree adapter" test ! -e "$target/.agent-workflow/scripts/prepare-worktree.sh"
+  assert_true "generic install excludes TypeScript tier adapter" test ! -e "$target/.agent-workflow/scripts/tier-probe.sh"
+  assert_true "generic install excludes private Vitest classifier" test ! -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
+  assert_true "generic install excludes source smoke tests" test ! -e "$target/.agent-workflow/scripts/__tests__"
+  assert_true "generic install excludes source install assets" test ! -e "$target/.agent-workflow/scripts/install-profiles"
+  assert_true "generic install excludes schema fixtures" test ! -e "$target/.agent-workflow/schemas/fixtures"
+  assert_true "generic install excludes FeedbackOps profile example" test ! -e "$target/.agent-workflow/schemas/profiles/feedbackops.example.json"
+  assert_true "generic install excludes source installer" test ! -e "$target/.agent-workflow/scripts/install-into.sh"
+  assert_true "generic install creates Codex skill discovery" test -f "$target/.agents/skills/agent-workflow/SKILL.md"
+  assert_true "generic install creates OpenCode agent discovery" test -f "$target/.opencode/agents/agent-workflow.md"
+  assert_true "generic install creates deny-first OpenCode config" node -e 'const v=require(process.argv[1]); process.exit(v.permission && v.permission["*"] === "deny" ? 0 : 1)' "$target/opencode.json"
+  assert_true "Claude and Codex use one router content" cmp -s "$target/.claude/skills/agent-workflow/SKILL.md" "$target/.agents/skills/agent-workflow/SKILL.md"
+  assert_true "generic managed inventory has no compatibility leakage" bash -c '! grep -E -R -i "feedbackops|vitest|postgres|fops_" "$@"' _ "$target/.agent-workflow" "$target/.claude/skills/agent-workflow" "$target/.agents/skills/agent-workflow" "$target/.opencode" "$target/opencode.json"
 }
 
 prepare_gate_fixture() {
@@ -205,7 +241,7 @@ NODE
 
 assert_installed_real_dispatch() {
   label="$1"; target="$2"; scripts="$target/.agent-workflow/scripts"
-  installed_watchdog="$scripts/codex-watchdog.sh"
+  installed_watchdog="$scripts/agent-watchdog.sh"
   watchdog_backup="$TMP_DIR/installed-watchdog.backup"
   cp "$installed_watchdog" "$watchdog_backup"
   cat > "$installed_watchdog" <<'EOF'
@@ -277,6 +313,28 @@ assert_current_content "fresh install" "$fresh"
 assert_true "fresh install preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
 assert_true "fresh install preserves unrelated project files" grep -F -q project "$fresh/project.txt"
 assert_no_maintainer_leakage "$fresh"
+assert_true "default install records FeedbackOps profile" grep -F -q '"profile":"feedbackops"' "$fresh/.agent-workflow/install-profile.json"
+
+generic="$TMP_DIR/generic target"
+mkdir -p "$generic"
+assert_exit "generic install succeeds" PASS bash "$INSTALL" "$generic" --profile generic
+assert_portable_layout "generic install" "$generic"
+assert_generic_profile "$generic"
+assert_true "generic install excludes root instructions" test ! -e "$generic/AGENTS.md"
+assert_true "generic install excludes maintainer docs" test ! -e "$generic/docs"
+assert_exit_output "generic upgrade refuses FeedbackOps profile substitution" 2 "refusing to change an existing generic installation" bash "$INSTALL" "$generic" --upgrade
+assert_exit "generic same-profile upgrade succeeds" PASS bash "$INSTALL" "$generic" --profile generic --upgrade
+assert_generic_profile "$generic"
+generic_partial="$TMP_DIR/generic-partial"
+cp -R "$generic" "$generic_partial"
+rm -rf "$generic_partial/.agents/skills/agent-workflow"
+assert_exit_output "generic upgrade rejects missing client discovery leaf" 2 "not a complete recognized" bash "$INSTALL" "$generic_partial" --profile generic --upgrade
+
+bad_profile="$TMP_DIR/bad-profile"
+mkdir -p "$bad_profile"
+bash "$INSTALL" "$bad_profile" >/dev/null
+printf '%s\n' '{"schema_version":"999","profile":"feedbackops"}' > "$bad_profile/.agent-workflow/install-profile.json"
+assert_exit_output "invalid profile marker fails closed" 2 "install profile marker is invalid" bash "$INSTALL" "$bad_profile" --upgrade
 
 assert_exit_output "default rerun refuses existing install" 2 "--upgrade" bash "$INSTALL" "$fresh"
 printf '%s\n' customized > "$fresh/.agent-workflow/scripts/install-into.sh"
@@ -446,7 +504,7 @@ bash "$INSTALL" "$rollback_remove_failure" >/dev/null
 printf '%s\n' old-sentinel > "$rollback_remove_failure/.agent-workflow/scripts/old.txt"
 rollback_remove_root="$(cd "$rollback_remove_failure" && pwd -P)"
 printf '%s\n' 0 > "$mv_counter"
-assert_exit_output "restore removal failure reports manual recovery" 70 "could not remove replacement" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=6 INSTALL_RM_FAIL_PATH="$rollback_remove_root/.agent-workflow/scripts" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_remove_failure" --upgrade
+assert_exit_output "restore removal failure reports manual recovery" 70 "could not remove replacement" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=7 INSTALL_RM_FAIL_PATH="$rollback_remove_root/.agent-workflow/scripts" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_remove_failure" --upgrade
 assert_true "restore removal failure does not nest backup" test ! -e "$rollback_remove_failure/.agent-workflow/scripts/scripts"
 assert_true "restore removal failure retains old scripts backup" bash -c 'test -n "$(find "$1" -path "*/scripts/old.txt" -print -quit)"' _ "$rollback_remove_failure/.review/agent-workflow-install-backups"
 

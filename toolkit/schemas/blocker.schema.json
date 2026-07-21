@@ -11,8 +11,9 @@
       "enum": ["active", "superseded", "final"],
       "description": "active and final artifacts may be consumed; readers and admission gates must ignore or reject superseded artifacts."
     },
-    "producer_role": { "const": "CODEX" },
-    "producer_version": { "type": "string" },
+    "producer_role": { "enum": ["CODEX", "WORKER", "CONDUCTOR", "REVIEWER", "VERIFIER", "RELEASE"], "description": "Workflow role. CODEX is accepted only as a legacy producer identity." },
+    "producer_runtime": { "enum": ["codex", "claude", "opencode"], "description": "Runtime that produced this artifact; required for runtime-neutral artifacts." },
+    "producer_version": { "type": "string", "minLength": 1, "description": "Observed runtime CLI version; required for runtime-neutral artifacts." },
     "issue": {
       "type": "object",
       "additionalProperties": false,
@@ -47,5 +48,11 @@
     },
     "files_touched_before_abort": { "type": "array", "items": { "type": "string" } },
     "partial_diff_path": { "type": "string" }
-  }
+  },
+  "allOf": [{
+    "oneOf": [
+      { "type": "object", "required": ["producer_role"], "properties": { "producer_role": { "const": "CODEX" } }, "not": { "type": "object", "required": ["producer_runtime"] } },
+      { "type": "object", "required": ["producer_role", "producer_runtime", "producer_version"], "properties": { "producer_role": { "enum": ["WORKER", "CONDUCTOR", "REVIEWER", "VERIFIER", "RELEASE"] } } }
+    ]
+  }]
 }

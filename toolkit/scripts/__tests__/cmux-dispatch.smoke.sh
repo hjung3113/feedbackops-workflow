@@ -13,7 +13,22 @@ DISPATCH="$SCRIPT_DIR/../cmux-dispatch.sh"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
-export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
+# Runtime admission capability-probes the executable. Use a deterministic
+# Codex-shaped fake instead of /usr/bin/true, which correctly lacks `exec`.
+if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
+  RUNTIME_FAKE="$TMP_ROOT/codex-runtime-fake"
+  cat > "$RUNTIME_FAKE" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'codex smoke runtime 1.0'; exit 0 ;;
+  --help) echo 'Commands: exec'; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; } ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$RUNTIME_FAKE"
+  export AGENT_WORKFLOW_CODEX_BIN="$RUNTIME_FAKE"
+fi
 CMUX_PROBE_HELPER="$TMP_ROOT/cmux-probe-helper.sh"
 cat > "$CMUX_PROBE_HELPER" <<'EOF'
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
@@ -308,16 +323,16 @@ timeout_out="$TMP_ROOT/dry-run-timeouts.stdout"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --read-only --first-progress-timeout 1500 --stall-timeout 900 --dry-run >"$timeout_out" 2>&1
 ec=$?
 timeout_printed="$(cat "$timeout_out")"
-if [ "$ec" -eq 0 ] && printf '%s\n' "$timeout_printed" | grep -q -- "--read-only" && printf '%s\n' "$timeout_printed" | grep -q -- "--first-progress-timeout 1500" && printf '%s\n' "$timeout_printed" | grep -q -- "--stall-timeout 900"; then
-  pass "dry-run forwards combined read-only and watchdog timeout flags"
+if [ "$ec" -eq 0 ] && printf '%s\n' "$timeout_printed" | grep -q -- "--role architect" && printf '%s\n' "$timeout_printed" | grep -q -- "--mode read" && printf '%s\n' "$timeout_printed" | grep -q -- "--first-progress-timeout 1500" && printf '%s\n' "$timeout_printed" | grep -q -- "--stall-timeout 900"; then
+  pass "dry-run maps legacy read-only to an explicit read role and watchdog timeouts"
 else
-  fail "dry-run forwards combined read-only and watchdog timeout flags (ec=$ec: $timeout_printed)"
+  fail "dry-run maps legacy read-only and watchdog timeout flags (ec=$ec: $timeout_printed)"
 fi
 
-if ! printf '%s\n' "$printed" | grep -q -- "--read-only" && ! printf '%s\n' "$printed" | grep -q -- "--first-progress-timeout" && ! printf '%s\n' "$printed" | grep -q -- "--stall-timeout"; then
-  pass "dry-run omits read-only and watchdog timeout flags when unspecified"
+if printf '%s\n' "$printed" | grep -q -- "--role implementation" && printf '%s\n' "$printed" | grep -q -- "--mode write" && ! printf '%s\n' "$printed" | grep -q -- "--first-progress-timeout" && ! printf '%s\n' "$printed" | grep -q -- "--stall-timeout"; then
+  pass "dry-run defaults legacy writes to an explicit implementation role"
 else
-  fail "dry-run omits read-only and watchdog timeout flags when unspecified (got: $printed)"
+  fail "dry-run omits optional watchdog timeouts when unspecified (got: $printed)"
 fi
 
 usage_out="$TMP_ROOT/usage.stderr"
@@ -367,12 +382,13 @@ RUNNER_FIXTURE="$TMP_ROOT/runner-fixture"
 mkdir -p "$RUNNER_FIXTURE"
 cp "$DISPATCH" "$RUNNER_FIXTURE/cmux-dispatch.sh"
 cp "$SCRIPT_DIR/../dispatch-core.sh" "$RUNNER_FIXTURE/dispatch-core.sh"
+cp "$SCRIPT_DIR/../agent-runtime.sh" "$RUNNER_FIXTURE/agent-runtime.sh"
 mkdir -p "$RUNNER_FIXTURE/adapters" "$TMP_ROOT/schemas" "$RUNNER_FIXTURE/lib"
 cp "$SCRIPT_DIR/../adapters/cmux.sh" "$RUNNER_FIXTURE/adapters/cmux.sh"
 cp "$ROOT/schemas/transport_receipt.schema.json" "$TMP_ROOT/schemas/transport_receipt.schema.json"
 cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-subset.cjs"
 cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
-cat > "$RUNNER_FIXTURE/codex-watchdog.sh" <<'EOF'
+cat > "$RUNNER_FIXTURE/agent-watchdog.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"
 issue=""
@@ -389,7 +405,7 @@ done
 [ -z "${WATCHDOG_PROMPT_LOG:-}" ] || printf '%s\n' "$prompt" >> "$WATCHDOG_PROMPT_LOG"
 printf '%s\n' "{\"schema_version\":\"1\",\"artifact_type\":\"codex_run\",\"issue\":$issue,\"attempt\":1,\"started_at\":\"2026-07-21T00:00:00Z\",\"updated_at\":\"2026-07-21T00:00:00Z\",\"status\":\"running\"}" > "$cwd/.review/ISSUE-${issue}-RUN.json"
 EOF
-chmod +x "$RUNNER_FIXTURE/codex-watchdog.sh"
+chmod +x "$RUNNER_FIXTURE/agent-watchdog.sh"
 
 RUNNER_BIN="$TMP_ROOT/bin-runner-cmux"
 mkdir -p "$RUNNER_BIN"
@@ -433,7 +449,10 @@ if [ "$ec" -eq 0 ] && [ -n "$runner_333" ] && [ -x "$runner_333" ] && grep -q "f
   && grep -Fx -- "--cwd" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "$DEEP_WT" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
   && grep -Fx -- "--model" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "gpt-5.6-terra" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
   && grep -Fx -- "--effort" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "medium" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
-  && grep -Fx -- "--read-only" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--role" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "architect" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "--mode" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
+  && grep -Fx -- "read" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
   && grep -Fx -- "--first-progress-timeout" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "1500" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
   && grep -Fx -- "--stall-timeout" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "900" "$TMP_ROOT/watchdog-argv.txt" >/dev/null; then
   pass "deep dispatch uses a short relative runner and preserves watchdog argv"
@@ -958,7 +977,7 @@ watchdog_out="$TMP_ROOT/watchdog-relative.out"
 # no codex on PATH here: expect it to get PAST the existence check (prints the
 # resolved-path echo line) and fail later trying to invoke codex-safe.sh —
 # that later failure is expected and NOT what this case asserts on.
-CODEX_WATCHDOG_PROBE_GAP=0 PATH="/usr/bin:/bin" bash "$WATCHDOG" --issue 303 --prompt-file ".review/ISSUE-303-PROMPT.txt" --cwd "$WT_REL" --max-retries 0 >"$watchdog_out" 2>&1
+CODEX_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_PROBE_GAP=0 PATH="/usr/bin:/bin" bash "$WATCHDOG" --issue 303 --prompt-file ".review/ISSUE-303-PROMPT.txt" --cwd "$WT_REL" --max-retries 0 >"$watchdog_out" 2>&1
 if grep -q "prompt-file=$WT_REL/.review/ISSUE-303-PROMPT.txt" "$watchdog_out"; then
   pass "watchdog resolves relative prompt-file against --cwd"
 else

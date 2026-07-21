@@ -10,7 +10,20 @@ INTEGRATE="$ROOT/scripts/candidate-integrate.sh"
 CLOSE="$ROOT/scripts/candidate-close.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-export AGENT_WORKFLOW_CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-/usr/bin/true}"
+if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
+  RUNTIME_FAKE="$TMP/codex-runtime-fake"
+  cat > "$RUNTIME_FAKE" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'codex parallel smoke 1.0'; exit 0 ;;
+  --help) echo 'Commands: exec'; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; } ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$RUNTIME_FAKE"
+  export AGENT_WORKFLOW_CODEX_BIN="$RUNTIME_FAKE"
+fi
 FAILURES=0
 pass(){ echo "ok   - $1"; }
 fail(){ echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }

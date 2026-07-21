@@ -26,7 +26,9 @@ make_worktree() {
 
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
-RESOLVED_BIN="$(cd "$BIN" && pwd -P)"
+# The runtime adapter pins the executable path reported by `command -v`.
+# Preserve that spelling here: macOS maps /var to /private/var under pwd -P.
+RESOLVED_BIN="$BIN"
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
@@ -99,6 +101,9 @@ EOF
 chmod +x "$BIN/cmux" "$BIN/orca"
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo 'codex-cli 0.test'; exit 0; fi
+if [ "${1:-}" = "--help" ]; then echo 'Commands: exec'; exit 0; fi
+if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; fi
 exit 0
 EOF
 chmod +x "$BIN/codex"
@@ -216,16 +221,16 @@ else fail "adapter parity (cmux=$cmux_ec orca=$orca_ec)"; fi
 
 cmux_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
 orca_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
-if grep -F -q "AGENT_WORKFLOW_CODEX_BIN=$RESOLVED_BIN/codex" "$cmux_runner" \
-  && grep -F -q "AGENT_WORKFLOW_CODEX_BIN=$RESOLVED_BIN/codex" "$orca_runner"; then
-  pass "both transports pin the validated Codex executable in the common runner"
-else fail "common runner Codex executable pinning (cmux=$(sed -n '2p' "$cmux_runner"))"; fi
+if grep -F -q "AGENT_WORKFLOW_RUNTIME_BIN=$RESOLVED_BIN/codex" "$cmux_runner" \
+  && grep -F -q "AGENT_WORKFLOW_RUNTIME_BIN=$RESOLVED_BIN/codex" "$orca_runner"; then
+  pass "both transports pin the validated runtime executable in the common runner"
+else fail "common runner runtime executable pinning (cmux=$(sed -n '2p' "$cmux_runner"))"; fi
 
 PIN_WT="$TMP_ROOT/pin-wt"
 make_worktree "$PIN_WT" 506
 AGENT_WORKFLOW_CODEX_BIN=relative/codex PATH="$BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 506 --worktree "$PIN_WT" --tier trivial >"$TMP_ROOT/pin.out" 2>&1
 pin_ec=$?
-if [ "$pin_ec" -eq 2 ] && grep -q 'invalid AGENT_WORKFLOW_CODEX_BIN' "$TMP_ROOT/pin.out" \
+if [ "$pin_ec" -eq 2 ] && grep -q 'required_runtime_capability_missing' "$TMP_ROOT/pin.out" \
   && [ ! -d "$PIN_WT/.review/.write-dispatch-issue-506-started" ]; then
   pass "invalid Codex executable pin fails before admission"
 else fail "Codex executable pin pre-admission validation"; fi

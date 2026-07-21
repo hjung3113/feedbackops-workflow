@@ -1,6 +1,6 @@
 # feedbackops-workflow
 
-분리된 워크트리와 독립적인 검증으로 Orca 또는 cmux × Claude × Codex 작업을 운영하는 **opt-in 멀티 에이전트 워크플로 툴킷**입니다. 병렬 작성자의 작업을 디스크 산출물로 추적하고, 에이전트의 “완료했습니다”가 아니라 현재 HEAD에 결속된 증거로 병합 여부를 판단합니다.
+분리된 워크트리와 독립적인 검증으로 Orca 또는 cmux × Codex·Claude Code·OpenCode 작업을 운영하는 **opt-in 멀티 에이전트 워크플로 툴킷**입니다. 병렬 작성자의 작업을 디스크 산출물로 추적하고, 에이전트의 “완료했습니다”가 아니라 현재 HEAD에 결속된 증거로 병합 여부를 판단합니다.
 
 **Merge authority:** worker prose나 프로세스 종료, `RUN.json`은 완료 증거가 아닙니다. 병합 가능한 상태는 현재 HEAD에 맞는 canonical `REVIEW`와 `VERIFY` 산출물로 Release Captain이 판정합니다.
 
@@ -11,7 +11,7 @@
 ### 필요한 환경
 
 - macOS stock Bash 3.2 호환 셸 (`declare -A`, `mapfile`, `${var,,}`를 사용하지 않음)
-- Git, Codex CLI, 그리고 명시적으로 선택한 Orca 또는 cmux CLI
+- Git, 명시적으로 선택·capability-probe 된 Codex·Claude Code·OpenCode 중 하나, 그리고 명시적으로 선택한 Orca 또는 cmux CLI
 - 설치된 타겟의 Git checkout 또는 plain checkout
 - 병렬 작업마다 별도 worktree와, FeedbackOps 스타일 DB 테스트라면 별도 일회성 DB
 
@@ -21,7 +21,7 @@
 
 | 영역 | 현재 계약 |
 |---|---|
-| dispatch, watchdog, artifact lifecycle | 명시적으로 선택한 Orca 또는 cmux + Codex가 있는 Git 저장소에서 재사용 가능 |
+| dispatch, watchdog, artifact lifecycle | distribution profile·runtime·role·transport를 독립 선택하는 Git 저장소에서 재사용 가능 |
 | `prepare-worktree.sh` | pnpm 및 root/`apps/backend` 환경 구조 |
 | `tier-probe.sh` | TypeScript/TSX exported-contract 휴리스틱 |
 | `target-verify.sh <profile> <issue>` | target-neutral required-group verifier |
@@ -33,16 +33,18 @@
 
 ### 설치할까요, 업그레이드할까요?
 
+기존 FeedbackOps 호환 타겟에는 명시적으로 `feedbackops` profile을, 관련 없는 저장소에는 `generic` profile을 선택합니다. generic은 FeedbackOps의 tracker, labels, domain, Vitest, PostgreSQL, pnpm layout 또는 maintainer 규칙을 설치하지 않습니다.
+
 최신 toolkit checkout/export에서 타겟에 처음 적용하면 **install**입니다.
 
 ```bash
-scripts/install-into.sh ../my-project
+scripts/install-into.sh ../my-project --profile generic
 ```
 
 기존의 완전한 copy 설치 또는 인식된 current/legacy absolute-link 설치를 바꾸면 **upgrade**입니다.
 
 ```bash
-scripts/install-into.sh ../my-project --upgrade
+scripts/install-into.sh ../feedbackops-target --profile feedbackops --upgrade
 ```
 
 설치/업그레이드는 `.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, `.review`, `.review/agent-workflow-install-backups`가 타겟 안의 실제 디렉터리일 때만 진행합니다. 교체 범위는 정확히 다음 네 leaf입니다.
@@ -95,13 +97,15 @@ Standard/Full Cluster 최초 write 전에는 CONDUCTOR가 `schemas/round_state.s
 
 CONDUCTOR는 dispatch 전에 `.review/ISSUE-123-CONTEXT.md`에 원자료를 정제 없이 모으고, 필요한 사용자 역질문을 한 번(최대 4문항)으로 끝낸 뒤, `.review/ISSUE-123-PROMPT.md`를 압축합니다. Standard/Full과 canonical redispatch는 prompt 안의 delimited JSON AC block이 ROUND-STATE `acceptance.criteria[]`의 ID·statement·순서를 정확히 복사하지 않으면 launch 전에 거부됩니다. 두 Markdown 파일은 uncommitted/non-archival scratch이며, `model-alloc.json`의 `prompt_authoring.target_tokens`는 길이 안내·telemetry일 뿐 launch 거부 조건이 아닙니다.
 
-CLI `--orchestrator`가 `AGENT_WORKFLOW_ORCHESTRATOR`보다 우선하고, 환경 변수가 target-local `.agent-workflow/workflow-config.json`보다 우선합니다. 어느 곳에도 선택이 없으면 fail closed하며 자동 기본값이나 fallback은 없습니다. 설치된 [config example](docs/agents/workflow-config.example.json)은 오직 `orchestrator`만 허용합니다.
+`orchestrator`, `runtime`, `role`은 직교하는 축입니다. 각각 CLI가 환경 변수보다, 환경 변수가 target-local `.agent-workflow/workflow-config.json`보다 우선합니다. runtime/role을 생략하면 legacy compatibility 값(Codex/implementation)만 사용하며, 새 설치는 세 축을 명시하는 것이 운영 계약입니다. 선택한 runtime 또는 transport의 capability probe가 실패하면 admission 전 machine-readable reason으로 거부하며 다른 runtime/transport로 바꾸지 않습니다.
 
 ```bash
 cp docs/agents/workflow-config.example.json ../wt-123/.agent-workflow/workflow-config.json
 
 NODE_OPTIONS= scripts/agent-workflow.sh dispatch \
   --orchestrator cmux \
+  --runtime codex \
+  --role implementation \
   --issue 123 \
   --worktree ../wt-123 \
   --tier standard \
@@ -119,6 +123,8 @@ NODE_OPTIONS= scripts/agent-workflow.sh dispatch \
 # 이 호출만 Orca 사용
 NODE_OPTIONS= scripts/agent-workflow.sh dispatch \
   --orchestrator orca \
+  --runtime claude \
+  --role implementation \
   --issue 123 \
   --worktree ../wt-123 \
   --tier standard \
@@ -131,17 +137,21 @@ NODE_OPTIONS= scripts/agent-workflow.sh dispatch \
 export AGENT_WORKFLOW_ORCHESTRATOR=orca
 
 # 타겟의 기본 transport (환경 변수가 없을 때 적용)
-printf '%s\n' '{"orchestrator":"orca"}' \
+printf '%s\n' '{"orchestrator":"orca","runtime":"opencode","role":"implementation"}' \
   > ../wt-123/.agent-workflow/workflow-config.json
 ```
 
-설정값은 `orca` 또는 `cmux`만 허용하며, 위 우선순위에 따라 언제든 명시적으로 교체할 수 있습니다. `capabilities`로 선택 전에 두 adapter를 함께 점검하고, dispatch receipt는 실제 선택된 transport를 기록합니다.
+설정값은 transport `orca|cmux`, runtime `codex|claude|opencode`, role `conductor|architect|implementation|reviewer|verifier|visual|release`만 허용하며, 위 우선순위에 따라 언제든 명시적으로 교체할 수 있습니다. `capabilities`로 선택 전에 두 adapter와 세 runtime을 함께 점검하고, dispatch receipt는 실제 선택된 transport·runtime·role을 기록합니다.
 
-`scripts/agent-workflow.sh capabilities --worktree ../wt-123`는 두 adapter의 availability와 필요한 capability 근거를 JSON으로 보여 줍니다. cmux는 admission 전에 side-effect 없는 version/help probe로 최소 `0.64.0`과 실제 `workspace create --cwd --command` 계약을 증명하고, Orca는 launch에 쓰는 `--worktree --title --command --json` 및 read-only list 인자를 모두 증명합니다. probe 실패는 marker를 소비하지 않고 `required_capability_missing`으로 종료합니다. 모든 write-capable Codex는 `agent-workflow.sh` → shared dispatch core → selected adapter → launch runner → `codex-watchdog.sh` → `codex-safe.sh` 경로를 사용합니다. `inspect --receipt <file>`은 adapter의 read-only list를 통해 external handle을 조회해 `live`, `stale`, `handle_unverifiable`로 정규화하고 runner identity도 확인합니다. Orca launch와 inspect는 같은 normalizer로 `terminal_id`, `terminalId`, `handle`, `id` 응답을 해석하므로 발급된 handle 필드가 list에서 바뀌어도 동일 identity를 유지합니다. receipt와 terminal/workspace 상태는 lifecycle 진단일 뿐 완료 authority가 아닙니다. `codex exec` 직접 실행이나 transport command 수동 조립은 지원하지 않습니다. 기존 `cmux-dispatch.sh`는 cmux를 명시 선택하는 호환 facade입니다.
+`scripts/agent-workflow.sh capabilities --worktree ../wt-123`는 두 adapter와 세 runtime의 availability, version, role/mode 및 필요한 capability 근거를 JSON으로 보여 줍니다. cmux와 Orca도 실제 launch/list 계약을 admission 전에 증명합니다. runtime probe 실패는 marker를 소비하지 않고 machine-readable reason으로 종료하며 fallback은 없습니다. OpenCode permission JSON은 top-level과 named primary `agent-workflow` agent 양쪽에서 `*`, `external_directory`, `webfetch`, `websearch`를 deny합니다. Read는 `edit`와 `bash`도 deny하고, write만 구현·빌드·테스트·Git 실행을 위해 양쪽을 명시적으로 allow합니다. Adapter는 검증한 내용을 `OPENCODE_CONFIG_CONTENT`로 전달하고 항상 `--agent agent-workflow`를 사용하므로 built-in/default agent fallback은 없습니다. Codex, Claude Code, OpenCode 모두 같은 public interface와 typed runtime adapter를 통해 conductor를 포함한 모든 role을 실행합니다.
 
 같은 issue를 다시 dispatch할 때 기존 RUN/BLOCKER는 cross-platform nanosecond mtime과 `started_at` 결합 서명으로 구분합니다. 현재 launch에서 서명이 바뀌지 않은 stale artifact는 liveness로 인정하지 않고 timeout 처리합니다.
 
-Shared core는 admission 전에 caller `PATH`의 `codex`를 canonical absolute executable로 확정해 runner/watchdog/safe wrapper 전체에 고정합니다. 제어된 host launch 환경만 `AGENT_WORKFLOW_CODEX_BIN`으로 absolute executable을 명시할 수 있으며, target config에는 이 권한이 없고 상대·누락·비실행 경로는 admission 전에 거부됩니다. cmux receipt도 display name을 identity로 쓰지 않고 create JSON에서 증명된 단 하나의 `id`/`workspace_id`/`workspaceId`/`ref`만 기록합니다. Create와 inspect는 같은 내부 handle module을 사용하므로 허용 키나 탐색 방식이 갈라질 수 없고, 같은 이름의 workspace가 있어도 inspect는 생성된 고유 handle만 조회합니다.
+새 runtime 공통 경로는 `agent-watchdog.sh`입니다. 각 시도는 `artifact_type:"agent_run"`과 runtime/role/version을 가진 RUN을 갱신하고, non-zero stderr를 `ISSUE-N-agent-attempt<K>-stderr.log`로 보존합니다. `attempt`는 watchdog 내부 시도 횟수이지 redispatch admission ordinal이나 실패 round가 아닙니다. `codex-watchdog.sh`와 `codex_run`은 기존 직접 호출/과거 산출물을 읽기 위한 호환 경로일 뿐 새 multi-runtime authority가 아닙니다.
+
+Conductor가 canonical ROUND-STATE를 갱신해야 할 때는 `--runtime <runtime> --role conductor --read-only --conductor-control`을 사용합니다. Runtime은 product-code write 권한 없이 proposal 하나만 출력하고, host publisher가 issue, live HEAD, worktree, base, schema, exact path, monotonic revision을 검증한 뒤 해당 ROUND-STATE만 원자 게시합니다. 검증 실패 시 아무 control artifact도 게시하지 않습니다.
+
+Shared core는 admission 전에 선택 runtime의 runtime-specific host seam 또는 caller PATH를 canonical absolute executable로 고정하고, runner에는 `AGENT_WORKFLOW_RUNTIME_BIN` 하나만 전달합니다. 관측된 version은 `agent_run` RUN과 schema v2 transport receipt에 runtime/role과 함께 바인딩됩니다. v1 receipt는 legacy transport-only read compatibility이며 현재 runtime provenance를 증명하지 않습니다. Target config는 executable을 주입할 수 없습니다.
 
 둘 이상의 write seat를 제안할 때는 먼저 canonical `ISSUE-123-EXECUTION-PLAN.json`을 만들고 `scripts/parallel-plan.sh decide --plan <plan> --target <repo>`를 실행합니다. 정확하고 배타적인 target-relative write set, dependency 없음, shared generated/lock/migration surface 비접촉, per-seat DB/env 격리, rate-limit budget이 모두 증명된 pair만 병렬입니다. 나머지는 reason code와 함께 직렬화됩니다. 각 dispatch는 `--execution-plan <plan> --seat <id>`로 plan binding을 소비합니다.
 
@@ -193,7 +203,7 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
 
 기존 `verify.sh`는 FeedbackOps 호환 어댑터입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다. Generic target은 PostgreSQL, backend, Vitest, Node 가정을 상속하지 않습니다.
 
-REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --produce-review`로 실행합니다. Codex를 실제 read-only sandbox에서 실행하고 host-side에서 JSON schema, producer, issue, live HEAD를 검증한 뒤 canonical `.review/ISSUE-123-REVIEW.json`을 원자 게시합니다. legacy `--read-only`는 liveness-only이며 filesystem sandbox를 read-only로 만들지 않습니다.
+REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review`로 실행합니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, host-side가 JSON schema, producer, issue, live HEAD를 검증한 뒤 canonical `.review/ISSUE-123-REVIEW.json`을 원자 게시합니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
 
 ## Mental model
 
@@ -202,7 +212,7 @@ Issue / acceptance contract
         ↓
 isolated worktree + env
         ↓
-agent-workflow → selected Orca/cmux adapter → watchdog → safe Codex
+agent-workflow → selected runtime + Orca/cmux adapter → watchdog → typed runtime adapter
         ↓
 completion + AC gate → independent REVIEWER
         ↓
@@ -211,14 +221,14 @@ host VERIFIER → canonical VERIFY
 Release Captain merge decision
 ```
 
-- **CONDUCTOR**는 contract와 `.review/*.json`을 관리하고 `conductor-rebuild.sh .review`로 디스크에서 상태를 복원합니다.
+- **CONDUCTOR**는 Codex·Claude Code·OpenCode 중 capability-probed runtime 하나로 contract와 `.review/*.json`을 관리하고 `conductor-rebuild.sh .review`로 디스크에서 상태를 복원합니다.
 - **Implementer**는 지정된 worktree에서만 작성합니다.
 - **REVIEWER**는 구현자와 독립적으로 patch와 checklist를 판정합니다.
 - **VERIFIER**는 host-side DB/test 실행과 현재 HEAD-bound VERIFY를 소유합니다.
 
 ## Trust boundary
 
-- write dispatch는 `agent-workflow.sh`, shared dispatch core, `codex-safe.sh`를 우회하지 않습니다.
+- write dispatch는 `agent-workflow.sh`, shared dispatch core, selected typed runtime adapter를 우회하지 않습니다.
 - 한 checkout에서 두 workspace-write 구현자를 동시에 실행하지 않습니다. 병렬 chunk는 별도 worktree를 사용합니다.
 - 원격·staging·production DB를 검증하지 않습니다. local, low-privilege, issue-specific DB만 사용합니다.
 - sandbox 구현과 host-side REVIEW/VERIFY를 분리합니다. worker의 테스트 주장과 pane prose는 참고일 뿐입니다.
@@ -231,7 +241,7 @@ Release Captain merge decision
 |---|---|---|
 | 설치·업그레이드 | `install-into.sh` | [적용 가이드](.claude/skills/agent-workflow/references/adoption.md) |
 | worktree·env 준비 | `prepare-worktree.sh` | [운영 플레이북](docs/agents/multi-agent-workflow.md#worktree-prep) |
-| visible dispatch·liveness | `agent-workflow.sh`, `dispatch-core.sh`, transport adapters, `codex-watchdog.sh`, `codex-safe.sh` | [디스패치 오퍼레이터 규칙](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules) |
+| visible dispatch·liveness | `agent-workflow.sh`, `dispatch-core.sh`, transport adapters, `agent-watchdog.sh`, `agent-runtime.sh` (`codex-watchdog.sh`는 legacy) | [디스패치 오퍼레이터 규칙](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules) |
 | 계약·완료 gate | `prompt-ac-check.sh`, `ac-check.sh`, `completion-check.sh`, `redispatch-check.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
 | 범용 검증 | `target-verify.sh`, target profile | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
 | FeedbackOps 호환 검증 | `prepare-verify-db.sh`, `verify.sh` | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
@@ -245,10 +255,11 @@ Release Captain merge decision
 |---|---|
 | `ISSUE-N-ROUND-STATE.json` | CONDUCTOR가 dispatch 0부터 유지하는 canonical contract와 revision-pinned AC manifest |
 | `ISSUE-N-CONTEXT.md`, `ISSUE-N-PROMPT.md` | uncommitted/non-archival CONDUCTOR prompt-authoring scratch; PROMPT에는 exact AC block |
-| `ISSUE-N-PR-DRAFT.json` | CODEX 구현 handoff; 자체 테스트 주장은 참고일 뿐 |
+| `ISSUE-N-PR-DRAFT.json` | runtime-neutral 구현 handoff; 자체 테스트 주장은 참고일 뿐 |
 | `ISSUE-N-REVIEW.json` | 독립 REVIEWER의 판정과 patch instruction |
 | `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거 |
-| `ISSUE-N-RUN.json` | watchdog 실행 상태; 병합 증거 아님 |
+| `ISSUE-N-RUN.json` | shared watchdog의 runtime/role/version/attempt 실행 상태; 병합 증거 아님 |
+| `ISSUE-N-TRANSPORT.json` | v2 runtime provenance + transport/runner receipt; v1은 legacy read-only 호환, 둘 다 비권위 |
 | `ISSUE-N-BLOCKER.json` | 구조화된 중단 사유와 필요한 결정 |
 | `HEARTBEAT-*.json` | liveness 증거; correctness 증거 아님 |
 

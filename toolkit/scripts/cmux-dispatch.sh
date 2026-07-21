@@ -5,4 +5,11 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec bash "$SCRIPT_DIR/dispatch-core.sh" --adapter cmux "$@"
+COMPAT_ROLE="implementation"
+for arg in "$@"; do
+  case "$arg" in
+    --produce-review) COMPAT_ROLE="reviewer" ;;
+    --read-only) [ "$COMPAT_ROLE" = "implementation" ] && COMPAT_ROLE="architect" ;;
+  esac
+done
+exec bash "$SCRIPT_DIR/dispatch-core.sh" --adapter cmux --runtime codex --role "$COMPAT_ROLE" "$@"

@@ -8,8 +8,9 @@
     "schema_version": { "const": "1" },
     "artifact_type": { "const": "pr_draft" },
     "lifecycle": { "enum": ["draft", "active", "superseded", "final"] },
-    "producer_role": { "const": "CODEX" },
-    "producer_version": { "type": "string", "description": "optional: agent CLI version (e.g. 'codex/0.133.0') for debugging provenance" },
+    "producer_role": { "enum": ["CODEX", "WORKER", "CONDUCTOR", "REVIEWER", "VERIFIER", "RELEASE"], "description": "Workflow role. CODEX is accepted only as a legacy producer identity." },
+    "producer_runtime": { "enum": ["codex", "claude", "opencode"], "description": "Runtime that produced this artifact; required for runtime-neutral artifacts." },
+    "producer_version": { "type": "string", "minLength": 1, "description": "Observed runtime CLI version; required for runtime-neutral artifacts." },
     "issue": {
       "type": "object",
       "additionalProperties": false,
@@ -64,6 +65,12 @@
     "base_branch": { "type": "string", "description": "optional: the integration branch this feature branched from (e.g. 'develop' or 'feature/agent-workflow-trial'); used by artifact-fresh to compute merge-base instead of assuming develop" },
     "closure_binding": { "$ref": "#/definitions/closure_binding" }
   },
+  "allOf": [{
+    "oneOf": [
+      { "type": "object", "required": ["producer_role"], "properties": { "producer_role": { "const": "CODEX" } }, "not": { "type": "object", "required": ["producer_runtime"] } },
+      { "type": "object", "required": ["producer_role", "producer_runtime", "producer_version"], "properties": { "producer_role": { "enum": ["WORKER", "CONDUCTOR", "REVIEWER", "VERIFIER", "RELEASE"] } } }
+    ]
+  }],
   "definitions": {
     "closure_binding": { "type": "object", "additionalProperties": false, "required": ["issue", "round", "manifest_revision", "plan_revision", "candidate_head", "attempt_id", "generated_at"], "properties": {
       "issue": { "type": "integer", "minimum": 1 }, "round": { "type": "integer", "minimum": 1 }, "manifest_revision": { "type": "integer", "minimum": 1 }, "plan_revision": { "type": "integer", "minimum": 1 },
