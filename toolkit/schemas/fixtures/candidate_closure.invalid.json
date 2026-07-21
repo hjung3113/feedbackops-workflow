@@ -1,0 +1,6 @@
+{
+  "schema_version": "1", "artifact_type": "candidate_closure", "producer_role": "WORKER",
+  "issue": 0, "round": 0, "manifest_revision": 0, "plan_revision": 0, "candidate_head": "bad", "attempt_id": "",
+  "integration_sha256": "bad", "evidence_set_sha256": "bad",
+  "status": "done", "reason_codes": ["x", "x"], "evaluated_at": "not-a-time"
+}

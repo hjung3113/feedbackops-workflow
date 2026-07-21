@@ -15,13 +15,18 @@ const supported = new Set([
   "properties",
   "items",
   "minimum",
+  "maximum",
   "minLength",
   "pattern",
   "minItems",
+  "maxItems",
   "uniqueItems",
   "minProperties",
   "definitions",
   "$ref",
+  "allOf",
+  "oneOf",
+  "not",
 ]);
 
 function same(left, right) {
@@ -53,6 +58,17 @@ function validate(schema, value, path = "$", root = schema) {
     return validate(root.definitions[match[1]], value, path, root);
   }
 
+  if (schema.allOf) {
+    for (const member of schema.allOf) errors.push(...validate(member, value, path, root));
+  }
+  if (schema.oneOf) {
+    const matching = schema.oneOf.filter((member) => validate(member, value, path, root).length === 0).length;
+    if (matching !== 1) errors.push(`${path}: must match exactly one oneOf branch, matched ${matching}`);
+  }
+  if (schema.not && validate(schema.not, value, path, root).length === 0) {
+    errors.push(`${path}: must not match forbidden schema`);
+  }
+
   if (Object.prototype.hasOwnProperty.call(schema, "const") && !same(value, schema.const)) {
     errors.push(`${path}: must equal ${JSON.stringify(schema.const)}`);
   }
@@ -62,16 +78,21 @@ function validate(schema, value, path = "$", root = schema) {
 
   if (schema.type) {
     const actual = valueType(value);
-    const matches = schema.type === "number"
+    const acceptedTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
+    const matches = acceptedTypes.some((candidate) => candidate === "number"
       ? actual === "number" || actual === "integer"
-      : actual === schema.type;
+      : actual === candidate);
     if (!matches) {
-      errors.push(`${path}: must be ${schema.type}, got ${actual}`);
+      errors.push(`${path}: must be ${acceptedTypes.join(" or ")}, got ${actual}`);
       return errors;
     }
   }
 
-  if (schema.type === "object") {
+  const actualType = valueType(value);
+  const hasType = (type) => schema.type === type
+    || (Array.isArray(schema.type) && schema.type.includes(type));
+
+  if (hasType("object") && actualType === "object") {
     const properties = schema.properties || {};
     for (const name of schema.required || []) {
       if (!Object.prototype.hasOwnProperty.call(value, name)) {
@@ -102,9 +123,12 @@ function validate(schema, value, path = "$", root = schema) {
     }
   }
 
-  if (schema.type === "array") {
+  if (hasType("array") && actualType === "array") {
     if (schema.minItems !== undefined && value.length < schema.minItems) {
       errors.push(`${path}: must contain at least ${schema.minItems} items`);
+    }
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      errors.push(`${path}: must contain at most ${schema.maxItems} items`);
     }
     if (schema.uniqueItems) {
       const seen = new Set();
@@ -119,7 +143,7 @@ function validate(schema, value, path = "$", root = schema) {
     }
   }
 
-  if (schema.type === "string") {
+  if (hasType("string") && actualType === "string") {
     if (schema.minLength !== undefined && Array.from(value).length < schema.minLength) {
       errors.push(`${path}: must contain at least ${schema.minLength} characters`);
     }
@@ -128,9 +152,15 @@ function validate(schema, value, path = "$", root = schema) {
     }
   }
 
-  if ((schema.type === "integer" || schema.type === "number")
+  if ((hasType("integer") || hasType("number"))
+      && (actualType === "integer" || actualType === "number")
       && schema.minimum !== undefined && value < schema.minimum) {
     errors.push(`${path}: must be at least ${schema.minimum}`);
+  }
+  if ((hasType("integer") || hasType("number"))
+      && (actualType === "integer" || actualType === "number")
+      && schema.maximum !== undefined && value > schema.maximum) {
+    errors.push(`${path}: must be at most ${schema.maximum}`);
   }
 
   return errors;

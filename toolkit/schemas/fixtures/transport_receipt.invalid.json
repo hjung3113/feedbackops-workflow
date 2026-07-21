@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "artifact_type": "transport_receipt",
+  "authoritative": true,
+  "issue": 42,
+  "adapter": "auto",
+  "adapter_version": "unknown",
+  "capabilities": [],
+  "external_handle": "",
+  "worktree_path": "/tmp/example",
+  "runner": {
+    "path": "/tmp/example/run.sh",
+    "relative_path": "run.sh",
+    "sha256": "not-a-hash"
+  },
+  "launched_at": "not-a-date",
+  "created_at": "not-a-date"
+}

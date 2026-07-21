@@ -1,0 +1,33 @@
+{
+  "schema_version": "1",
+  "artifact_type": "telemetry_sample",
+  "sample_id": "bad",
+  "project_pseudonym": "raw-user",
+  "issue": 0,
+  "round": -1,
+  "manifest_revision": 0,
+  "attempt": 0,
+  "role": "owner",
+  "task_class": "secret",
+  "tier": "cheap",
+  "model": "model with spaces",
+  "effort": "max",
+  "base_sha": "bad",
+  "head_sha": "bad",
+  "transport": "cloud",
+  "started_at": "later",
+  "ended_at": "earlier",
+  "duration_ms": -1,
+  "terminal": "success",
+  "retry_of": "",
+  "artifacts": [],
+  "usage": {
+    "kind": "unavailable",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cost": 0,
+    "currency": "USD",
+    "source": "fake",
+    "provenance_version": "fake"
+  }
+}

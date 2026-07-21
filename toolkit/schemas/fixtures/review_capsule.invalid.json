@@ -1,0 +1,24 @@
+{
+  "schema_version": "1",
+  "artifact_type": "review_capsule",
+  "producer_role": "REVIEWER",
+  "issue": 0,
+  "manifest_revision": 0,
+  "head_sha": "short",
+  "input_digest": "bad",
+  "sources": [],
+  "budget": {
+    "target_tokens": 0,
+    "minimum_tokens": 0,
+    "truncated_sections": []
+  },
+  "objective": "",
+  "touch_allowlist": [],
+  "prohibitions": [],
+  "acceptance": [],
+  "diff": { "base_sha": "bad", "files": [], "summary": "" },
+  "prior_findings": [],
+  "verification": [],
+  "risks": [],
+  "reviewer_output_contract": ""
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "artifact_type": "verify_result",
+  "producer_role": "VERIFIER",
+  "issue": 71,
+  "branch": "fix/no-evidence",
+  "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "cwd": "/tmp/no-evidence",
+  "verify_cmd": "verify-without-evidence",
+  "verdict": { "passed": 1, "failed": 0, "pending": 0, "exit_code": 0 },
+  "classifier": "PASS",
+  "failures": [],
+  "created_at": "2026-07-21T00:00:00Z"
+}

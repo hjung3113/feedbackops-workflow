@@ -1,0 +1,1 @@
+{"schema_version":"2","id":"fixture","runtime":{"executables":[]},"setup":[],"verification":{"groups":[{"id":"tests","required":true,"commands":[{"argv":[],"cwd":"../outside"}]}]},"unknown":true}

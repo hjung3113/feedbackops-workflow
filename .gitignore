@@ -14,12 +14,17 @@ node_modules/
 .review/*-REVIEW.md
 .review/*-VERIFY.json
 .review/*-PROMPT.txt
+.review/ISSUE-*-PROMPT.md
+.review/ISSUE-*-CONTEXT.md
+.review/ISSUE-*-REVIEW-CAPSULE.json
+.review/ISSUE-*-REVIEW-CAPSULE.md
 .review/archive/
 .review/.rebase-inflight.lock
 .review/*.sock
 .review/pg.sock
 .review/netdeny-probe.*
 .review/uds-probe-result.txt
+.agent-workflow/telemetry/
 
 # tooling caches
 .playwright-mcp/

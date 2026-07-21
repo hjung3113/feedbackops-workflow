@@ -2,9 +2,22 @@
 
 _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagreement._
 
-## Current release: v0.19
+## Current release: v0.20
 
-## Next: unreleased canonical VERIFY aggregate
+## Current integrated capabilities
+
+- Added one draft-07 target profile authority with structured argv/cwd/env commands, representative Node/Go/Python profiles, and a target-neutral verifier that executes every required group, records UTF-8 byte-bounded evidence, publishes extractor misses as `test_count:null` FAIL evidence, and red-latches same-HEAD failures only after schema plus semantic aggregate validation.
+- Generalized canonical VERIFY evidence with an exclusive contract: generic artifacts require `target_profile + groups`, while the FeedbackOps `verify.sh` adapter and legacy artifacts require `db_target + clean_state`; empty PASS artifacts are schema-invalid. Generic PASS command exits must all be zero and any recorded test count must be a positive integer, enforced independently by schema and semantic validation. The Node example and smoke use actual `node --test` TAP output (`ℹ tests N`). `prepare-worktree.sh` and `tier-probe.sh` remain documented compatibility seams until they can share the same parser without divergent precedence.
+
+- Re-review now uses a deterministic, schema-validated capsule derived from canonical ROUND-STATE, the full implementation prompt, final REVIEW, PR-DRAFT, and live HEAD. Canonical structured prohibitions, strict PR-DRAFT worktree/base binding, whole-prompt cumulative budgets with explicit omission counts, source digests, secret/path guards, and a capsule-Markdown-bound dispatch gate prevent freehand review drift without creating a second authority.
+
+- Canonical execution plans now classify write-seat pairs deterministically. Only disjoint exact write sets with proven dependency/resource/isolation/budget safety are parallel-eligible; all uncertainty serializes, while a one-seat plan preserves sequential operation.
+- Planned dispatch admission binds issue, round/revision, base HEAD, real worktree, seat, and exact ROUND-STATE allowlist before atomically consuming a same-seat plan hash. Existing initial/redispatch/integrated-fix protections remain layered underneath.
+- Ordered candidate integration records every source/resulting HEAD and blocks stale/unrebased sources, unexpected paths, conflicts, dirt, and duplicate/missing/reordered integration steps. Candidate closure requires each underlying artifact to carry the same direct attempt binding, accepts only final REVIEW plus active PR-DRAFT lifecycle, rejects wrapper-only same-HEAD relabels and invalid RFC3339 instants, and becomes stale after any later commit.
+
+- Added opt-in local append-only model/task telemetry with salted project pseudonyms, canonical artifact digests, truthful observed/estimated/unavailable usage, concurrency-safe idempotence, and explicit single-sample deletion. Green consumes the parallel-safety producer's canonical closure plus its canonical integration/evidence sources through byte-identical shared #14 schemas, actual byte digests, strict semantic RFC3339 dates, and generation/RUN freshness ordering; salt/store realpaths must remain target-local. Retry reports enforce immutable project/issue/round/revision lineage, contiguous admitted attempts and valid edges, expose per-attempt allocation, and suppress mixed-model chains from single-model cohorts. Reports are advisory and cannot mutate allocation or tier policy.
+- Candidate closure and telemetry now consume one strict calendar-valid RFC3339 parser. Telemetry sample semantics bind closure source/hash/value to unique canonical closure, integration, and candidate-evidence artifact paths and digests, with dedicated schema-valid semantic pass/fail fixtures.
+- cmux create-result normalization and workspace-list inspection now consume one handle module with a single ID/ref allowlist, preventing launch and inspection identity rules from drifting.
 
 - Standard/Full initial writes and canonical write redispatches now fail closed unless the worker prompt contains one delimited JSON AC block that exactly copies the ordered ROUND-STATE `acceptance.criteria[]` IDs and statements. CONDUCTOR performs an unedited context dump, one user-facing reverse-question batch (or explicit skip), then compression; CONTEXT/PROMPT Markdown files are uncommitted, non-archival scratch, and `model-alloc.json` owns an advisory-only prompt target budget.
 
@@ -14,7 +27,7 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
-- isolated worktree preparation and visible cmux dispatch, with a retained atomic launch runner so cmux receives only a short relative command even when the watchdog argv contains deep paths;
+- isolated worktree preparation and explicit Orca/cmux dispatch through one shared correctness core, with a retained atomic launch runner so either adapter receives only a short relative command even when the watchdog argv contains deep paths;
 - sandboxed Codex implementation with model/effort pinning;
 - project-owned model allocation defaults, schema-validated evidence-gated Codex-only auto-dispatch, source-dated static-plus-reasoning review preference, and preserved install upgrades;
 - process + filesystem liveness, read-only heartbeat support, and retry-aware refusal probes;
@@ -37,7 +50,8 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - copy-only fresh installation plus transactional `--upgrade` for recognized copies and correlated current/legacy absolute-link installations;
 - an opt-in self-application boundary: toolkit development uses its general development skills, while `agent-workflow` may target this repository only with explicit `--self-test` dogfooding authorization;
 - a root-owned release contract that checks toolkit containment, exact compatibility exceptions, source/portable-installed links, and target-install non-leakage;
-- an offline Bash 3.2 smoke suite; this source repository runs the release gate and full suite in CI.
+- an offline Bash 3.2 smoke suite; this source repository runs the release gate and full suite in CI;
+- a self-diagnosing smoke runner: a failing smoke's inner diagnostic is emitted and retained by path, callers can supply a line-oriented `--redact-values-file` whose literal values are masked in both outputs while raw failure captures are discarded, `--list` answers without allocating temporary storage, and asynchronous fixtures wait on named conditions instead of fixed sleeps. Redaction is an explicit caller contract, not automatic secret discovery.
 
 Run the current inventory instead of copying a count into docs:
 
@@ -46,7 +60,21 @@ bash scripts/__tests__/run-all.sh --list
 NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 ```
 
+The runner's own contract test lives outside the live inventory (so the suite cannot re-enter itself) and is run directly:
+
+```bash
+bash scripts/__tests__/run-all-contract.test.sh
+```
+
 ## Shipped timeline
+
+### v0.20 — explicit Orca/cmux transport interface
+
+- `agent-workflow.sh` exposes `capabilities`, `dispatch`, and `inspect`. Dispatch selection is explicit and deterministic: CLI, then `AGENT_WORKFLOW_ORCHESTRATOR`, then target-local config; missing, unknown, or unavailable selections fail without a default or fallback.
+- `dispatch-core.sh` is the sole owner of ROUND-STATE/prompt validation, HEAD/worktree binding, atomic admission, launch-unique runners, and RUN/BLOCKER freshness. Thin cmux and Orca adapters receive only a typed seat request; `cmux-dispatch.sh` remains an explicit cmux compatibility facade.
+- Every launch publishes a schema-valid, non-authoritative `ISSUE-N-TRANSPORT.json`. `inspect` queries the adapter's external handle read-only and normalizes live, missing/stale, and unverifiable probes while independently detecting a missing or changed runner. Orca launch and inspect share one handle normalizer for `terminal_id`, `terminalId`, `handle`, and `id`. cmux launch accepts exactly one create-result `id`/`workspace_id`/`workspaceId`/`ref`, never the requested display name, and inspect matches only that unique identity; none of this transport evidence replaces canonical REVIEW/VERIFY evidence.
+- Before admission, cmux proves a `0.64.0` version floor plus side-effect-free help for the actual workspace-create cwd/command contract, and Orca proves create worktree/title/command/JSON plus read-only list capabilities. Probe failures do not consume admission. Orca opens a fresh bare-shell terminal at the exact existing worktree and refuses ambiguous handles. Offline fake-adapter smokes cover selection, no fallback, parity, receipts, and external-handle inspection; live GUI E2E remains a separately labeled gate.
+- The core resolves the caller's Codex binary to one absolute executable before admission and pins it through the runner, watchdog, and safe wrapper; the host-only override is fail-closed and target config cannot inject a binary. cmux receipts use one proven create-result id/ref rather than a display name, so duplicate names and removed workspaces inspect correctly.
 
 ### v0.19 — cmux launch-runner transport
 
@@ -182,18 +210,19 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 | Area | Current status |
 |---|---|
 | Dispatch, watchdog, artifact lifecycle | Reusable across Git repositories with cmux + Codex |
+| target profile + `target-verify.sh` | Reusable structured setup/runtime/verification contract |
 | `prepare-worktree.sh` | pnpm plus root/`apps/backend` env layout |
 | `tier-probe.sh` | TypeScript/TSX exported-contract heuristics |
-| `verify.sh` | pnpm workspace package `backend` + Vitest |
+| `verify.sh` | FeedbackOps pnpm/Vitest/Postgres compatibility adapter |
 | `prepare-verify-db.sh` | local PostgreSQL per-issue DBs |
 | branch/cluster helpers | retain `feature/*`, pane-label, and integration-branch conventions |
 
-The next generalization must be based on a second real target. The intended split is a stable coordination core plus a small target profile for install commands, env paths, branch patterns, tier triggers, verification commands, and service isolation. See `.claude/skills/agent-workflow/references/adoption.md`.
+Profile-driven preparation and tier routing remain deferred until they can consume the same authority without a second parser or precedence path. See `.claude/skills/agent-workflow/references/adoption.md`.
 
 ## Key operating facts
 
 - A process exit or worker prose is not completion evidence. Review and verification must match the live HEAD.
-- Write-capable Codex dispatch goes through `cmux-dispatch.sh` → `codex-watchdog.sh` → `codex-safe.sh`.
+- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected Orca/cmux adapter → `codex-watchdog.sh` → `codex-safe.sh`; `cmux-dispatch.sh` is the explicit-cmux compatibility facade.
 - Read-only seats use `--read-only`; optional first-progress/stall budgets are forwarded only when supplied.
 - Parallel write chunks require separate worktrees. FeedbackOps-style DB suites also require separate throwaway databases.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
@@ -206,7 +235,7 @@ The next generalization must be based on a second real target. The intended spli
 - **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
 - **P1 procedure/templates:** #9, #10, and #11 are shipped (circuit breaker, compile-atomic chunks, and canonical Standard round-0 state).
 - **P2 toolkit/procedure:** #13 verifier output/freshness is shipped; #14 and #17 remain evidence-gated integrated-head closure and re-review capsule work; #19 is shipped in `codex-safe.sh`.
-- **P3 telemetry:** #18 — model-by-task measurements before revisiting tier allocation.
+- **P3 telemetry:** #18 implementation is review-ready; live issue closure still waits for merged evidence before tier allocation is revisited.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
 
 GitHub issues are the live roadmap; this section is a readable index, not a second issue tracker.

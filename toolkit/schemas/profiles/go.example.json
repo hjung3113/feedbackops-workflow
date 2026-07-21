@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"go","runtime":{"executables":["go"]},"setup":[],"verification":{"groups":[{"id":"test","required":true,"commands":[{"argv":["go","test","./..."]}],"test_count":{"pattern":"PASS ([0-9]+)","group":1}}]}}

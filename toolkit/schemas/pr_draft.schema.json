@@ -61,6 +61,14 @@
       "description": "informational pointer only; conductor does NOT trust this — derives ISSUE-<n>-VERIFY.json deterministically"
     },
     "worktree_path": { "type": "string", "description": "optional: absolute path to the worktree this artifact's branch lives in; used by conductor-rebuild to resolve the branch's real HEAD" },
-    "base_branch": { "type": "string", "description": "optional: the integration branch this feature branched from (e.g. 'develop' or 'feature/agent-workflow-trial'); used by artifact-fresh to compute merge-base instead of assuming develop" }
+    "base_branch": { "type": "string", "description": "optional: the integration branch this feature branched from (e.g. 'develop' or 'feature/agent-workflow-trial'); used by artifact-fresh to compute merge-base instead of assuming develop" },
+    "closure_binding": { "$ref": "#/definitions/closure_binding" }
+  },
+  "definitions": {
+    "closure_binding": { "type": "object", "additionalProperties": false, "required": ["issue", "round", "manifest_revision", "plan_revision", "candidate_head", "attempt_id", "generated_at"], "properties": {
+      "issue": { "type": "integer", "minimum": 1 }, "round": { "type": "integer", "minimum": 1 }, "manifest_revision": { "type": "integer", "minimum": 1 }, "plan_revision": { "type": "integer", "minimum": 1 },
+      "candidate_head": { "type": "string", "pattern": "^[0-9a-f]{40}$" }, "attempt_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
+      "generated_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$" }
+    } }
   }
 }

@@ -1,0 +1,5 @@
+{
+  "schema_version": "1", "artifact_type": "integration_result", "producer_role": "WORKER",
+  "issue": 0, "round": 0, "manifest_revision": 0, "plan_revision": 0, "plan_sha256": "bad", "base_head": "bad",
+  "status": "green", "steps": [], "candidate_head": "bad", "candidate_clean": "yes", "created_at": "not-a-time"
+}

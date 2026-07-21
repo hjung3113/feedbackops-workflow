@@ -19,6 +19,7 @@ HEARTBEAT_PID=""
 HEARTBEAT_INTERVAL="${CODEX_SAFE_HEARTBEAT_INTERVAL:-20}"
 PRODUCE_REVIEW=0
 REVIEW_OUTPUT_FILE=""
+CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-codex}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -118,18 +119,18 @@ fi
 if [[ "$PRODUCE_REVIEW" -eq 1 ]]; then
   mkdir -p "$CWD/.review"
   rm -f "$REVIEW_OUTPUT_FILE"
-  set -- codex exec --sandbox read-only --cd "$CWD" --output-last-message "$REVIEW_OUTPUT_FILE"
+  set -- "$CODEX_BIN" exec --sandbox read-only --cd "$CWD" --output-last-message "$REVIEW_OUTPUT_FILE"
   [[ -n "$MODEL" ]] && set -- "$@" -m "$MODEL"
   [[ -n "$EFFORT" ]] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""
   "$@" "$PROMPT" &
 elif [[ "${#EXTRA[@]}" -gt 0 ]]; then
-  codex exec \
+  "$CODEX_BIN" exec \
     --sandbox workspace-write \
     --cd "$CWD" \
     "${EXTRA[@]}" \
     "$PROMPT" &
 else
-  codex exec \
+  "$CODEX_BIN" exec \
     --sandbox workspace-write \
     --cd "$CWD" \
     "$PROMPT" &

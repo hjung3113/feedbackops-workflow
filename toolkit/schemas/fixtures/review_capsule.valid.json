@@ -1,0 +1,62 @@
+{
+  "schema_version": "1",
+  "artifact_type": "review_capsule",
+  "producer_role": "CONDUCTOR",
+  "issue": 17,
+  "manifest_revision": 2,
+  "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "input_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sources": [
+    {
+      "kind": "round_state",
+      "path": ".review/ISSUE-17-ROUND-STATE.json",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "kind": "prompt",
+      "path": ".review/ISSUE-17-PROMPT.md",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+      "kind": "review",
+      "path": ".review/ISSUE-17-REVIEW.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    },
+    {
+      "kind": "pr_draft",
+      "path": ".review/ISSUE-17-PR-DRAFT.json",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ],
+  "budget": {
+    "target_tokens": 1200,
+    "minimum_tokens": 300,
+    "truncated_sections": [],
+    "omitted_counts": {
+      "diff_files": 0,
+      "prior_findings": 0,
+      "verification": 0,
+      "risks": 0
+    }
+  },
+  "objective": "repair review findings",
+  "touch_allowlist": ["toolkit/**"],
+  "prohibitions": ["Do not push"],
+  "acceptance": [{ "id": "AC-1", "statement": "capsule is deterministic" }],
+  "diff": {
+    "base_sha": "1111111111111111111111111111111111111111",
+    "files": ["M toolkit/a.sh"],
+    "summary": "one file changed"
+  },
+  "prior_findings": [
+    {
+      "status": "open",
+      "severity": "fix",
+      "description": "repair boundary",
+      "evidence": "canonical review"
+    }
+  ],
+  "verification": ["bash smoke.sh — PASS"],
+  "risks": [],
+  "reviewer_output_contract": "Return one canonical REVIEW JSON; do not edit source."
+}

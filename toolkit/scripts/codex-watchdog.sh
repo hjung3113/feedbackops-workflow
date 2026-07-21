@@ -7,6 +7,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_SAFE="$SCRIPT_DIR/codex-safe.sh"
+CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-codex}"
 
 ISSUE_N=""
 PROMPT_FILE=""
@@ -66,9 +67,9 @@ probe_model() {
   if [ -n "${CODEX_WATCHDOG_PROBE_CMD:-}" ]; then
     sh -c "$CODEX_WATCHDOG_PROBE_CMD" </dev/null
   elif [ -n "$MODEL" ]; then
-    codex exec --skip-git-repo-check -m "$MODEL" -c model_reasoning_effort=low "reply exactly OK" </dev/null
+    "$CODEX_BIN" exec --skip-git-repo-check -m "$MODEL" -c model_reasoning_effort=low "reply exactly OK" </dev/null
   else
-    codex exec --skip-git-repo-check -c model_reasoning_effort=low "reply exactly OK" </dev/null
+    "$CODEX_BIN" exec --skip-git-repo-check -c model_reasoning_effort=low "reply exactly OK" </dev/null
   fi
 }
 

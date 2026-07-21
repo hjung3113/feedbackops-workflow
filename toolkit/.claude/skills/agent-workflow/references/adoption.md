@@ -7,21 +7,31 @@ Read this reference only when installing or adapting the workflow to a new targe
 | Layer | Portability | Notes |
 |---|---|---|
 | Artifact schemas and lifecycle | General | JSON contracts do not depend on FeedbackOps product code. |
-| `codex-safe.sh`, `codex-watchdog.sh`, `cmux-dispatch.sh` | Mostly general | Require Git, cmux, Codex CLI, and the toolkit script layout. |
+| `agent-workflow.sh`, dispatch core, transport adapters, watchdog/safe wrapper | Mostly general | Require Git, Codex CLI, and an explicitly selected available cmux (minimum 0.64.0 with workspace create cwd/command) or Orca CLI (create worktree/title/command/JSON plus read-only list). |
 | Review/archive/state reconstruction | General with conventions | The target must use the documented `.review/` names and full SHAs. |
-| `prepare-worktree.sh` | Target adapter | Assumes pnpm, `.env`, and `apps/backend/.env`. |
-| `tier-probe.sh` | TypeScript adapter | Its exported-contract heuristics target TS/TSX code. |
-| `verify.sh` | FeedbackOps-style adapter | Assumes a pnpm `backend` package tested by Vitest and a target-owned clean probe producing sentinel/migration-hash JSON. Same-identity issue runs aggregate in one canonical `runs[]` artifact. |
+| Target profile + `target-verify.sh` | General | One closed profile owns target facts; commands are structured argv/cwd/env data. |
+| Parallel plan and candidate closure | General | Requires Git worktrees/commits; write paths and evidence paths stay target-relative. Target policy declares shared mutation paths, per-seat DB/env isolation, and rate-limit budget proof. |
+| `prepare-worktree.sh` | FeedbackOps compatibility adapter | Profile-driven setup is deliberately deferred; do not parse the profile independently here. |
+| `tier-probe.sh` | TypeScript compatibility adapter | Profile-driven tier triggers are deliberately deferred; do not create a second precedence path. |
+| `verify.sh` | FeedbackOps compatibility adapter | Retains pnpm/Vitest/Postgres clean-state behavior. |
 | `prepare-verify-db.sh` | PostgreSQL adapter | Assumes local PostgreSQL and per-issue databases. |
 | `cmux-cluster.sh` / `rebase-inflight.sh` | Convention adapter | Carry branch, pane-label, and `feature/*` assumptions. |
 
-The workflow's **coordination model is reusable**, but every script is not yet target-neutral. Installation must not be described as full compatibility until the target adapters are checked.
+The workflow's coordination model and generic verifier are reusable. Target facts have one authority: a target-owned JSON profile validated by `schemas/target-profile.schema.json`; examples for Node, Go, Python, and FeedbackOps live under `schemas/profiles/`.
 
-Every target must explicitly tier its initial write. Standard/Full Cluster work generates the complete canonical `ISSUE-<n>-ROUND-STATE.json`; Standard may omit optional Full Cluster structures but retains `pr_draft` and `review` pointers and must not introduce a reduced target-specific schema. Pass that artifact and its revision to `cmux-dispatch.sh`; initial admission binds it to the target issue, tier, real worktree, live HEAD, and integration-branch merge-base. Trivial initial work retains the documented `pr_draft`-only contract.
+Every target must explicitly tier its initial write. Standard/Full Cluster work generates the complete canonical `ISSUE-<n>-ROUND-STATE.json`, including explicit `contract.prohibitions[]` rather than prompt-regex reconstruction; Standard may omit optional Full Cluster structures but retains `pr_draft` and `review` pointers and must not introduce a reduced target-specific schema. Pass that artifact and its revision to `agent-workflow.sh dispatch` with an explicit orchestrator; initial admission binds it to the target issue, tier, real worktree, live HEAD, and integration-branch merge-base. Trivial initial work retains the documented `pr_draft`-only contract.
 
-Dispatch REVIEWER with `cmux-dispatch.sh --produce-review`, not the legacy liveness-only `--read-only` flag. The installed wrapper keeps reviewer commands filesystem-read-only, captures the final JSON host-side, and publishes the canonical REVIEW only after schema, issue, and live-HEAD validation. A target must not replace this with pane transcription or a second review manifest.
+Choose the transport explicitly before the first run. Copy the installed `.agent-workflow/docs/agents/workflow-config.example.json` to `.agent-workflow/workflow-config.json`, set `AGENT_WORKFLOW_ORCHESTRATOR`, or pass `--orchestrator cmux|orca`; CLI overrides environment, which overrides target config. Missing or unknown choices fail closed and a selected unavailable adapter never falls back. Target config contains only `orchestrator` and cannot inject a command.
 
-Adopt the playbook's dispatch liveness operator rules unchanged: preserve `cmux-dispatch.sh`'s direct exit code, accept only current-launch RUN/BLOCKER identity (`mtime + started_at`), and never derive completion from RUN status or artifact absence. Target-specific orchestration may display these signals but must still bind canonical REVIEW/VERIFY to live HEAD.
+The host resolves `codex` from its caller `PATH` and pins the resulting absolute executable through the retained runner. `AGENT_WORKFLOW_CODEX_BIN` is reserved for a host/operator that must bridge a controlled transport environment; it must be an absolute executable and is rejected before admission otherwise. Never add an executable field to target workflow config.
+
+For multiple write seats, adopt the portable execution-plan contract instead of target-specific orchestration guesses. Declare normalized target-relative write sets, dependencies, topological integration order, shared generated/lockfile/migration surfaces, DB/environment isolation, and rate-limit reservation. Run `parallel-plan.sh decide`; only `parallel_eligible` pairs may overlap. Dispatch each planned seat with `--execution-plan` and `--seat`. Integrate source deltas into a dedicated clean candidate with `candidate-integrate.sh`, then close only through `candidate-close.sh evaluate`, exact unique integration-step order, a final REVIEW, an active PR-DRAFT, and a complete evidence set whose artifacts directly bind the same issue/round/revisions/candidate HEAD/attempt/generation timestamp. Wrapper relabeling and draft/superseded evidence do not establish freshness. The integrator never resets, checks out, aborts, or discards user changes.
+
+Dispatch REVIEWER with `agent-workflow.sh dispatch --produce-review`, not the legacy liveness-only `--read-only` flag. The installed wrapper keeps reviewer commands filesystem-read-only, captures the final JSON host-side, and publishes the canonical REVIEW only after schema, issue, and live-HEAD validation. A target must not replace this with pane transcription or a second review manifest.
+
+For a re-review, first render `ISSUE-N-REVIEW-CAPSULE.{json,md}` with `review-capsule.sh` from the target's canonical ROUND-STATE, full prompt, final REVIEW, and PR-DRAFT. Pass the canonical JSON to the next review dispatch and omit `--prompt-file` to use the automatically bound canonical Markdown; unrelated prompts are rejected. Treat `target_tokens` as a whole-Markdown cap and retain the generated omission counts. Generated capsule files are ignored runtime scratch and never replace those source authorities.
+
+Adopt the playbook's dispatch liveness operator rules unchanged: preserve the public dispatch command's direct exit code, accept only current-launch RUN/BLOCKER identity (`mtime + started_at`), and never derive completion from RUN status or artifact absence. Target-specific orchestration may display these signals but must still bind canonical REVIEW/VERIFY to live HEAD.
 
 ## Install
 
@@ -73,34 +83,22 @@ Before the first run, answer these from the target's real files:
 8. Which repository-native commands enumerate compile-time consumers, and what full typecheck command gates the proposed scope?
 9. What artifact or captured result proves verification at the current HEAD?
 
-Record target-specific answers in the target's `AGENTS.md` or a small target-owned adapter document. Do not add product assumptions back to the shared skill.
+Record executable answers in one target profile. Do not duplicate profile precedence or add target assumptions back to the shared skill. Run `.agent-workflow/scripts/target-verify.sh <profile> <issue>` for generic targets. Every required command must exit zero for PASS. A test-count extractor must match real target output and prove a positive integer; a miss is durable `test_count:null` FAIL evidence. Treat `verification.output_bytes` as a UTF-8 byte ceiling. Same-HEAD canonical evidence is appendable only after schema and aggregate validation, so repair or archive an invalid artifact rather than replacing its red history with a new PASS.
 
 For the bundled verifier, the target-owned adapter document must define `VERIFY_CLEAN_COMMAND`. Its command prints exactly one JSON object containing `sentinel` and `migration_hash` checks with sanitized string `expected`/`actual` values plus `role:{name,superuser}` measured from the actual connection. It owns how those facts are measured; the toolkit rejects undeclared fields, role mismatch, and superuser evidence, then stores only the declared projection inside canonical VERIFY. Do not put a database URL, credential, or customer value in any field. Canonical issue verification refuses an absent probe. `--fresh` remains unavailable until that same target owns explicit rebuild/drop lifecycle behavior.
 
 Optional analysis services such as CodeGraph also belong to the **target repository or operator environment**, because their index must describe the code being changed. The toolkit repository itself is mostly Bash/Markdown/JSON and does not ship a project MCP config for target-only analyzers.
 
-## Recommended generalization boundary
+## Target profile boundary
 
 Keep the repository split into two layers:
 
 - **Core:** dispatch, sandbox, liveness, artifact lifecycle, independent review, completion calculation.
 - **Target profile:** install command, env destinations, branch patterns, tier triggers, verifier command, service isolation.
 
-The next generalization should be driven by a second real target, not hypothetical flags. Compare the second target with the current pnpm/Vitest/PostgreSQL contract, then parameterize only the differing seams. Likely profile fields are:
+The v1 profile owns runtime executables, setup commands, required environment names, env allowlists, and required verification groups. Commands are argv arrays with optional repository-relative cwd; arbitrary shell strings, plugin registries, absolute cwd, and traversal are rejected. `prepare-worktree.sh` and `tier-probe.sh` remain explicit compatibility adapters until their migrations can consume the same parsed profile without divergent precedence.
 
-```text
-install_command
-env_destinations[]
-feature_branch_globs[]
-tier_trigger_paths[]
-test_discovery_command
-verify_command
-typecheck_command
-compile_consumer_commands[]
-service_isolation_strategy
-```
-
-Until that profile contract exists, use target-native setup and verification where the bundled adapters do not fit, and state the limitation in the completion report.
+Use `target-verify.sh` for generic verification and `verify.sh` only for the documented FeedbackOps compatibility profile.
 
 ## Feed problems back to the toolkit
 
@@ -120,3 +118,7 @@ or a later run exposes a problem:
 
 Never attach secrets, customer data, raw environment files, or unredacted workflow artifacts.
 The toolkit issue should contain the smallest evidence needed to reproduce and route the problem.
+
+## Telemetry adoption
+
+Telemetry is disabled until the target creates a private local salt and explicitly runs `telemetry.sh collect`. Samples remain beneath the target installation; no data is uploaded. Green collection requires the parallel-candidate producer's matching canonical CLOSURE, INTEGRATION, and CANDIDATE-EVIDENCE files; their actual digests and identities must match, and closure evaluation must follow dependency generation and the admitted RUN end. REVIEW/VERIFY pass alone is diagnostic input, not closure. Salt/store paths may use benign target-internal symlinks but any external realpath is rejected. Before using a report for tier discussion, declare the observation window and minimum cohort/completeness thresholds, retain no-green and incomplete chains, inspect per-attempt allocations, and keep observed/estimated/unavailable costs separate. Cross-lineage or non-contiguous retries stay incomplete, while mixed-model chains are excluded from single-model comparisons. Export is stdout redirection; retention and exact-ID deletion are operator actions. A report can propose a human-reviewed policy change but cannot edit `model-alloc.json` or tier rules.

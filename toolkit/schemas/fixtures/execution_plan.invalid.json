@@ -1,0 +1,6 @@
+{
+  "schema_version": "1", "artifact_type": "execution_plan", "lifecycle": "active", "producer_role": "WORKER",
+  "issue": 14, "round": 0, "manifest_revision": 1, "plan_revision": 1, "base_head": "short",
+  "seats": [], "integration_order": [], "parallel_policy": { "shared_mutation_paths": [], "database_isolation": "shared", "environment_isolation": "shared", "rate_limit_budget": "none" }, "required_evidence": [],
+  "candidate_closure": { "retry_policy": "fallback", "require_clean_candidate": false, "unresolved_blockers": "allow" }
+}

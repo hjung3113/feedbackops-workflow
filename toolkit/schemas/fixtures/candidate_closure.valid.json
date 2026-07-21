@@ -1,0 +1,7 @@
+{
+  "schema_version": "1", "artifact_type": "candidate_closure", "producer_role": "CONDUCTOR",
+  "issue": 14, "round": 1, "manifest_revision": 1, "plan_revision": 1,
+  "candidate_head": "cccccccccccccccccccccccccccccccccccccccc", "attempt_id": "attempt-1",
+  "integration_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "evidence_set_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "status": "closed", "reason_codes": [], "evaluated_at": "2026-07-21T00:02:00Z"
+}

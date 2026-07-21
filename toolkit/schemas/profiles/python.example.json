@@ -1,0 +1,1 @@
+{"schema_version":"1","id":"python-pytest","runtime":{"executables":["uv"]},"environment":{"allow":["PYTHONPATH"]},"setup":[{"argv":["uv","sync"]}],"verification":{"groups":[{"id":"test","required":true,"commands":[{"argv":["uv","run","pytest","-q"],"env_allow":["PYTHONPATH"]}],"test_count":{"pattern":"([0-9]+) passed","group":1}}]}}

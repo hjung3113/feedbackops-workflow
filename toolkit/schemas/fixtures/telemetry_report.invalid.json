@@ -1,0 +1,11 @@
+{
+  "schema_version": "1",
+  "artifact_type": "telemetry_report",
+  "window": { "from": "2026-08-01T00:00:00Z", "to": "2026-07-01T00:00:00Z" },
+  "policy": { "minimum_samples": 0, "minimum_completeness": 2 },
+  "samples": -1,
+  "chains": [],
+  "cohorts": [],
+  "suppressed_cohorts": [],
+  "interpretation": ""
+}
