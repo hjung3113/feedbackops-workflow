@@ -54,6 +54,10 @@ case "${CODEX_STUB_MODE:-success}" in
     echo "404 model_not_found" >&2
     exit 1
     ;;
+  provider_refusal)
+    echo "ERROR invalid_request_error: model not supported (status 400)" >&2
+    exit 1
+    ;;
   pid_noise)
     # regression: a PID-like digit run containing "4dd" (bash prints these in
     # job-status lines on kill) must NOT be classified as a 4xx refusal.
@@ -169,6 +173,13 @@ ec=$?
 [ "$ec" -eq 4 ] && pass "failed probe exits 4" || fail "failed probe exits 4 (got $ec)"
 status="$(marker_status "$WT_D/.review/ISSUE-204-RUN.json")"
 [ "$status" = "refused" ] && pass "failed probe marker refused" || fail "failed probe marker refused"
+
+WT_PROVIDER="$(make_wt wt-provider-refuse)"
+CODEX_STUB_MODE=provider_refusal CODEX_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 209 --prompt-file "$WT_PROVIDER/prompt.txt" --cwd "$WT_PROVIDER" --first-progress-timeout 2 --stall-timeout 3 --max-retries 2 >/dev/null 2>&1
+ec=$?
+[ "$ec" -eq 4 ] && pass "provider model refusal exits fail-fast" || fail "provider model refusal exits fail-fast (got $ec)"
+attempts="$(node -e 'const fs=require("fs");const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.stdout.write(String(o.attempt));' "$WT_PROVIDER/.review/ISSUE-209-RUN.json")"
+[ "$attempts" = "1" ] && pass "provider model refusal does not retry" || fail "provider model refusal does not retry (attempt=$attempts)"
 
 WT_D2="$(make_wt wt-probe-fail-then-succeed)"
 PROBE_COUNT="$TMP_DIR/probe-count"

@@ -285,8 +285,11 @@ for (const prior of round.prior_findings)
   });
 const allVerification = (pr.tests || [pr.verify_cmd]).map(clean);
 const allRisks = (pr.risks || []).map(clean);
-const reviewerOutputContract =
-  "Review the current diff independently. Do not edit source. Return exactly one schema-valid canonical REVIEW JSON bound to this issue and HEAD; findings need severity, file when known, evidence, and actionable patch instructions. The capsule is guidance only; ROUND-STATE, PR-DRAFT, REVIEW, and VERIFY remain authoritative.";
+const reviewerOutputContract = execFileSync(
+  "bash",
+  [path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../output-contract.sh"), "render", "--role", "reviewer"],
+  { encoding: "utf8" },
+).trim();
 const datum = (value) => JSON.stringify(String(value));
 const truncateText = (text, limit) => {
   const value = clean(text);

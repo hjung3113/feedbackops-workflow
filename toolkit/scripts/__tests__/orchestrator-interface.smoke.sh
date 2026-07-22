@@ -22,6 +22,7 @@ make_worktree() {
   git init -q "$path"
   git -C "$path" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
   printf '%s\n' 'worker prompt' > "$path/.review/ISSUE-${issue}-PROMPT.md"
+  "$ROOT/scripts/output-contract.sh" render --role implementation >> "$path/.review/ISSUE-${issue}-PROMPT.md"
 }
 
 BIN="$TMP_ROOT/bin"

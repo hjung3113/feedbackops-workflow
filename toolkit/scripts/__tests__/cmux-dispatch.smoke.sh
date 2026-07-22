@@ -22,7 +22,7 @@ if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
 case "${1:-}" in
   --version) echo 'codex smoke runtime 1.0'; exit 0 ;;
   --help) echo 'Commands: exec'; exit 0 ;;
-  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; } ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; }; exit 0 ;;
   *) exit 0 ;;
 esac
 EOF
@@ -78,6 +78,19 @@ const fs = require("fs");
 const { execFileSync } = require("child_process");
 const [file, issue, worktree, revision] = process.argv.slice(2);
 const state = JSON.parse(fs.readFileSync(file, "utf8"));
+// The dispatch preflight deliberately refuses an allowlist that cannot touch
+// any path in the planned base tree.  These tiny fixture repositories often
+// begin with an empty commit, so give the generated state one real, tracked
+// scope rather than inheriting the product fixture's packages/shared/** path.
+let basePaths = execFileSync("git", ["-C", worktree, "ls-tree", "-r", "--name-only", "HEAD"], { encoding: "utf8" })
+  .split("\n").filter(Boolean);
+if (basePaths.length === 0) {
+  const scope = "workflow-smoke-scope.txt";
+  fs.writeFileSync(`${worktree}/${scope}`, "tracked fixture scope\n");
+  execFileSync("git", ["-C", worktree, "add", "--", scope]);
+  execFileSync("git", ["-C", worktree, "-c", "user.name=Smoke Test", "-c", "user.email=smoke@example.test", "commit", "-m", "add smoke scope"], { stdio: "ignore" });
+  basePaths = [scope];
+}
 const head = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const branch = execFileSync("git", ["-C", worktree, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
 state.issue = { number: Number(issue), title: "standard round-0 smoke" };
@@ -90,6 +103,8 @@ state.worktree_path = fs.realpathSync(worktree);
 state.decisions = [];
 state.prior_findings = [];
 state.live_probes = [];
+state.contract.touch_allowlist = [basePaths[0]];
+state.contract.new_file_allowlist = [];
 state.artifact_pointers = [
   { artifact_type: "pr_draft", path: `.review/ISSUE-${issue}-PR-DRAFT.json` },
   { artifact_type: "review", path: `.review/ISSUE-${issue}-REVIEW.json` }
@@ -127,6 +142,27 @@ if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-terra --effort low' "$alloc_ou
   pass "implementation allocation forwards an explicit Codex model"
 else
   fail "implementation allocation forwards an explicit Codex model (ec=$ec: $(cat "$alloc_out"))"
+fi
+default_tuple_out="$TMP_ROOT/default-tuple-dry-run.out"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$default_tuple_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-terra --effort low' "$default_tuple_out"; then
+  pass "write dispatch resolves a model and effort without --allocate"
+else
+  fail "write dispatch resolves a model and effort without --allocate (ec=$ec: $(cat "$default_tuple_out"))"
+fi
+mkdir -p "$WT/.agent-workflow"
+cp "$ROOT/model-alloc.json" "$WT/.agent-workflow/model-alloc.json"
+node - "$WT/.agent-workflow/model-alloc.json" <<'NODE'
+const fs=require("fs"); const file=process.argv[2]; const value=JSON.parse(fs.readFileSync(file,"utf8")); value.roles.implementation.model="gpt-5.6-luna"; value.roles.implementation.effort="high"; fs.writeFileSync(file,JSON.stringify(value));
+NODE
+configured_tuple_out="$TMP_ROOT/configured-tuple-dry-run.out"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$configured_tuple_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-luna --effort high' "$configured_tuple_out"; then
+  pass "omitted-model dispatch honors the worktree model allocation tuple"
+else
+  fail "omitted-model dispatch honors the worktree model allocation tuple (ec=$ec: $(cat "$configured_tuple_out"))"
 fi
 bad_alloc_out="$TMP_ROOT/allocator-review.stderr"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --allocate --allocator-role reviewer --dry-run >/dev/null 2>"$bad_alloc_out"
@@ -600,10 +636,11 @@ node -e '
   const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
   const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
   const evidencePath=".review/evidence/F-307.json"; const content=fs.readFileSync(path.join(worktree,evidencePath));
-  value.issue={number:307,title:"redispatch admission"}; value.revision=5; value.base_branch="main"; value.base_sha=head; value.head_sha=head; value.worktree_path=worktree;
+  value.issue={number:307,title:"redispatch admission"}; value.revision=5; value.base_branch="main"; value.base_sha=head; value.head_sha=head; value.worktree_path=worktree; value.contract.touch_allowlist=[".review/evidence/**"]; value.contract.new_file_allowlist=[];
   value.round_control={failures:[{id:"F-1",dispatch_ordinal:1,status:"open",primary_origin:"implementation",secondary_origins:[],failed_ac_ids:["AC-1"],owner:"CONDUCTOR",next_action:{kind:"implementation_fix",summary:"apply the classified fix"},evidence:[{kind:"verify",path:evidencePath,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:process.argv[4]}]}]};
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT" "$ADMIT_HEAD" "$ADMIT_EVIDENCE_HEAD"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.next_dispatch_ordinal=2; if(v.round_control.diagnosis&&v.round_control.diagnosis.integrated_fix_batch) v.round_control.diagnosis.integrated_fix_batch.dispatch_ordinal=6; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 node - "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ADMIT_WT/.review/ISSUE-307-PROMPT.txt" <<'NODE'
 const fs = require("fs");
 const [stateFile, promptFile] = process.argv.slice(2);
@@ -713,13 +750,52 @@ const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
 fs.writeFileSync(promptFile, ["worker instructions", "<!-- agent-workflow:ac-block:start -->", "```json", JSON.stringify(state.acceptance.criteria), "```", "<!-- agent-workflow:ac-block:end -->", ""].join("\n"));
 NODE
 
+admission_root="$admit_common/agent-workflow/redispatch-admissions"
+admission_dry_lock="$admission_root/.issue-307-lock/.admission-lock.json"
+mkdir -p "$(dirname "$admission_dry_lock")"
+printf '%s\n' '{"pid":999999,"admission_key":"issue-307-dispatch-2","status":"locked"}' > "$admission_dry_lock"
+admission_dry_lock_sha="$(shasum -a 256 "$admission_dry_lock" | awk '{print $1}')"
+admission_dry_state_sha="$(shasum -a 256 "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" | awk '{print $1}')"
 admission_dry="$TMP_ROOT/admission-dry.out"
 bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$admission_dry" 2>&1
 ec=$?
-if [ "$ec" -eq 0 ] && grep -q "redispatch admission: mode=normal" "$admission_dry" && ! find "$ADMIT_WT/.review" -maxdepth 1 -type d -name '.redispatch-admission-*' | grep -q .; then
-  pass "dry-run checks redispatch policy without consuming admission"
+if [ "$ec" -eq 0 ] && grep -q "redispatch admission: mode=normal" "$admission_dry" && [ -f "$admission_dry_lock" ] && [ "$(shasum -a 256 "$admission_dry_lock" | awk '{print $1}')" = "$admission_dry_lock_sha" ] && [ "$(shasum -a 256 "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" | awk '{print $1}')" = "$admission_dry_state_sha" ] && ! find "$ADMIT_WT/.review" -maxdepth 1 -type d -name '.redispatch-admission-*' | grep -q .; then
+  pass "dry-run checks redispatch policy without mutating durable admission"
 else
-  fail "dry-run checks redispatch policy without consuming admission (ec=$ec: $(cat "$admission_dry"))"
+  fail "dry-run checks redispatch policy without mutating durable admission (ec=$ec: $(cat "$admission_dry"))"
+fi
+rmdir "$(dirname "$admission_dry_lock")" 2>/dev/null || true
+
+# Dispatch proves declared modification scope against base_sha before it can
+# consume an ordinal. A typo/glob for a future path and an "new" existing path
+# are both rejected; only exact absent new_file_allowlist entries are allowed.
+ALLOWLIST_MISS_STATE="$TMP_ROOT/allowlist-miss-state.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ALLOWLIST_MISS_STATE"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.touch_allowlist=["missing/scope/**"]; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+allowlist_miss="$TMP_ROOT/allowlist-miss.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$allowlist_miss" 2>&1
+allowlist_miss_ec=$?
+cp "$ALLOWLIST_MISS_STATE" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+ALLOWLIST_NEW_STATE="$TMP_ROOT/allowlist-new-state.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ALLOWLIST_NEW_STATE"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.new_file_allowlist=[".review/evidence/F-307.json"]; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+allowlist_new="$TMP_ROOT/allowlist-new.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$allowlist_new" 2>&1
+allowlist_new_ec=$?
+cp "$ALLOWLIST_NEW_STATE" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+ALLOWLIST_SCOPE_STATE="$TMP_ROOT/allowlist-scope-state.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ALLOWLIST_SCOPE_STATE"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.new_file_allowlist=["future/outside.txt"]; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+allowlist_scope="$TMP_ROOT/allowlist-scope.out"
+bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --dry-run >"$allowlist_scope" 2>&1
+allowlist_scope_ec=$?
+cp "$ALLOWLIST_SCOPE_STATE" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
+if [ "$allowlist_miss_ec" -eq 2 ] && grep -q "touch_allowlist_no_base_match" "$allowlist_miss" \
+  && [ "$allowlist_new_ec" -eq 2 ] && grep -q "new_file_allowlist_not_new" "$allowlist_new" \
+  && [ "$allowlist_scope_ec" -eq 2 ] && grep -q "new_file_allowlist_not_in_touch_allowlist" "$allowlist_scope"; then
+  pass "dispatch preflight proves existing scope and bounded exact new-file exception"
+else
+  fail "dispatch touch allowlist preflight was bypassed (missing=$allowlist_miss_ec new=$allowlist_new_ec scope=$allowlist_scope_ec)"
 fi
 
 ADMIT_BIN="$TMP_ROOT/bin-admission-cmux"
@@ -732,26 +808,62 @@ printf '%s\n' '{"id":"cmux-admit"}'
 exit 0
 EOF
 chmod +x "$ADMIT_BIN/cmux"
+# A live issue-lock owner remains authoritative even when its lock file is
+# older than the recovery threshold. Staleness may only reclaim a dead owner.
+live_lock_dir="$admission_root/.issue-307-lock"
+live_lock_file="$live_lock_dir/.admission-lock.json"
+live_singleton="$admission_root/issue-307-integrated-fix"
+live_ordinal="$admission_root/issue-307-dispatch-2"
+mkdir -p "$live_lock_dir" "$live_singleton" "$live_ordinal"
+printf '{"pid":%s,"admission_key":"issue-307-dispatch-2","status":"locked"}\n' "$$" > "$live_lock_file"
+node -e 'const fs=require("fs"); fs.utimesSync(process.argv[1], new Date(0), new Date(0));' "$live_lock_file"
+if node "$SCRIPT_DIR/../lib/admission-recover.cjs" recover-lock "$live_lock_file" "$live_singleton" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" 307 >/dev/null 2>&1; then
+  live_lock_ec=0
+else
+  live_lock_ec=$?
+fi
+if [ "$live_lock_ec" -eq 1 ] && [ -f "$live_lock_file" ] && [ -d "$live_singleton" ] && [ -d "$live_ordinal" ]; then
+  pass "stale-looking issue lock is never reclaimed from a live owner"
+else
+  fail "stale-looking live issue lock was reclaimed (ec=$live_lock_ec)"
+fi
+rmdir "$live_ordinal" "$live_singleton" 2>/dev/null || true
+rm -f "$live_lock_file"
+rmdir "$live_lock_dir" 2>/dev/null || true
+# Older dispatchers could be SIGKILLed after mkdir(.issue-N-lock) and before
+# owner JSON existed. Current acquire-lock publishes owner JSON before rename,
+# so an ownerless visible directory is provably an old crash orphan and can be
+# reclaimed without stealing a live current owner.
+mkdir -p "$live_lock_dir"
+if node "$SCRIPT_DIR/../lib/admission-recover.cjs" recover-lock "$live_lock_file" "$live_singleton" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" 307 >/dev/null 2>&1 \
+  && [ ! -e "$live_lock_dir" ] \
+  && node "$SCRIPT_DIR/../lib/admission-recover.cjs" acquire-lock "$live_lock_file" "$live_singleton" "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" 307 issue-307-dispatch-2 "$$" >/dev/null 2>&1 \
+  && node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(process.argv[1])); process.exit(v.pid===Number(process.argv[2]) ? 0 : 1)' "$live_lock_file" "$$" \
+  && node "$SCRIPT_DIR/../lib/admission-recover.cjs" release-lock "$live_lock_file" >/dev/null 2>&1; then
+  pass "SIGKILL-era empty issue lock is reclaimed while current locks publish an owner atomically"
+else
+  fail "issue lock ownership protocol did not recover empty crash orphan safely"
+fi
 admission_first="$TMP_ROOT/admission-first.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_first" 2>&1
 first_ec=$?
 admission_second="$TMP_ROOT/admission-second.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_second" 2>&1
 second_ec=$?
-if [ "$first_ec" -eq 0 ] && [ "$second_ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_second"; then
-  pass "write redispatch admission is atomically single-use"
+if [ "$first_ec" -eq 0 ] && [ "$second_ec" -eq 2 ] && grep -q "key=issue-307-dispatch-2" "$admission_first" && grep -q "unbound_last_admission" "$admission_second"; then
+  pass "write redispatch requires recorded failure evidence before another ordinal"
 else
-  fail "write redispatch admission is atomically single-use (first=$first_ec second=$second_ec: $(cat "$admission_second"))"
+  fail "write redispatch failure-evidence binding (first=$first_ec second=$second_ec: $(cat "$admission_second"))"
 fi
 
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.revision=6; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 admission_revision_bump="$TMP_ROOT/admission-revision-bump.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_revision_bump" 2>&1
 ec=$?
-if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_revision_bump"; then
-  pass "manifest revision bump cannot replay a consumed redispatch admission"
+if [ "$ec" -eq 2 ] && grep -q "unbound_last_admission" "$admission_revision_bump"; then
+  pass "manifest revision bump cannot bypass missing failure evidence"
 else
-  fail "manifest revision bump cannot replay a consumed redispatch admission (ec=$ec: $(cat "$admission_revision_bump"))"
+  fail "manifest revision bump bypassed missing failure evidence (ec=$ec: $(cat "$admission_revision_bump"))"
 fi
 
 RECREATED_WT="$TMP_ROOT/wt-recreated-admission"
@@ -769,10 +881,10 @@ node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.
 admission_recreated="$TMP_ROOT/admission-recreated.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECREATED_WT" --round-state "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_recreated" 2>&1
 ec=$?
-if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$admission_recreated"; then
-  pass "git-common admission survives worktree recreation"
+if [ "$ec" -eq 2 ] && grep -q "unbound_last_admission" "$admission_recreated"; then
+  pass "worktree recreation cannot bypass missing failure evidence"
 else
-  fail "git-common admission survives worktree recreation (ec=$ec: $(cat "$admission_recreated"))"
+  fail "worktree recreation bypassed missing failure evidence (ec=$ec: $(cat "$admission_recreated"))"
 fi
 
 NONCANONICAL_REDISPATCH_STATE="$TMP_ROOT/noncanonical-redispatch-state.json"
@@ -796,6 +908,134 @@ node -e '
 ' "$INTEGRATED_STATE" "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD"
 INTEGRATED_READY_SNAPSHOT="$TMP_ROOT/integrated-ready-snapshot.json"
 cp "$INTEGRATED_STATE" "$INTEGRATED_READY_SNAPSHOT"
+
+# A pre-transaction integrated singleton is a legacy durable "consumed"
+# sentinel.  Its matching ROUND-STATE can still propose the same integrated
+# batch, but recovery must fail closed rather than mistake the old marker for
+# an interrupted current transaction and admit a second batch.
+legacy_singleton="$admit_common/agent-workflow/redispatch-admissions/issue-307-integrated-fix"
+legacy_ordinal="$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-3"
+rmdir "$legacy_ordinal" 2>/dev/null || true
+rmdir "$legacy_singleton" 2>/dev/null || true
+mkdir -p "$legacy_singleton"
+legacy_integrated="$TMP_ROOT/legacy-integrated-sentinel.out"
+if CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$legacy_integrated" 2>&1; then
+  legacy_integrated_ec=0
+else
+  legacy_integrated_ec=$?
+fi
+if [ "$legacy_integrated_ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$legacy_integrated" \
+  && [ -d "$legacy_singleton" ] && [ ! -e "$legacy_ordinal" ]; then
+  pass "legacy integrated singleton remains a consumed sentinel"
+else
+  fail "legacy integrated singleton was reclaimed or admitted again (ec=$legacy_integrated_ec: $(cat "$legacy_integrated"))"
+fi
+rmdir "$legacy_singleton" 2>/dev/null || true
+
+# Admission markers are provisional until host-owned ROUND-STATE advances.
+# Force that advance to fail and prove both the ordinal marker and integrated
+# singleton are rolled back while the state bytes remain unchanged.
+admit_rollback_marker="$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-3"
+admit_rollback_singleton="$admit_common/agent-workflow/redispatch-admissions/issue-307-integrated-fix"
+rmdir "$admit_rollback_marker" 2>/dev/null || true
+rmdir "$admit_rollback_singleton" 2>/dev/null || true
+rollback_state_hash="$(shasum -a 256 "$INTEGRATED_STATE" | awk '{print $1}')"
+integrated_rollback="$TMP_ROOT/integrated-rollback.out"
+AGENT_WORKFLOW_ADMISSION_ADVANCE_FAIL=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_rollback" 2>&1
+integrated_rollback_ec=$?
+rollback_state_after="$(shasum -a 256 "$INTEGRATED_STATE" | awk '{print $1}')"
+if [ "$integrated_rollback_ec" -eq 2 ] && [ ! -e "$admit_rollback_marker" ] && [ ! -e "$admit_rollback_singleton" ] && [ "$rollback_state_hash" = "$rollback_state_after" ]; then
+  pass "failed integrated host-state advance rolls back ordinal and singleton admission"
+else
+  fail "failed integrated host-state advance left partial admission (ec=$integrated_rollback_ec: $(cat "$integrated_rollback"))"
+fi
+
+# Exercise each current journal boundary in a disposable child.  The seam
+# exits at the same point a SIGKILL would leave durable bytes, while avoiding
+# signalling this smoke runner's process group.
+cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
+node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
+singleton_window="$TMP_ROOT/integrated-singleton-window.out"
+AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
+  bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$singleton_window" 2>&1
+singleton_window_ec=$?
+if [ "$singleton_window_ec" -ne 0 ] && [ -f "$admit_rollback_singleton/.admission-transaction.json" ] && [ ! -e "$admit_rollback_marker" ]; then
+  pass "singleton-publication crash leaves a journal before visible ordinal"
+else
+  fail "singleton-publication crash was not journalled (ec=$singleton_window_ec: $(cat "$singleton_window"))"
+fi
+singleton_recover="$TMP_ROOT/integrated-singleton-recovery.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$singleton_recover" 2>&1
+singleton_recover_ec=$?
+if [ "$singleton_recover_ec" -eq 0 ] && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/.issue-307-lock" ]; then
+  pass "singleton-only crash is reclaimed and re-admitted"
+else
+  fail "singleton-only crash recovery was not safe (crash=$singleton_window_ec recovery=$singleton_recover_ec: $(cat "$singleton_recover"))"
+fi
+
+cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
+node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
+# Simulate a process crash after ordinal publication but before host-state
+# advance. The singleton transaction must let the next dispatch reclaim the
+# otherwise-orphaned ordinal, then admit a fresh pair.
+kill_window="$TMP_ROOT/integrated-kill-window.out"
+# Run the crash-window fixture in a distinct disposable process. The dispatch
+# seam exits non-zero at the interruption point; no signal can reach the
+# parent harness terminal.
+kill_window_child="$TMP_ROOT/kill-window-child.sh"
+cat > "$kill_window_child" <<'EOF'
+#!/usr/bin/env bash
+exec "$@"
+EOF
+chmod +x "$kill_window_child"
+AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=2 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
+  "$kill_window_child" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$kill_window" 2>&1 &
+kill_window_pid=$!
+if wait "$kill_window_pid"; then
+  kill_window_ec=0
+else
+  kill_window_ec=$?
+fi
+sleep 2
+if [ -f "$admit_rollback_singleton/.admission-transaction.json" ] && [ -d "$admit_rollback_marker" ]; then
+  pass "ordinal-creation crash retains a recoverable singleton transaction"
+else
+  fail "ordinal-creation crash left no transaction for orphan recovery"
+fi
+recover_window="$TMP_ROOT/integrated-kill-recovery.out"
+if CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$recover_window" 2>&1; then
+  recover_window_ec=0
+else
+  recover_window_ec=$?
+fi
+if [ "$kill_window_ec" -ne 0 ] && [ "$recover_window_ec" -eq 0 ] && grep -q "redispatch admission: mode=integrated_fix" "$recover_window" && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/.issue-307-lock" ]; then
+  pass "crashed ordinal and singleton are reclaimed and re-admitted as one transaction"
+else
+  fail "crashed ordinal recovery was not safe (crash=$kill_window_ec recovery=$recover_window_ec: $(cat "$recover_window"))"
+fi
+
+# Once the host ordinal is advanced, recovery must retain the prepared pair
+# and finalize its journals instead of making dispatch-3 reusable.
+cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
+node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
+advance_window="$TMP_ROOT/integrated-advance-window.out"
+AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=3 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
+  bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$advance_window" 2>&1
+advance_window_ec=$?
+node "$SCRIPT_DIR/../lib/admission-recover.cjs" recover "$admit_rollback_singleton" "$admit_rollback_marker" "$INTEGRATED_STATE" 307 >/dev/null 2>&1
+advance_recover_ec=$?
+if [ "$advance_window_ec" -ne 0 ] && [ "$advance_recover_ec" -eq 0 ] && [ -d "$admit_rollback_singleton" ] && [ -d "$admit_rollback_marker" ] \
+  && node -e 'const fs=require("fs"); for(const f of process.argv.slice(1)){if(JSON.parse(fs.readFileSync(f)).status!=="committed")process.exit(1)}' "$admit_rollback_singleton/.admission-transaction.json" "$admit_rollback_marker/.admission-transaction.json"; then
+  pass "post-advance crash commits journals without reopening consumed ordinal"
+else
+  fail "post-advance crash reopened or lost admission (crash=$advance_window_ec recovery=$advance_recover_ec: $(cat "$advance_window"))"
+fi
+
+# Restore the pre-admission fixture so the ordinary integrated admission case
+# below remains an independent assertion.
+cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
+node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
+
 integrated_first="$TMP_ROOT/integrated-first.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_first" 2>&1
 integrated_first_ec=$?
@@ -808,27 +1048,28 @@ fi
 SECOND_INTEGRATED_STATE="$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 node -e '
   const fs=require("fs"); const file=process.argv[1]; const value=JSON.parse(fs.readFileSync(file,"utf8")); const third=JSON.parse(JSON.stringify(value.round_control.failures[1])); third.id="F-3"; third.dispatch_ordinal=3; value.round_control.failures.push(third);
-  value.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"]; value.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:4,failure_ids:["F-1","F-2","F-3"],status:"ready"}; fs.writeFileSync(file,JSON.stringify(value));
+  value.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"]; value.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:value.round_control.next_dispatch_ordinal,failure_ids:["F-1","F-2","F-3"],status:"ready"}; fs.writeFileSync(file,JSON.stringify(value));
 ' "$SECOND_INTEGRATED_STATE"
 integrated_second="$TMP_ROOT/integrated-second.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$SECOND_INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_second" 2>&1
 ec=$?
-if [ "$ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$integrated_second"; then
+if [ "$ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$integrated_second" \
+  && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-4" ]; then
   pass "a later ordinal cannot admit a second integrated fix"
 else
-  fail "a later ordinal cannot admit a second integrated fix (ec=$ec: $(cat "$integrated_second"))"
+  fail "a later ordinal cannot admit a second integrated fix without orphaning an ordinal marker (ec=$ec: $(cat "$integrated_second"))"
 fi
 
 NORMAL_SAME_ORDINAL_STATE="$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 cp "$INTEGRATED_READY_SNAPSHOT" "$NORMAL_SAME_ORDINAL_STATE"
-node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[1].primary_origin="test_oracle"; v.round_control.failures[1].next_action.kind="oracle_fix"; delete v.round_control.diagnosis; fs.writeFileSync(f,JSON.stringify(v));' "$NORMAL_SAME_ORDINAL_STATE"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[1].primary_origin="test_oracle"; v.round_control.failures[1].next_action.kind="oracle_fix"; v.round_control.next_dispatch_ordinal=4; delete v.round_control.diagnosis; fs.writeFileSync(f,JSON.stringify(v));' "$NORMAL_SAME_ORDINAL_STATE"
 normal_same_ordinal="$TMP_ROOT/normal-same-ordinal.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$normal_same_ordinal"; then
-  pass "the same dispatch ordinal cannot replay under another mode"
+  pass "a consumed integrated admission cannot replay under a corrected mode"
 else
-  fail "the same dispatch ordinal cannot replay under another mode (ec=$ec: $(cat "$normal_same_ordinal"))"
+  fail "a consumed integrated admission cannot replay under a corrected mode (ec=$ec: $(cat "$normal_same_ordinal"))"
 fi
 
 # --- poll path: a STALE RUN.json from a previous run must NOT count ---
@@ -903,6 +1144,97 @@ else
   fail "stale BLOCKER.json alone is not accepted (ec=$ec: $(cat "$blocker_out"))"
 fi
 
+# A pre-existing malformed worker BLOCKER is quarantined as raw bytes and
+# recorded by host-owned ROUND-STATE recovery metadata before a fresh ordinal
+# is admitted; it is never promoted into canonical evidence.
+RECOVERY_WT="$TMP_ROOT/blocker-recovery-wt"
+mkdir -p "$RECOVERY_WT/.review"
+git init -q "$RECOVERY_WT"
+git -C "$RECOVERY_WT" -c user.name=Smoke -c user.email=smoke@example.test commit --allow-empty -q -m init
+RECOVERY_STATE="$RECOVERY_WT/.review/ISSUE-307-ROUND-STATE.json"
+make_round_state 307 "$RECOVERY_WT" 1 "$RECOVERY_STATE"
+echo '{"artifact_type":"blocker","reason_code":"legacy-malformed"}' > "$RECOVERY_WT/.review/ISSUE-307-BLOCKER.json"
+RECOVERY_BYTES_SHA="$(shasum -a 256 "$RECOVERY_WT/.review/ISSUE-307-BLOCKER.json" | awk '{print $1}')"
+RECOVERY_STATE_SHA="$(shasum -a 256 "$RECOVERY_STATE" | awk '{print $1}')"
+recovery_dry_out="$TMP_ROOT/blocker-recovery-dry.out"
+bash "$DISPATCH" --issue 307 --worktree "$RECOVERY_WT" --tier standard --round-state "$RECOVERY_STATE" --manifest-revision 1 --dry-run --poll-timeout 1 >"$recovery_dry_out" 2>&1
+dry_recovery_ec=$?
+if [ -f "$RECOVERY_WT/.review/ISSUE-307-BLOCKER.json" ] && [ ! -e "$RECOVERY_WT/.review/ISSUE-307-BLOCKER-QUARANTINED-$RECOVERY_BYTES_SHA.json" ] && [ "$(shasum -a 256 "$RECOVERY_STATE" | awk '{print $1}')" = "$RECOVERY_STATE_SHA" ]; then
+  pass "dry-run malformed BLOCKER recovery leaves artifacts and ROUND-STATE unchanged"
+else
+  fail "dry-run malformed BLOCKER recovery mutated state or artifacts (ec=$dry_recovery_ec)"
+fi
+RECOVERY_BIN="$TMP_ROOT/bin-recovery-cmux"
+mkdir -p "$RECOVERY_BIN"
+cat > "$RECOVERY_BIN/cmux" <<EOF
+#!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
+echo '{"schema_version":"1","artifact_type":"codex_run","issue":307,"attempt":1,"started_at":"2026-07-14T09:00:00Z","updated_at":"2026-07-14T09:00:00Z","status":"running"}' > "$RECOVERY_WT/.review/ISSUE-307-RUN.json"
+echo '{"id":"cmux-blocker-recovery"}'
+exit 0
+EOF
+chmod +x "$RECOVERY_BIN/cmux"
+recovery_out="$TMP_ROOT/blocker-recovery.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RECOVERY_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECOVERY_WT" --tier standard --round-state "$RECOVERY_STATE" --manifest-revision 1 --poll-timeout 3 >"$recovery_out" 2>&1
+ec=$?
+recovery_raw="$(find "$RECOVERY_WT/.review" -name 'ISSUE-307-BLOCKER-QUARANTINED-*.json' -type f | head -1)"
+if [ "$ec" -eq 0 ] && [ ! -f "$RECOVERY_WT/.review/ISSUE-307-BLOCKER.json" ] && [ -n "$recovery_raw" ] && [ "$(shasum -a 256 "$recovery_raw" | awk '{print $1}')" = "$RECOVERY_BYTES_SHA" ] && node - "$RECOVERY_STATE" "$recovery_raw" <<'NODE'
+const fs=require("fs"), crypto=require("crypto"), [stateFile,rawFile]=process.argv.slice(2), state=JSON.parse(fs.readFileSync(stateFile)), raw=fs.readFileSync(rawFile), recovery=state.round_control && state.round_control.blocker_recovery;
+process.exit(recovery && recovery.kind === "malformed_preexisting_blocker_quarantined" && recovery.raw_sha256 === crypto.createHash("sha256").update(raw).digest("hex") && state.round_control.next_dispatch_ordinal === 2 ? 0 : 1);
+NODE
+then
+  pass "malformed pre-existing BLOCKER is quarantined with host-owned recovery evidence"
+else
+  fail "malformed pre-existing BLOCKER recovery is explicit and ordinal-safe (ec=$ec: $(cat "$recovery_out"))"
+fi
+
+# Recovery metadata is durable before canonical removal: an injected crash at
+# that boundary must retain malformed bytes, quarantine bytes, and state.
+CRASH_WT="$TMP_ROOT/blocker-recovery-crash-wt"
+mkdir -p "$CRASH_WT/.review"
+git init -q "$CRASH_WT"
+git -C "$CRASH_WT" -c user.name=Smoke -c user.email=smoke@example.test commit --allow-empty -q -m init
+CRASH_STATE="$CRASH_WT/.review/ISSUE-308-ROUND-STATE.json"
+make_round_state 308 "$CRASH_WT" 1 "$CRASH_STATE"
+printf '%s\n' '{"artifact_type":"blocker","reason_code":"legacy-malformed"}' > "$CRASH_WT/.review/ISSUE-308-BLOCKER.json"
+crash_raw_sha="$(shasum -a 256 "$CRASH_WT/.review/ISSUE-308-BLOCKER.json" | awk '{print $1}')"
+AGENT_WORKFLOW_BLOCKER_RECOVERY_CRASH_AFTER_STATE=1 node "$SCRIPT_DIR/../lib/blocker-recovery.cjs" "$CRASH_WT/.review/ISSUE-308-BLOCKER.json" "$CRASH_STATE" 308 >/dev/null 2>&1
+crash_ec=$?
+crash_raw="$CRASH_WT/.review/ISSUE-308-BLOCKER-QUARANTINED-$crash_raw_sha.json"
+if [ "$crash_ec" -eq 99 ] && [ -f "$CRASH_WT/.review/ISSUE-308-BLOCKER.json" ] && [ -f "$crash_raw" ] && node - "$CRASH_STATE" "$crash_raw" <<'NODE'
+const fs=require("fs"), crypto=require("crypto"), [stateFile,rawFile]=process.argv.slice(2);
+const state=JSON.parse(fs.readFileSync(stateFile)), raw=fs.readFileSync(rawFile), recovery=state.round_control && state.round_control.blocker_recovery;
+process.exit(recovery && recovery.status === "ready" && recovery.raw_sha256 === crypto.createHash("sha256").update(raw).digest("hex") ? 0 : 1);
+NODE
+then
+  pass "BLOCKER recovery crash boundary leaves canonical bytes and durable metadata"
+else
+  fail "BLOCKER recovery crash boundary is not durable (ec=$crash_ec)"
+fi
+
+# A fresh malformed BLOCKER must not be masked by a simultaneously fresh RUN.
+# The poll validates BLOCKER first and rejects it as non-liveness evidence.
+ORDER_BIN="$TMP_ROOT/bin-blocker-run-order"
+mkdir -p "$ORDER_BIN"
+cat > "$ORDER_BIN/cmux" <<EOF
+#!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
+printf '%s\n' '{"artifact_type":"blocker","issue":310,"reason_code":"tier_escalation_required"}' > "$STALE_WT/.review/ISSUE-310-BLOCKER.json"
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":310,"attempt":1,"started_at":"2026-07-14T09:00:00Z","updated_at":"2026-07-14T09:00:00Z","status":"running"}' > "$STALE_WT/.review/ISSUE-310-RUN.json"
+printf '%s\n' '{"id":"cmux-blocker-run-order"}'
+exit 0
+EOF
+chmod +x "$ORDER_BIN/cmux"
+printf '%s\n' "prompt body" > "$STALE_WT/.review/ISSUE-310-PROMPT.txt"
+order_out="$TMP_ROOT/fresh-blocker-run-order.out"
+CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ORDER_BIN:$PATH" bash "$DISPATCH" --issue 310 --worktree "$STALE_WT" --read-only --poll-timeout 3 >"$order_out" 2>&1
+ec=$?
+if [ "$ec" -ne 0 ] && grep -q "fresh BLOCKER.json is not schema-valid" "$order_out" && ! grep -q "fresh RUN.json present" "$order_out"; then
+  pass "fresh malformed BLOCKER is not masked by fresh RUN.json"
+else
+  fail "fresh malformed BLOCKER is not masked by fresh RUN.json (ec=$ec: $(cat "$order_out"))"
+fi
+
 # no pre-existing artifact: a newly appearing RUN.json is still accepted
 # (regression guard on the fresh-first-dispatch path).
 printf '%s\n' "prompt body" > "$STALE_WT/.review/ISSUE-306-PROMPT.txt"
@@ -928,6 +1260,11 @@ else
 fi
 
 rm "$STALE_WT/.review/ISSUE-306-RUN.json"
+# The prior successful write leaves an explicit pre-launch marker when a
+# later write is attempted before a new RUN.json exists.  Create that marker
+# directly here: without it this would be a fresh initial write, which now
+# correctly requires an explicit tier rather than silently choosing one.
+mkdir -p "$STALE_WT/.review/.write-dispatch-issue-306-started"
 attempt_marker_out="$TMP_ROOT/write-attempt-marker.out"
 bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --dry-run >"$attempt_marker_out" 2>&1
 ec=$?

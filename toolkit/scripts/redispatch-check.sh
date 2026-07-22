@@ -165,35 +165,38 @@ function validateEvidence(reference) {
   if (digest !== reference.content_sha256) {
     error("evidence_hash_mismatch", "evidence content does not match its declared sha256");
   }
-  if (reference.kind === "verify" || reference.kind === "review" || reference.kind === "blocker") {
+  const artifactKind = reference.kind === "superseded_by" ? "review" : reference.kind;
+  if (artifactKind === "verify" || artifactKind === "review" || artifactKind === "blocker") {
     let artifact;
     try { artifact = JSON.parse(content.toString("utf8")); }
     catch (e) { error("invalid_evidence_artifact", reference.kind + " evidence is not JSON"); }
-    const artifactSchema = reference.kind === "verify"
+    const artifactSchema = artifactKind === "verify"
       ? verifySchema
-      : reference.kind === "review"
+      : artifactKind === "review"
         ? (() => { const copy = {...reviewSchema}; delete copy.if; delete copy.then; return copy; })()
         : blockerSchema;
     if (validate(artifactSchema, artifact).length) {
-      error("invalid_evidence_artifact", reference.kind + " evidence fails its artifact schema");
+      error("invalid_evidence_artifact", artifactKind + " evidence fails its artifact schema");
     }
-    if (reference.kind === "blocker" && artifact.lifecycle === "superseded") {
+    if (artifactKind === "blocker" && artifact.lifecycle === "superseded") {
       error("superseded_evidence_artifact", "superseded BLOCKER evidence must be ignored");
     }
-    if (reference.kind === "verify" && !validVerifyAggregate(artifact)) {
+    if (artifactKind === "verify" && !validVerifyAggregate(artifact)) {
       error("invalid_evidence_artifact", "verify evidence has an invalid aggregate");
     }
-    if (reference.kind === "review" && artifact.status === "fail"
+    if (artifactKind === "review" && artifact.status === "fail"
         && (!Array.isArray(artifact.findings) || artifact.findings.length === 0 || typeof artifact.patch_instructions !== "string")) {
       error("invalid_evidence_artifact", "failed review evidence lacks findings or patch instructions");
     }
-    const artifactIssue = reference.kind === "verify" ? artifact.issue : artifact.issue.number;
-    const artifactHead = reference.kind === "review" ? artifact.reviewed_head_sha : artifact.head_sha;
+    const artifactIssue = artifactKind === "verify" ? artifact.issue : artifact.issue.number;
+    const artifactHead = artifactKind === "review" ? artifact.reviewed_head_sha : artifact.head_sha;
     if (artifactIssue !== state.issue.number || artifactHead !== reference.head_sha) {
       error("evidence_identity_mismatch", reference.kind + " evidence does not match the ROUND-STATE issue and referenced HEAD");
     }
     return artifact;
   }
+  // Runtime logs, probes, and diffs remain useful context but are
+  // informational only; they never satisfy failed-round or closure evidence.
   return null;
 }
 
@@ -268,7 +271,9 @@ function hasMatchingPassingRun(artifact, scope) {
 const control = state.round_control || { failures: [] };
 const failures = control.failures;
 const ids = new Set();
+const dispatchOrdinals = new Set();
 let openCycleStarted = false;
+let activeDispatchOrdinal = 0;
 const originAction = {
   environment: "environment_fix",
   dispatch_contract: "contract_fix",
@@ -279,13 +284,21 @@ const originAction = {
 };
 for (let index = 0; index < failures.length; index += 1) {
   const failure = failures[index];
-  if (ids.has(failure.id) || failure.dispatch_ordinal !== index + 1) {
-    error("invalid_failure_sequence", "failure ids must be unique and dispatch ordinals contiguous");
+  if (ids.has(failure.id) || !Number.isInteger(failure.dispatch_ordinal) || failure.dispatch_ordinal < 1
+      || dispatchOrdinals.has(failure.dispatch_ordinal)) {
+    error("invalid_failure_sequence", "failure ids and dispatch ordinals must be unique positive host records");
   }
   ids.add(failure.id);
+  dispatchOrdinals.add(failure.dispatch_ordinal);
   if (failure.status === "open") openCycleStarted = true;
   else if (openCycleStarted) {
     error("invalid_failure_cycle", "closed history must be a prefix before the active open cycle");
+  }
+  if (failure.status === "open") {
+    if (failure.dispatch_ordinal <= activeDispatchOrdinal) {
+      error("invalid_failure_sequence", "active failure dispatch ordinals must be strictly ordered");
+    }
+    activeDispatchOrdinal = failure.dispatch_ordinal;
   }
   if (failure.secondary_origins.includes(failure.primary_origin)) {
     error("secondary_origin_conflict", "primary origin cannot also be secondary");
@@ -319,7 +332,7 @@ for (let index = 0; index < failures.length; index += 1) {
     if (failure.closed_by.kind === "verify") {
       closurePassed = closure.classifier === "PASS" && closure.verdict.exit_code === 0
         && closure.verdict.failed === 0 && closure.verdict.passed >= 1;
-    } else {
+    } else if (failure.closed_by.kind === "review") {
       if (closure.lifecycle !== "final") {
         error("failure_closure_not_verified", "closed_by REVIEW lifecycle must be final", 2,
           "review_lifecycle_not_final");
@@ -333,12 +346,46 @@ for (let index = 0; index < failures.length; index += 1) {
           "review_checklist_unmet");
       }
       closurePassed = true;
+    } else if (failure.closed_by.kind === "superseded_by") {
+      if (closure.lifecycle !== "final") {
+        error("failure_closure_not_verified", "superseding REVIEW lifecycle must be final", 2,
+          "review_lifecycle_not_final");
+      }
+      if (closure.status !== "fail" && closure.status !== "blocked") {
+        error("failure_closure_not_verified", "superseding REVIEW must explicitly remain failing", 2,
+          "review_status_not_fail");
+      }
+      const checklistItem = failure.closed_by.checklist_item;
+      const expectedChecklistItem = `failure:${failure.id}:${failure.closed_by.closes_ac_ids.join(",")}`;
+      if (checklistItem !== expectedChecklistItem
+          || !closure.checklist.some((item) => item.item === checklistItem && item.met === true)) {
+        error("failure_closure_scope_mismatch", "superseding REVIEW must explicitly assert its closure scope");
+      }
+      closurePassed = true;
     }
     if (!closurePassed) {
       error("failure_closure_not_verified", "closed_by evidence must be a passing VERIFY or REVIEW artifact");
     }
-    if (!sameMembers(failure.closed_by.closes_ac_ids, failure.failed_ac_ids)) {
+    const closesAll = sameMembers(failure.closed_by.closes_ac_ids, failure.failed_ac_ids);
+    const closesSubset = failure.closed_by.kind === "superseded_by"
+      && failure.closed_by.closes_ac_ids.length > 0
+      && failure.closed_by.closes_ac_ids.every((id) => failure.failed_ac_ids.includes(id));
+    if (!closesAll && !closesSubset) {
       error("failure_closure_scope_mismatch", "closure evidence must cover the failure AC set exactly");
+    }
+    if (closesSubset && !closesAll) {
+      // A failing successor may take ownership of only some ACs, but no AC is
+      // allowed to disappear while closing the predecessor. Every remainder
+      // must be explicitly present on a later active failure in this same
+      // canonical history.
+      const remaining = failure.failed_ac_ids.filter((id) => failure.closed_by.closes_ac_ids.indexOf(id) === -1);
+      const laterFailures = failures.slice(index + 1);
+      if (!remaining.every((id) => laterFailures.some((later) => later.status === "open"
+          && later.dispatch_ordinal > failure.dispatch_ordinal
+          && later.failed_ac_ids.indexOf(id) !== -1))) {
+        error("failure_supersession_uncovered_ac", "partial supersession must carry every unclosed AC into a later active failure", 2,
+          "partial supersession must carry every unclosed AC into a later active failure");
+      }
     }
     if (failure.closed_by.kind === "verify" && !hasMatchingPassingRun(closure, state.contract.verify_filter)) {
       error("failure_closure_scope_mismatch", "closure VERIFY has no passing run for the canonical verify filter");
@@ -379,17 +426,67 @@ if (activeFailures.length > 0) {
     sameOriginStreak += 1;
   }
 }
+const highestDispatchOrdinal = failures.reduce((highest, failure) => Math.max(highest, failure.dispatch_ordinal), 0);
+let highestConsumedAdmissionOrdinal = 0;
+try {
+  let commonDir = execFileSync("git", ["-C", worktreeRoot, "rev-parse", "--git-common-dir"], { encoding: "utf8" }).trim();
+  if (!path.isAbsolute(commonDir)) commonDir = path.resolve(worktreeRoot, commonDir);
+  const admissionRoot = path.join(commonDir, "agent-workflow", "redispatch-admissions");
+  if (fs.existsSync(admissionRoot)) {
+    // A prepared integrated transaction is intentionally written before its
+    // ordinal directory. Do not count that one uncommitted ordinal as
+    // consumed: the issue lock/recovery path will either finish it or remove
+    // the pair after this gate has selected the same host-owned ordinal.
+    let preparedKey = null;
+    try {
+      const transaction = JSON.parse(fs.readFileSync(path.join(admissionRoot, `issue-${state.issue.number}-integrated-fix`, ".admission-transaction.json"), "utf8"));
+      if (transaction && transaction.version === 1 && transaction.status === "prepared"
+          && String(transaction.issue) === String(state.issue.number)
+          && /^issue-[0-9]+-dispatch-[0-9]+$/.test(transaction.admission_key || "")) {
+        preparedKey = transaction.admission_key;
+      }
+    } catch (_) {}
+    fs.readdirSync(admissionRoot).forEach((entry) => {
+      const match = new RegExp(`^issue-${state.issue.number}-dispatch-([0-9]+)$`).exec(entry);
+      if (!match) return;
+      if (entry === preparedKey) return;
+      try {
+        if (fs.statSync(path.join(admissionRoot, entry)).isDirectory()) {
+          highestConsumedAdmissionOrdinal = Math.max(highestConsumedAdmissionOrdinal, Number(match[1]));
+        }
+      } catch (_) {}
+    });
+  }
+} catch (_) {}
+const expectedNextDispatchOrdinal = Math.max(highestDispatchOrdinal, highestConsumedAdmissionOrdinal) + 1;
+const nextDispatchOrdinal = Number.isInteger(control.next_dispatch_ordinal)
+  ? control.next_dispatch_ordinal : expectedNextDispatchOrdinal;
+const lastAdmission = typeof control.last_admission_key === "string"
+  ? /^issue-[0-9]+-dispatch-([0-9]+)$/.exec(control.last_admission_key) : null;
+if (lastAdmission && !control.last_admission_key.startsWith(`issue-${state.issue.number}-dispatch-`)) {
+  error("invalid_last_admission_key", "last_admission_key must belong to this ROUND-STATE issue", 2,
+    "last_admission_key must belong to this ROUND-STATE issue");
+}
+if (lastAdmission && failures.filter((failure) => failure.dispatch_ordinal === Number(lastAdmission[1])).length !== 1) {
+  error("unbound_last_admission", "last_admission_key must be bound to recorded failure evidence before another redispatch", 2,
+    "last_admission_key must be bound to recorded failure evidence before another redispatch");
+}
+if (nextDispatchOrdinal !== expectedNextDispatchOrdinal) {
+  error("invalid_dispatch_ordinal", "host-owned next_dispatch_ordinal must be exactly the next unconsumed dispatch ordinal", 2,
+    "host-owned next_dispatch_ordinal must be exactly the next unconsumed dispatch ordinal");
+}
 const redispatchesCompleted = Math.max(0, activeFailures.length - 1);
+const recoveryReady = control.blocker_recovery && control.blocker_recovery.status === "ready" ? 1 : 0;
 
 function decision(name, allowed, mode, trigger, obligations, exitCode) {
-  const nextOrdinal = failures.length + 1;
+  const nextOrdinal = nextDispatchOrdinal;
   write({
     decision: name,
     redispatch_allowed: allowed,
     dispatch_mode: mode,
     same_origin_streak: sameOriginStreak,
     redispatches_completed: redispatchesCompleted,
-    classified_failures: activeFailures.length,
+    classified_failures: activeFailures.length + recoveryReady,
     admission_key: allowed ? `issue-${state.issue.number}-dispatch-${nextOrdinal}` : null,
     issue_number: state.issue.number,
     worktree_path: worktreeRoot,
@@ -455,9 +552,9 @@ const batch = diagnosis.integrated_fix_batch;
 if (!batch) {
   decision("diagnosis_required", false, null, trigger, ["integrated_fix_batch"], 1);
 }
-if (batch.dispatch_ordinal !== failures.length + 1
+if (batch.dispatch_ordinal !== nextDispatchOrdinal
     || !sameMembers(batch.failure_ids, diagnosis.failure_ids)) {
-  error("invalid_integrated_fix_batch", "integrated fix batch must be the next dispatch and cover the diagnosed failures");
+  error("invalid_integrated_fix_batch", "integrated fix batch must use the host-owned next dispatch ordinal and cover the diagnosed failures", 2, "integrated fix batch must use the host-owned next dispatch ordinal and cover the diagnosed failures");
 }
 if (batch.status === "used") {
   decision("diagnosis_exhausted", false, null, trigger, ["blocker_or_new_decision"], 1);

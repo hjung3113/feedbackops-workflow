@@ -99,9 +99,28 @@ function discovered(id, text) {
   return new RegExp("(^|[^A-Za-z0-9_.-])" + escaped + "([^A-Za-z0-9_.-]|$)", "m").test(text);
 }
 function isRepositoryRelative(value) {
-  return value.length > 0
+  return typeof value === "string"
+    && value.length > 0
     && !value.startsWith("/")
+    && !value.startsWith("\\")
+    && !/^[A-Za-z]:/.test(value)
     && !value.split("/").includes("..");
+}
+function isAllowlistPattern(value) {
+  // Patterns are target-relative path globs, never filesystem paths. Reject
+  // empty segments/traversal before matching, so a permissive `**` cannot
+  // quietly turn a malformed contract into an escape hatch.
+  return isRepositoryRelative(value)
+    && !value.split("/").some(part => part === "" || part === ".")
+    && !/[\\\0]/.test(value);
+}
+function isExplicitNewFile(value) {
+  // New files are an intentional exception, not another glob.  Requiring one
+  // exact repository-relative filename makes a misspelled existing path fail
+  // closed instead of creating a broad write capability.
+  return isRepositoryRelative(value)
+    && !value.split("/").some(part => part === "" || part === ".")
+    && !/[\\\0*?\[\]{}]/.test(value);
 }
 
 let state, schema;
@@ -117,6 +136,13 @@ if (schemaErrors.length) error("invalid_round_state", "ROUND-STATE schema valida
 if (state.lifecycle !== "active" && state.lifecycle !== "final") error("invalid_round_state", "ROUND-STATE lifecycle is not gateable");
 
 const mismatches = [];
+if (!Array.isArray(state.contract.touch_allowlist) || !state.contract.touch_allowlist.every(isAllowlistPattern)) {
+  error("invalid_touch_allowlist", "touch_allowlist must contain only safe target-relative path globs");
+}
+const newFileAllowlist = state.contract.new_file_allowlist || [];
+if (!Array.isArray(newFileAllowlist) || !newFileAllowlist.every(isExplicitNewFile)) {
+  error("invalid_new_file_allowlist", "new_file_allowlist must contain only exact safe target-relative file paths");
+}
 if (String(state.revision) !== expectedRevision) {
   mismatches.push({ code: "stale_manifest_revision", expected: Number(expectedRevision), actual: state.revision });
 }
@@ -186,6 +212,14 @@ if (boundary) {
 for (const path of changedPaths) {
   if (!state.contract.touch_allowlist.some((pattern) => globMatches(pattern, path))) {
     mismatches.push({ code: "changed_path_outside_allowlist", path });
+  }
+  let existedAtBase = false;
+  try {
+    execFileSync("git", ["-C", state.worktree_path, "cat-file", "-e", state.base_sha + ":" + path]);
+    existedAtBase = true;
+  } catch (_) {}
+  if (!existedAtBase && newFileAllowlist.indexOf(path) === -1) {
+    mismatches.push({ code: "new_path_not_explicitly_allowed", path });
   }
 }
 const discoveredTestCount = tests.split(/\r?\n/).filter((line) => line.length > 0).length;

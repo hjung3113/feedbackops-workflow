@@ -60,6 +60,7 @@
   ],
   "prior_findings": [],
   "round_control": {
+    "next_dispatch_ordinal": 3,
     "failures": [
       {
         "id": "F-1",

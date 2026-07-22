@@ -36,13 +36,14 @@ assert_true() {
 
 assert_exit() {
   name="$1"; expected="$2"; shift 2
-  "$@" >/dev/null 2>&1
+  output="$TMP_DIR/assert-exit-$FAILURES.txt"
+  "$@" >"$output" 2>&1
   actual=$?
   if { [ "$expected" = PASS ] && [ "$actual" -eq 0 ]; } || \
      { [ "$expected" = FAIL ] && [ "$actual" -ne 0 ]; }; then
     ok "$name"
   else
-    not_ok "$name"
+    not_ok "$name ($(cat "$output"))"
   fi
 }
 
@@ -182,6 +183,8 @@ prepare_gate_fixture() {
   ' "$GATE_STATE" "$GATE_BLOCKER_STATE" "$GATE_SUPERSEDED_BLOCKER_STATE" "$target" "$head_sha"
   printf '%s\n' 'test AC-1 behavior' > "$GATE_TESTS"
   printf '%s\n' 'implementation prompt' '<!-- agent-workflow:ac-block:start -->' '```json' '[{"id":"AC-1","statement":"the installed gate discovers AC-1"}]' '```' '<!-- agent-workflow:ac-block:end -->' > "$target/.review/ISSUE-188-PROMPT.md"
+  "$PRODUCT_ROOT/scripts/output-contract.sh" render --role implementation >> "$target/.review/ISSUE-188-PROMPT.md"
+  "$PRODUCT_ROOT/scripts/output-contract.sh" render --role reviewer > "$target/.review/ISSUE-188-REVIEW-PROMPT.md"
 }
 
 assert_installed_gates() {
@@ -236,7 +239,7 @@ NODE
   assert_exit "$label accepts dispatch-contract BLOCKER redispatch evidence" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_BLOCKER_STATE" --manifest-revision 3
   assert_exit_output "$label rejects superseded BLOCKER redispatch evidence" 2 "superseded_evidence_artifact" bash "$scripts/redispatch-check.sh" --round-state "$GATE_SUPERSEDED_BLOCKER_STATE" --manifest-revision 3
   assert_exit "$label enforces canonical initial-write admission" PASS bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --tier full_cluster --round-state "$GATE_STATE" --manifest-revision 3 --dry-run
-  assert_exit_output "$label exposes canonical REVIEW publication" 0 "--produce-review" bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --produce-review --model gpt-5.6-sol --effort medium --dry-run
+  assert_exit_output "$label exposes canonical REVIEW publication" 0 "--produce-review" bash "$scripts/cmux-dispatch.sh" --issue 188 --worktree "$target" --prompt-file .review/ISSUE-188-REVIEW-PROMPT.md --produce-review --model gpt-5.6-sol --effort medium --dry-run
 }
 
 assert_installed_real_dispatch() {
@@ -349,6 +352,16 @@ assert_true "upgrade reports a retained backup" test -d "$backup_root"
 assert_true "upgrade backup preserves customized managed content" grep -F -q customized "$backup_root/scripts/install-into.sh"
 assert_true "upgrade preserves project-owned model allocation config" grep -F -q project_owned "$fresh/.agent-workflow/model-alloc.json"
 assert_true "upgrade preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
+# The default-write admission contract requires a schema-valid allocation;
+# restore the shipped valid config before exercising the portable dispatch gate.
+cp "$PRODUCT_ROOT/model-alloc.json" "$fresh/.agent-workflow/model-alloc.json"
+
+legacy_alloc="$TMP_DIR/legacy-allocation"
+mkdir -p "$legacy_alloc"
+assert_exit "legacy allocation install succeeds" PASS bash "$INSTALL" "$legacy_alloc"
+printf '%s\n' '{"schema_version":"1","source":"legacy","release":"old","roles":{"implementation":{"model":"gpt-5.6-terra","effort":"low"},"reviewer":{"model":"gpt-5.6-sol","effort":"medium"},"contract_gate":{"model":"gpt-5.6-sol","effort":"medium"},"trivial_implementation":{"model":"gpt-5.6-luna","effort":"low"}},"capabilities":{"gpt-5.6-terra":{"agentic_coding":1,"static_coding":1,"reasoning":1,"input_per_million":1,"output_per_million":1},"gpt-5.6-sol":{"agentic_coding":1,"static_coding":1,"reasoning":1,"input_per_million":1,"output_per_million":1},"gpt-5.6-luna":{"agentic_coding":1,"static_coding":1,"reasoning":1,"input_per_million":1,"output_per_million":1}},"signals":{"trivial_changed_lines":50,"large_changed_lines":400,"large_file_count":8}}' > "$legacy_alloc/.agent-workflow/model-alloc.json"
+assert_exit_output "upgrade preserves legacy allocation with runtime migration warning" 0 "preserving legacy schema-v1 config" bash "$INSTALL" "$legacy_alloc" --upgrade
+assert_true "upgrade leaves legacy allocation project-owned" grep -F -q '"source":"legacy"' "$legacy_alloc/.agent-workflow/model-alloc.json"
 
 current_links="$TMP_DIR/current-links"
 mkdir -p "$current_links/.agent-workflow/docs" "$current_links/.claude/skills"

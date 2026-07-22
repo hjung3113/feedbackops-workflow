@@ -71,6 +71,12 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         },
+        "new_file_allowlist": {
+          "description": "Explicit target-relative file paths which may be newly created after base_sha. Existing files still require touch_allowlist coverage; globs are deliberately forbidden here so a typo cannot create an arbitrary file.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
         "prohibitions": {
           "description": "Canonical structured prohibitions rendered verbatim into worker and re-review guidance; never reconstruct these with natural-language regexes.",
           "type": "array",
@@ -195,8 +201,30 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["failures"],
+    "properties": {
+    "next_dispatch_ordinal": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Host-owned monotonic admission counter; it is never derived from mutable failure-array position."
+    },
+    "last_admission_key": {
+      "type": "string",
+      "pattern": "^issue-[0-9]+-dispatch-[0-9]+$",
+      "description": "Host-owned marker for the most recently consumed normal admission; it remains until a corresponding failure is recorded."
+    },
+    "blocker_recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "raw_path", "raw_sha256", "reason", "status"],
       "properties": {
-        "failures": {
+        "kind": { "const": "malformed_preexisting_blocker_quarantined" },
+        "raw_path": { "type": "string", "minLength": 1 },
+        "raw_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "reason": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ready", "used"] }
+      }
+    },
+    "failures": {
           "type": "array",
           "items": {
             "type": "object",
@@ -285,7 +313,7 @@
                         "dispatch_log",
                         "diff"
                       ],
-                      "description": "blocker is eligible as sole failed evidence only under the failure-level dispatch_contract exception enforced by redispatch-check.sh, including producer/reference head_sha equality."
+                      "description": "blocker is eligible as sole failed evidence only under the failure-level dispatch_contract exception enforced by redispatch-check.sh, including producer/reference head_sha equality. live_probe, dispatch_log, and diff are informational references only and cannot satisfy failed-round or closure evidence."
                     },
                     "path": { "type": "string", "minLength": 1 },
                     "content_sha256": {
@@ -310,7 +338,7 @@
                   "closes_ac_ids"
                 ],
                 "properties": {
-                  "kind": { "enum": ["verify", "review"] },
+                  "kind": { "enum": ["verify", "review", "superseded_by"] },
                   "path": { "type": "string", "minLength": 1 },
                   "content_sha256": {
                     "type": "string",

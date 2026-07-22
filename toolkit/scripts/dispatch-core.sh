@@ -59,6 +59,7 @@ PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
 PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+TOUCH_ALLOWLIST_PREFLIGHT="$SCRIPT_DIR/lib/touch-allowlist-preflight.cjs"
 RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
 ISSUE_N=""
@@ -226,10 +227,6 @@ if [ "$ALLOCATE" -eq 1 ] && [ "$ALLOCATOR_ROLE" != "implementation" ]; then
   echo "ERROR: v1 auto-dispatch supports only the Codex implementation allocator role" >&2
   exit 2
 fi
-if [ "$ALLOCATE" -eq 1 ] && [ "$RUNTIME" != "codex" ]; then
-  echo "ERROR: model allocation is runtime-scoped and currently supports only codex" >&2
-  exit 2
-fi
 if [ "$ALLOCATE" -eq 0 ] && { [ -n "$ALLOCATOR_ROLE" ] || [ -n "$ALLOC_EVIDENCE" ]; }; then
   echo "ERROR: --allocator-role and --alloc-evidence require --allocate" >&2
   exit 2
@@ -242,8 +239,8 @@ if [ "$CONDUCTOR_CONTROL" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
   echo "ERROR: --conductor-control and --produce-review are mutually exclusive" >&2
   exit 2
 fi
-if [ "$PRODUCE_REVIEW" -eq 1 ] && { [ -z "$MODEL" ] || [ -z "$EFFORT" ]; }; then
-  echo "ERROR: --produce-review requires explicit --model and --effort" >&2
+if [ "$PRODUCE_REVIEW" -eq 1 ] && [ -z "$MODEL" ]; then
+  echo "ERROR: --produce-review requires an explicit --model" >&2
   exit 2
 fi
 if [ "$PRODUCE_REVIEW" -eq 1 ] && [ "$ROLE" != "reviewer" ]; then
@@ -293,6 +290,13 @@ fi
 
 [ -d "$WORKTREE" ] || { echo "ERROR: worktree does not exist: $WORKTREE" >&2; exit 2; }
 ABS_WORKTREE="$(cd "$WORKTREE" && pwd)"
+# Reject a non-Git target before probing or selecting an external runtime. This
+# keeps the target validation seam deterministic and prevents a malformed
+# worktree from entering any capability/preflight path.
+if ! git -C "$ABS_WORKTREE" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "ERROR: not a git worktree (git rev-parse --git-dir failed): $ABS_WORKTREE" >&2
+  exit 2
+fi
 RUNTIME_ADAPTER="$SCRIPT_DIR/agent-runtime.sh"
 [ -x "$RUNTIME_ADAPTER" ] || { echo "ERROR: runtime_adapter_missing: $RUNTIME_ADAPTER" >&2; exit 2; }
 RUNTIME_CAPABILITY_JSON="$(bash "$RUNTIME_ADAPTER" capabilities --runtime "$RUNTIME" 2>/dev/null)"
@@ -382,27 +386,55 @@ if [ "$ALLOCATE" -eq 1 ]; then
   ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
   if [ -f "$ALLOC_CONFIG" ]; then
     if [ -n "$ALLOC_EVIDENCE" ]; then
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     else
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     fi
   else
     if [ -n "$ALLOC_EVIDENCE" ]; then
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     else
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     fi
   fi
   ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.impl_model !== "string" || !/^(low|medium|high)$/.test(v.impl_effort)) process.exit(2); process.stdout.write(v.impl_model + "\t" + v.impl_effort); } catch (e) { process.exit(2); }' "$ALLOC_JSON")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
   MODEL="${1:-}"; EFFORT="${2:-}"
-  case "$MODEL" in gpt-*) ;; *) echo "ERROR: allocator returned a non-Codex model; refusing dispatch" >&2; exit 2 ;; esac
+  if [ -z "$MODEL" ]; then
+    echo "ERROR: allocator returned no model for runtime=$RUNTIME; refusing dispatch" >&2
+    exit 2
+  fi
 fi
 
-if ! git -C "$ABS_WORKTREE" rev-parse --git-dir >/dev/null 2>&1; then
-  echo "ERROR: not a git worktree (git rev-parse --git-dir failed): $ABS_WORKTREE" >&2
-  exit 2
+# Every write seat must carry an explicit, capability-checked model/effort
+# tuple. When operators omit both --model and --allocate, resolve the normal
+# implementation allocation through the same model allocator (no runtime
+# default and no fallback launch).
+if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
+  MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
+  [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
+  ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
+  if [ -f "$ALLOC_CONFIG" ]; then
+    DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
+  else
+    DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
+  fi
+  DEFAULT_ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.impl_model !== "string" || !/^(low|medium|high)$/.test(v.impl_effort)) process.exit(2); process.stdout.write(v.impl_model + "\t" + v.impl_effort); } catch (e) { process.exit(2); }' "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
+  oldIFS=$IFS; IFS="$(printf '\t')"; set -- $DEFAULT_ALLOC_FIELDS; IFS=$oldIFS
+  MODEL="${1:-}"; [ -n "$EFFORT" ] || EFFORT="${2:-}"
+  [ -n "$MODEL" ] && [ -n "$EFFORT" ] || { echo "ERROR: default allocation did not resolve model and effort" >&2; exit 2; }
 fi
+
+# Resolve one explicit effort for the selected model before compatibility
+# probing, then forward that exact value to the runtime launch. This avoids a
+# preflight using a fallback tier while the runtime silently chooses its own.
+if [ -n "$MODEL" ] && [ -z "$EFFORT" ]; then
+  case "$RUNTIME" in
+    codex) EFFORT="low" ;;
+    claude|opencode) EFFORT="medium" ;;
+  esac
+fi
+
 GIT_COMMON_RAW="$(git -C "$ABS_WORKTREE" rev-parse --git-common-dir)"
 case "$GIT_COMMON_RAW" in
   /*) GIT_COMMON_DIR="$GIT_COMMON_RAW" ;;
@@ -427,6 +459,47 @@ esac
   echo "ERROR: prompt file not found: $ABS_PROMPT_FILE" >&2
   exit 2
 }
+
+# New prompt authoring uses every non-.txt path. Require the schema-derived
+# output contract before any plan, write marker, runner, or transport
+# admission. The pre-v0.20 .txt path remains the only legacy exemption.
+case "$ABS_PROMPT_FILE" in
+  *.txt) ;;
+  *)
+    case "$ROLE" in
+      reviewer) OUTPUT_CONTRACT_ROLE="reviewer" ;;
+      implementation) OUTPUT_CONTRACT_ROLE="implementation" ;;
+      *) OUTPUT_CONTRACT_ROLE="" ;;
+    esac
+    if [ -n "$OUTPUT_CONTRACT_ROLE" ]; then
+      OUTPUT_CONTRACT="$SCRIPT_DIR/output-contract.sh"
+      if [ ! -x "$OUTPUT_CONTRACT" ] || ! bash "$OUTPUT_CONTRACT" check --role "$OUTPUT_CONTRACT_ROLE" --prompt-file "$ABS_PROMPT_FILE" >/dev/null; then
+        echo "ERROR: output-contract admission denied: prompt must contain the exact schema-derived $OUTPUT_CONTRACT_ROLE contract" >&2
+        exit 1
+      fi
+    fi
+    ;;
+esac
+
+# Compatibility is proven before any adapter launch, runner creation, or write
+# admission. The probe is intentionally tiny and may be replaced by a
+# host-owned command for offline/managed runtimes.
+if [ "$DRY_RUN" -eq 0 ] && [ -n "$MODEL" ]; then
+  if [ -n "${AGENT_WORKFLOW_MODEL_PROBE_CMD:-}" ]; then
+    if ! RUNTIME="$RUNTIME" MODEL="$MODEL" EFFORT="$EFFORT" sh -c "$AGENT_WORKFLOW_MODEL_PROBE_CMD" </dev/null >/dev/null 2>&1; then
+      echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
+      exit 2
+    fi
+  elif ! case "$RUNTIME" in
+    codex) "$RUNTIME_BIN_PIN" exec --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
+    claude) "$RUNTIME_BIN_PIN" --print --permission-mode plan --output-format text --model "$MODEL" --effort "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
+    opencode) OPENCODE_CONFIG_CONTENT="$(cat "$RUNTIME_PERMISSION_FILE")" "$RUNTIME_BIN_PIN" run --dir "$ABS_WORKTREE" --format default --agent agent-workflow --model "$MODEL" --variant "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
+    *) false ;;
+  esac; then
+    echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
+    exit 2
+  fi
+fi
 
 if [ -z "$WS_NAME" ]; then
   if [ "$RUNTIME" = "codex" ] && [ "$ROLE" = "implementation" ]; then
@@ -538,6 +611,19 @@ NODE
     exit 2
   fi
 fi
+if [ "$DRY_RUN" -eq 0 ] && [ "$REDISPATCH_REQUIRED" -eq 1 ] && [ -f "$BLOCKER_FILE" ]; then
+  if ! node "$SCRIPT_DIR/lib/blocker-check.cjs" "$BLOCKER_FILE" "$SCRIPT_DIR/../schemas/blocker.schema.json" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ABS_WORKTREE" >/dev/null 2>&1; then
+    if [ -z "${ABS_ROUND_STATE:-}" ]; then
+      echo "ERROR: malformed pre-existing BLOCKER requires canonical ROUND-STATE for quarantine recovery" >&2
+      exit 2
+    fi
+    if ! node "$SCRIPT_DIR/lib/blocker-recovery.cjs" "$BLOCKER_FILE" "$ABS_ROUND_STATE" "$ISSUE_N" >/dev/null 2>&1; then
+      echo "ERROR: malformed pre-existing BLOCKER recovery could not preserve raw bytes and update ROUND-STATE" >&2
+      exit 2
+    fi
+    echo "dispatch-core: quarantined malformed pre-existing BLOCKER; canonical worker evidence remains absent" >&2
+  fi
+fi
 if [ -n "$EXECUTION_PLAN" ]; then
   if [ -z "$ROUND_STATE" ] || [ -z "$MANIFEST_REVISION" ]; then
     echo "ERROR: planned write seat requires --round-state and --manifest-revision" >&2
@@ -599,6 +685,22 @@ NODE
   fi
   require_standard_artifact_pointers "$ABS_ROUND_STATE" || exit $?
 fi
+# Scope declarations must point at the base tree before any write admission.
+# A glob may authorize modifications to existing scope, but never create an
+# arbitrary new path; exact new_file_allowlist is the only creation authority.
+# For a redispatch, first bind the supplied state to the CLI issue/worktree:
+# an alien state must report that identity error rather than trying to inspect
+# its unrelated base SHA in this worktree.
+if [ "$READ_ONLY" -eq 0 ] && [ "$REDISPATCH_REQUIRED" -eq 0 ] && [ -n "${ABS_ROUND_STATE:-}" ]; then
+  if [ ! -r "$TOUCH_ALLOWLIST_PREFLIGHT" ]; then
+    echo "ERROR: touch allowlist preflight is missing or unreadable" >&2
+    exit 2
+  fi
+  if ! node "$TOUCH_ALLOWLIST_PREFLIGHT" "$ABS_ROUND_STATE" "$ABS_WORKTREE"; then
+    echo "ERROR: dispatch touch allowlist preflight denied" >&2
+    exit 2
+  fi
+fi
 if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
   if [ -z "$ROUND_STATE" ] || [ -z "$MANIFEST_REVISION" ]; then
     echo "ERROR: write redispatch requires --round-state and --manifest-revision" >&2
@@ -658,6 +760,15 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     exit 2
   fi
 
+  if [ ! -r "$TOUCH_ALLOWLIST_PREFLIGHT" ]; then
+    echo "ERROR: touch allowlist preflight is missing or unreadable" >&2
+    exit 2
+  fi
+  if ! node "$TOUCH_ALLOWLIST_PREFLIGHT" "$ABS_ROUND_STATE" "$ABS_WORKTREE"; then
+    echo "ERROR: dispatch touch allowlist preflight denied" >&2
+    exit 2
+  fi
+
   # Validate the worker-facing AC block after canonical redispatch admission
   # is known, but before consuming its durable issue/ordinal admission.
   if [ ! -x "$PROMPT_AC_CHECK" ]; then
@@ -677,29 +788,86 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
       exit 2
     fi
     ISSUE_ADMISSION_LOCK="$ADMISSION_ROOT/.issue-${ISSUE_N}-lock"
-    if ! mkdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null; then
-      echo "ERROR: concurrent redispatch admission update for issue $ISSUE_N" >&2
-      exit 1
+    # Publish an owner-bearing lock directory atomically.  A direct mkdir
+    # followed by writing .admission-lock.json leaves an empty permanent lock
+    # if this shell is SIGKILLed in between.
+    if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" acquire-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" "$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" >/dev/null 2>&1; then
+      if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" recover-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" "$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix" "$ABS_ROUND_STATE" "$ISSUE_N" >/dev/null 2>&1 || ! node "$SCRIPT_DIR/lib/admission-recover.cjs" acquire-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" "$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" >/dev/null 2>&1; then
+        echo "ERROR: concurrent redispatch admission update for issue $ISSUE_N" >&2
+        exit 1
+      fi
     fi
     ADMISSION_DIR="$ADMISSION_ROOT/$ADMISSION_KEY"
-    if ! mkdir "$ADMISSION_DIR" 2>/dev/null; then
-      rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null || true
+    INTEGRATED_DIR="$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix"
+    if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" recover "$INTEGRATED_DIR" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" >/dev/null 2>&1; then
+      node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+      echo "ERROR: could not recover interrupted integrated admission" >&2
+      exit 2
+    fi
+    if [ "$ADMISSION_MODE" = "integrated_fix" ]; then
+      # Journal before visibility for both the singleton and ordinal.  A
+      # SIGKILL can therefore be recovered as a current prepared record;
+      # metadata-free directories remain legacy consumed sentinels.
+      if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1; then
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+        echo "ERROR: redispatch admission already consumed: integrated fix admission already consumed for issue $ISSUE_N" >&2
+        exit 1
+      fi
+      if [ "${AGENT_WORKFLOW_ADMISSION_KILL_WINDOW:-0}" = "1" ]; then
+        # Test-only crash injector. Exit from the disposable dispatch child
+        # after singleton transaction preparation and before ordinal creation; this
+        # leaves the same recoverable transaction as a hard crash without any
+        # signal that could target a parent harness terminal.
+        # A non-signal code keeps the smoke harness process group intact while
+        # still bypassing all subsequent admission work (there are no traps).
+        exit 97
+      fi
+      if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1; then
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" rollback "$INTEGRATED_DIR" "$ADMISSION_DIR" >/dev/null 2>&1 || true
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+        echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
+        exit 1
+      fi
+      if [ "${AGENT_WORKFLOW_ADMISSION_KILL_WINDOW:-0}" = "2" ]; then
+        # Test-only crash injector for the former orphan-ordinal window.
+        exit 97
+      fi
+    elif [ -d "$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix" ]; then
+      node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+      echo "ERROR: redispatch admission already consumed: issue $ISSUE_N exhausted its integrated fix admission" >&2
+      exit 1
+    elif ! node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" normal >/dev/null 2>&1; then
+      node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
       echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
       exit 1
     fi
-    if [ "$ADMISSION_MODE" = "integrated_fix" ]; then
-      INTEGRATED_DIR="$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix"
-      if ! mkdir "$INTEGRATED_DIR" 2>/dev/null; then
-        rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null || true
-        echo "ERROR: integrated fix admission already consumed for issue $ISSUE_N" >&2
-        exit 1
+    if [ -n "${ABS_ROUND_STATE:-}" ]; then
+      if ! node "$SCRIPT_DIR/lib/admission-advance.cjs" "$ABS_ROUND_STATE" "$ADMISSION_KEY" >/dev/null 2>&1; then
+        # Keep the issue lock held across the host-state advance.  If the
+        # durable state write fails, neither half of an integrated admission
+        # may survive and make a later retry look consumed.
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" rollback "$INTEGRATED_DIR" "$ADMISSION_DIR" >/dev/null 2>&1 || true
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+        echo "ERROR: could not durably advance host-owned admission ordinal" >&2
+        exit 2
       fi
-    elif [ -d "$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix" ]; then
-      rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null || true
-      echo "ERROR: issue $ISSUE_N exhausted its integrated fix admission" >&2
-      exit 1
     fi
-    if ! rmdir "$ISSUE_ADMISSION_LOCK" 2>/dev/null; then
+    if [ "${AGENT_WORKFLOW_ADMISSION_KILL_WINDOW:-0}" = "3" ]; then
+      # State has advanced but the marker journal is still prepared. Recovery
+      # must retain and commit it, never reuse this ordinal.
+      exit 97
+    fi
+    if [ "$ADMISSION_MODE" = "integrated_fix" ]; then
+      if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" commit "$INTEGRATED_DIR" "$ADMISSION_DIR" >/dev/null 2>&1; then
+        echo "ERROR: could not finalize integrated admission transaction" >&2
+        exit 2
+      fi
+    elif ! node "$SCRIPT_DIR/lib/admission-recover.cjs" commit-admission "$ADMISSION_DIR" "" "" "$ISSUE_N" "$ADMISSION_KEY" >/dev/null 2>&1; then
+      node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+      echo "ERROR: could not finalize normal admission transaction" >&2
+      exit 2
+    fi
+    if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1; then
       echo "ERROR: cannot release redispatch admission lock for issue $ISSUE_N" >&2
       exit 2
     fi
@@ -847,13 +1015,18 @@ echo "dispatch-core: transport receipt=$RECEIPT_FILE authoritative=false externa
 
 elapsed=0
 while [ "$elapsed" -lt "$POLL_TIMEOUT" ]; do
+  if [ -f "$BLOCKER_FILE" ] && [ "$(file_sig "$BLOCKER_FILE")" != "$STALE_BLOCKER_SIG" ]; then
+    blocker_check="$(node "$SCRIPT_DIR/lib/blocker-check.cjs" "$BLOCKER_FILE" "$SCRIPT_DIR/../schemas/blocker.schema.json" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ABS_WORKTREE" 2>/dev/null)"
+    if [ "$?" -eq 0 ] && [ "$blocker_check" = "ok" ]; then
+      echo "dispatch-core: fresh schema-valid BLOCKER.json present at $BLOCKER_FILE — scoped abort"
+      exit 0
+    fi
+    echo "ERROR: fresh BLOCKER.json is not schema-valid/current/consumable (${blocker_check:-unknown}); it is not liveness evidence" >&2
+    exit 1
+  fi
   if [ -f "$RUN_FILE" ] && [ "$(file_sig "$RUN_FILE")" != "$STALE_RUN_SIG" ]; then
     status="$(node -e 'const fs=require("fs"); try { const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(o.status||"")); } catch(e) { process.stdout.write(""); }' "$RUN_FILE")"
     echo "dispatch-core: fresh RUN.json present at $RUN_FILE (status=$status)"
-    exit 0
-  fi
-  if [ -f "$BLOCKER_FILE" ] && [ "$(file_sig "$BLOCKER_FILE")" != "$STALE_BLOCKER_SIG" ]; then
-    echo "dispatch-core: fresh BLOCKER.json present at $BLOCKER_FILE — scoped abort"
     exit 0
   fi
   sleep "$POLL_INTERVAL"
