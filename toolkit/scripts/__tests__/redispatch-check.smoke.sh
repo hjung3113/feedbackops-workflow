@@ -120,6 +120,7 @@ const closureItem="failure:F-1:AC-1";
 fs.writeFileSync(path.join(root,"review-final-pass.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"pass",checklist:[{item:closureItem,met:true}]}));
 fs.writeFileSync(path.join(root,"review-active-pass.json"),JSON.stringify({...reviewBase,lifecycle:"active",status:"pass",checklist:[{item:closureItem,met:true}]}));
 fs.writeFileSync(path.join(root,"review-final-blocked.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"blocked",checklist:[{item:closureItem,met:true}]}));
+fs.writeFileSync(path.join(root,"review-final-fail-close.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"fail",findings:[{severity:"fix",description:"successor still has an unrelated finding"}],patch_instructions:"retain the unresolved follow-up",checklist:[{item:closureItem,met:true}]}));
 fs.writeFileSync(path.join(root,"review-final-unmet.json"),JSON.stringify({...reviewBase,lifecycle:"final",status:"pass",checklist:[{item:closureItem,met:false}]}));
 NODE
 git -C "$WORKTREE" add .review/evidence
@@ -248,6 +249,25 @@ node -e '
   fs.writeFileSync(file,JSON.stringify(value));
 ' "$TMP_DIR/closed-history.json" "$WORKTREE" "$CLOSURE_HEAD"
 assert_case "closed historical failures do not retrip the active circuit" 0 "$TMP_DIR/closed-history.json" "allow_normal" "null"
+
+cp "$TMP_DIR/same.json" "$TMP_DIR/successor-failing-review.json"
+node -e '
+  const fs=require("fs"); const crypto=require("crypto"); const path=require("path");
+  const [file,worktree,head]=process.argv.slice(1); const value=JSON.parse(fs.readFileSync(file,"utf8"));
+  const relative=".review/evidence/review-final-fail-close.json"; const content=fs.readFileSync(path.join(worktree,relative));
+  value.round_control.failures[0].status="closed";
+  value.round_control.failures[0].closed_by={kind:"superseded_by",path:relative,content_sha256:crypto.createHash("sha256").update(content).digest("hex"),head_sha:head,closes_ac_ids:["AC-1"],checklist_item:"failure:F-1:AC-1"};
+  fs.writeFileSync(file,JSON.stringify(value));
+' "$TMP_DIR/successor-failing-review.json" "$WORKTREE" "$CLOSURE_HEAD"
+assert_case "a later failing REVIEW may explicitly supersede a subset of prior findings" 0 "$TMP_DIR/successor-failing-review.json" "allow_normal" "null"
+
+cp "$TMP_DIR/successor-failing-review.json" "$TMP_DIR/uncovered-partial-supersession.json"
+node -e '
+  const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8"));
+  v.round_control.failures[0].failed_ac_ids=["AC-1","AC-uncovered"];
+  fs.writeFileSync(f,JSON.stringify(v));
+' "$TMP_DIR/uncovered-partial-supersession.json"
+assert_error_case "partial supersession cannot drop an AC absent from later active failures" "$TMP_DIR/uncovered-partial-supersession.json" "failure_supersession_uncovered_ac" "partial supersession must carry every unclosed AC into a later active failure"
 
 cp "$TMP_DIR/closed-history.json" "$TMP_DIR/unverified-closure.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); delete v.round_control.failures[0].closed_by; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unverified-closure.json"
@@ -403,6 +423,28 @@ node -e '
   fs.writeFileSync(f,JSON.stringify(v));
 ' "$TMP_DIR/integrated-ready.json" "$WORKTREE" "$EVIDENCE_HEAD"
 assert_case "ordered diagnosis authorizes one integrated fix batch" 0 "$TMP_DIR/integrated-ready.json" "allow_integrated_fix" "same_origin"
+
+# The next ordinal is exact: a state edit cannot skip evidence/circuit history.
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/integrated-host-ordinal.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.next_dispatch_ordinal=7; v.round_control.diagnosis.integrated_fix_batch.dispatch_ordinal=3; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/integrated-host-ordinal.json"
+assert_error_case "integrated batch rejects a skipped host ordinal" "$TMP_DIR/integrated-host-ordinal.json" "invalid_dispatch_ordinal" "host-owned next_dispatch_ordinal must be exactly the next unconsumed dispatch ordinal"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.diagnosis.integrated_fix_batch.dispatch_ordinal=7; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/integrated-host-ordinal.json"
+assert_error_case "changing the batch cannot bypass a skipped host ordinal" "$TMP_DIR/integrated-host-ordinal.json" "invalid_dispatch_ordinal" "host-owned next_dispatch_ordinal must be exactly the next unconsumed dispatch ordinal"
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/unbound-last-admission.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.last_admission_key="issue-188-dispatch-9"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/unbound-last-admission.json"
+assert_error_case "last admission must bind to recorded failure evidence" "$TMP_DIR/unbound-last-admission.json" "unbound_last_admission" "last_admission_key must be bound to recorded failure evidence before another redispatch"
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/wrong-issue-last-admission.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.last_admission_key="issue-33-dispatch-2"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/wrong-issue-last-admission.json"
+assert_error_case "last admission cannot belong to another issue" "$TMP_DIR/wrong-issue-last-admission.json" "invalid_last_admission_key" "last_admission_key must belong to this ROUND-STATE issue"
+
+# Failure array position is mutable input, not an admission counter. Duplicate
+# or re-ordered active ordinals must not inflate/evade the circuit.
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/duplicate-active-ordinal.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); const x=JSON.parse(JSON.stringify(v.round_control.failures[1])); x.id="F-duplicate"; x.dispatch_ordinal=v.round_control.failures[0].dispatch_ordinal; v.round_control.failures.push(x); fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/duplicate-active-ordinal.json"
+assert_error_code "duplicate active failure ordinal cannot bypass circuit accounting" "$TMP_DIR/duplicate-active-ordinal.json" "invalid_failure_sequence"
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/reordered-active-ordinal.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); const a=v.round_control.failures[0], b=v.round_control.failures[1]; a.dispatch_ordinal=2; b.dispatch_ordinal=1; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/reordered-active-ordinal.json"
+assert_error_code "reordered active failure ordinal cannot bypass circuit accounting" "$TMP_DIR/reordered-active-ordinal.json" "invalid_failure_sequence"
 
 cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/integrated-revision-bump.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.revision=6; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/integrated-revision-bump.json"

@@ -7,12 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ROLE=""
 CONFIG=""
 EVIDENCE=""
+RUNNER="codex"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --role) ROLE="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
     --evidence) EVIDENCE="$2"; shift 2 ;;
+    --runner) RUNNER="$2"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -20,9 +22,9 @@ done
 case "$ROLE" in implementation|reviewer) ;; *) echo "ERROR: unsupported role: $ROLE" >&2; exit 2 ;; esac
 [ -n "$CONFIG" ] || CONFIG="${AGENT_WORKFLOW_MODEL_ALLOC:-$SCRIPT_DIR/../model-alloc.json}"
 
-node - "$CONFIG" "$EVIDENCE" "$ROLE" "$SCRIPT_DIR/../schemas/model_alloc.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" <<'NODE'
+node - "$CONFIG" "$EVIDENCE" "$ROLE" "$SCRIPT_DIR/../schemas/model_alloc.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$RUNNER" <<'NODE'
 const fs = require("fs");
-const [configFile, evidenceFile, role, schemaFile, validatorFile] = process.argv.slice(2);
+const [configFile, evidenceFile, role, schemaFile, validatorFile, runner] = process.argv.slice(2);
 function fail(message) { console.error(`ERROR: ${message}`); process.exit(2); }
 function readJson(file, label) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { fail(`${label} is malformed or unreadable: ${file}`); } }
 const config = readJson(configFile, "model allocation config");
@@ -30,8 +32,25 @@ const schema = readJson(schemaFile, "model allocation schema");
 let validate;
 try { ({ validate } = require(validatorFile)); } catch (_) { fail(`model allocation validator is unreadable: ${validatorFile}`); }
 if (validate(schema, config).length) fail("model allocation config does not satisfy schema version 1");
+// `available_via` was added after schema v1 had already been installed into
+// targets.  Preserve those valid v1 configs by deriving only well-known
+// provider ownership; unknown legacy names fail closed and ask for migration.
+function legacyAvailability(model) {
+  if (/^(gpt-|o[0-9])/.test(model)) return ["codex"];
+  if (/^(opus-|sonnet-|haiku-)/.test(model)) return ["claude"];
+  return null;
+}
+for (const [model, capability] of Object.entries(config.capabilities)) {
+  if (!capability.available_via) {
+    const inferred = legacyAvailability(model);
+    if (!inferred) fail(`legacy model ${model} needs available_via migration`);
+    capability.available_via = inferred;
+  }
+}
 const requiredRoles = ["implementation", "reviewer", "contract_gate", "trivial_implementation"];
-for (const key of requiredRoles) { const value = config.roles[key]; if (!config.capabilities[value.model]) fail(`invalid role allocation: ${key}`); }
+for (const key of requiredRoles) { const value = config.roles[key]; if (!value || !config.capabilities[value.model]) fail(`invalid role allocation: ${key}`); }
+const selected = config.roles[role];
+if (!selected || !config.capabilities[selected.model].available_via.includes(runner)) fail(`model ${selected && selected.model || "unknown"} is unavailable via ${runner} for role ${role}`);
 const clone = key => ({ model: config.roles[key].model, effort: config.roles[key].effort });
 let impl = clone("implementation"), review = clone("reviewer"), contract = clone("contract_gate");
 const rationale = [`config:${config.source}@${config.release}`, `role:${role}`];
@@ -55,6 +74,13 @@ if (!evidenceFile) {
   if (evidence.review_round > 0) { review.effort = review.effort === "high" ? "medium" : "low"; rationale.push("rereview: review effort demoted"); }
 }
 const output = { impl_model: impl.model, impl_effort: impl.effort, review_model: review.model, review_effort: review.effort, contract_model: contract.model, contract_effort: contract.effort, rationale };
+// Evidence adaptation can replace the configured implementation allocation
+// (for example with trivial_implementation). Revalidate the final tuple, not
+// merely the pre-adaptation role entry, before it reaches dispatch.
+const finalSeat = role === "reviewer" ? review : impl;
+if (!config.capabilities[finalSeat.model] || !config.capabilities[finalSeat.model].available_via.includes(runner)) {
+  fail(`final model ${finalSeat.model} is unavailable via ${runner} for role ${role}`);
+}
 const reviewScore = config.capabilities[review.model].static_coding + config.capabilities[review.model].reasoning;
 const implScore = config.capabilities[impl.model].static_coding + config.capabilities[impl.model].reasoning;
 if (reviewScore < implScore) {

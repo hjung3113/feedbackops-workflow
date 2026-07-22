@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# Regression smoke for schema-derived prompt contracts and BLOCKER validation.
+set -u
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CONTRACT="$SCRIPT_DIR/../output-contract.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+failures=0
+ok() { echo "ok   - $1"; }
+bad() { echo "NOT OK - $1"; failures=$((failures + 1)); }
+
+"$CONTRACT" render --role reviewer > "$TMP/reviewer.md"
+if "$CONTRACT" check --role reviewer --prompt-file "$TMP/reviewer.md" >/dev/null; then ok "reviewer contract renders and validates"; else bad "reviewer contract renders and validates"; fi
+"$CONTRACT" render --role implementation > "$TMP/implementation.md"
+if node - "$TMP/implementation.md" "$ROOT/schemas/blocker.schema.json" <<'NODE'
+const fs = require("fs");
+const body = fs.readFileSync(process.argv[2], "utf8").match(/```json\n([\s\S]*?)\n```/)[1];
+const artifact = JSON.parse(body).artifacts[0];
+const canonical = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+// The writer receives the entire canonical schema, including constraints a
+// lossy shape projection previously omitted (bounds, patterns, and branches).
+process.exit(artifact.schema && JSON.stringify(artifact.schema) === JSON.stringify(canonical)
+  && artifact.schema.allOf && artifact.schema.allOf[0].oneOf ? 0 : 1);
+NODE
+then ok "implementation contract embeds the complete canonical BLOCKER schema"; else bad "implementation contract embeds the complete canonical BLOCKER schema"; fi
+sed 's#schemas/review.schema.json#schemas/blocker.schema.json#' "$TMP/reviewer.md" > "$TMP/drift.md"
+if ! "$CONTRACT" check --role reviewer --prompt-file "$TMP/drift.md" >/dev/null 2>&1; then ok "contract drift is rejected"; else bad "contract drift is rejected"; fi
+
+BIN="$TMP/bin"; WT="$TMP/wt"; mkdir -p "$BIN" "$WT/.review"
+cat > "$BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+if [ -n "${CODEX_BLOCKER:-}" ]; then
+  if [ -n "${CODEX_BLOCKER_MODE:-}" ]; then
+    head_sha="$(git rev-parse HEAD)"
+    node - "$CODEX_BLOCKER" "$CODEX_BLOCKER_MODE" "$head_sha" <<'NODE'
+const fs=require("fs"); const [file,mode,head]=process.argv.slice(2);
+const value={schema_version:"1",artifact_type:"blocker",lifecycle:mode==="superseded"?"superseded":"active",producer_role:"CODEX",producer_version:"0.2.0",issue:{number:9,title:"smoke"},head_sha:mode==="stale_head"?"0".repeat(40):head,reason_code:"tier_escalation_required",blocking_fact:"incomplete",attempted_commands:["smoke"],needed_decision:"decide",files_touched_before_abort:[],partial_diff_path:".review/partial.diff"};
+if(mode==="wrong_issue") value.issue.number=99;
+fs.writeFileSync(file,JSON.stringify(value));
+NODE
+  else
+    printf '%s\n' '{"reason_code":"ambiguous_requirement","blocking_fact":"incomplete"}' > "$CODEX_BLOCKER"
+  fi
+fi
+exit 0
+EOF
+chmod +x "$BIN/codex"
+CODEX_BLOCKER="$WT/.review/ISSUE-9-BLOCKER.json" PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../codex-safe.sh" --issue 9 --prompt hello --cwd "$WT" >/dev/null 2>&1
+if [ "$?" -ne 0 ]; then ok "nonconforming BLOCKER is rejected by codex-safe"; else bad "nonconforming BLOCKER is rejected by codex-safe"; fi
+PREEXISTING="$TMP/preexisting"
+mkdir -p "$PREEXISTING/.review"
+printf '%s\n' '{"reason_code":"ambiguous_requirement"}' > "$PREEXISTING/.review/ISSUE-11-BLOCKER.json"
+if PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../codex-safe.sh" --issue 11 --prompt hello --cwd "$PREEXISTING" >/dev/null 2>&1; then ok "unrelated pre-existing malformed BLOCKER is ignored"; else bad "unrelated pre-existing malformed BLOCKER is ignored"; fi
+for blocker_mode in wrong_issue stale_head superseded; do
+  blocker_wt="$TMP/blocker-$blocker_mode"
+  mkdir -p "$blocker_wt/.review"
+  git init -q "$blocker_wt"
+  git -C "$blocker_wt" -c user.name=Smoke -c user.email=smoke@example.test commit --allow-empty -q -m init
+  if CODEX_BLOCKER="$blocker_wt/.review/ISSUE-9-BLOCKER.json" CODEX_BLOCKER_MODE="$blocker_mode" PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../codex-safe.sh" --issue 9 --prompt hello --cwd "$blocker_wt" >/dev/null 2>&1; then
+    bad "$blocker_mode BLOCKER is rejected by codex-safe"
+  else
+    ok "$blocker_mode BLOCKER is rejected by codex-safe"
+  fi
+done
+
+# Admission integration: new Markdown implementation prompts must carry the
+# exact contract before even a dry-run can reach the transport adapter.
+git init -q "$WT"
+git -C "$WT" -c user.name=Smoke -c user.email=smoke@example.test commit --allow-empty -q -m init
+RUNTIME="$TMP/runtime"
+cat > "$RUNTIME" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'codex output-contract smoke'; exit 0 ;;
+  --help) echo 'Commands: exec'; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; }; exit 0 ;;
+esac
+exit 0
+EOF
+chmod +x "$RUNTIME"
+printf '%s\n' 'worker instructions' > "$WT/.review/ISSUE-10-PROMPT.md"
+if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 10 --worktree "$WT" --tier trivial --dry-run >/dev/null 2>&1; then bad "Markdown implementation prompt without contract is rejected"; else ok "Markdown implementation prompt without contract is rejected"; fi
+"$CONTRACT" render --role implementation >> "$WT/.review/ISSUE-10-PROMPT.md"
+if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 10 --worktree "$WT" --tier trivial --dry-run >/dev/null 2>&1; then ok "schema-derived implementation contract reaches admission"; else bad "schema-derived implementation contract reaches admission"; fi
+printf '%s\n' 'extensionless instructions' > "$WT/.review/ISSUE-13-PROMPT"
+if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 13 --worktree "$WT" --prompt-file .review/ISSUE-13-PROMPT --tier trivial --dry-run >/dev/null 2>&1; then bad "extensionless prompt without contract is rejected"; else ok "extensionless prompt without contract is rejected"; fi
+"$CONTRACT" render --role implementation >> "$WT/.review/ISSUE-13-PROMPT"
+if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 13 --worktree "$WT" --prompt-file .review/ISSUE-13-PROMPT --tier trivial --dry-run >/dev/null 2>&1; then ok "extensionless prompt contract reaches admission"; else bad "extensionless prompt contract reaches admission"; fi
+printf '%s\n' 'review instructions' > "$WT/.review/ISSUE-12-REVIEW-PROMPT.md"
+if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 12 --worktree "$WT" --prompt-file "$WT/.review/ISSUE-12-REVIEW-PROMPT.md" --produce-review --model gpt-5.6-sol --effort medium --dry-run >/dev/null 2>&1; then bad "Markdown reviewer prompt without contract is rejected"; else ok "Markdown reviewer prompt without contract is rejected"; fi
+"$CONTRACT" render --role reviewer >> "$WT/.review/ISSUE-12-REVIEW-PROMPT.md"
+if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 12 --worktree "$WT" --prompt-file "$WT/.review/ISSUE-12-REVIEW-PROMPT.md" --produce-review --model gpt-5.6-sol --effort medium --dry-run >/dev/null 2>&1; then ok "schema-derived reviewer contract reaches admission"; else bad "schema-derived reviewer contract reaches admission"; fi
+
+cat > "$BIN/psql" <<'EOF'
+#!/usr/bin/env bash
+printf '%s|sslmode=%s|root=%s|cert=%s|key=%s|crl=%s|crldir=%s|min=%s|max=%s\n' "$*" "${PGSSLMODE:-}" "${PGSSLROOTCERT:-}" "${PGSSLCERT:-}" "${PGSSLKEY:-}" "${PGSSLCRL:-}" "${PGSSLCRLDIR:-}" "${PGSSLMINPROTOCOLVERSION:-}" "${PGSSLMAXPROTOCOLVERSION:-}" >> "${PSQL_ARGS_LOG:?}"
+case "$*" in
+  *current_user*) echo 'probe|false' ;;
+  *) echo x ;;
+esac
+EOF
+chmod +x "$BIN/psql"
+PROBE_OUT="$TMP/probe.out"
+PSQL_ARGS_LOG="$TMP/psql-args.log" VERIFY_CLEAN_APP_DATABASE_URL='postgres://leak:secret@db/private?sslmode=require&sslrootcert=%2Fca.pem&sslcert=%2Fclient.crt&sslkey=%2Fclient.key&sslcrl=%2Frevocations.pem&sslcrldir=%2Fcrls&ssl_min_protocol_version=TLSv1.2&ssl_max_protocol_version=TLSv1.3' VERIFY_CLEAN_MIGRATE_DATABASE_URL='postgres://leak:secret@db/private?sslmode=require&sslrootcert=%2Fca.pem&sslcert=%2Fclient.crt&sslkey=%2Fclient.key&sslcrl=%2Frevocations.pem&sslcrldir=%2Fcrls&ssl_min_protocol_version=TLSv1.2&ssl_max_protocol_version=TLSv1.3' VERIFY_CLEAN_SENTINEL_EXPECTED=x VERIFY_CLEAN_MIGRATION_HASH_EXPECTED=x VERIFY_CLEAN_SENTINEL_QUERY='select 1' VERIFY_CLEAN_MIGRATION_HASH_QUERY='select 1' PATH="$BIN:$PATH" node "$ROOT/docs/agents/verify-clean-probe.example.mjs" >"$PROBE_OUT" 2>&1
+if ! grep -F -q 'secret' "$PROBE_OUT" && ! grep -F -q 'postgres://' "$PROBE_OUT" && ! grep -F -q 'postgres://' "$TMP/psql-args.log" && ! grep -F -q 'secret' "$TMP/psql-args.log" && grep -F -q 'sslmode=require|root=/ca.pem|cert=/client.crt|key=/client.key|crl=/revocations.pem|crldir=/crls|min=TLSv1.2|max=TLSv1.3' "$TMP/psql-args.log"; then ok "clean-probe preserves TLS URL options in PG env without URL argv"; else bad "clean-probe URL transport or TLS mapping was unsafe"; fi
+PSQL_ARGS_LOG="$TMP/unsupported-args.log" VERIFY_CLEAN_APP_DATABASE_URL='postgres://leak:secret@db/private?sslunknown=enabled' VERIFY_CLEAN_MIGRATE_DATABASE_URL='postgres://leak:secret@db/private?sslunknown=enabled' VERIFY_CLEAN_SENTINEL_EXPECTED=x VERIFY_CLEAN_MIGRATION_HASH_EXPECTED=x VERIFY_CLEAN_SENTINEL_QUERY='select 1' VERIFY_CLEAN_MIGRATION_HASH_QUERY='select 1' PATH="$BIN:$PATH" node "$ROOT/docs/agents/verify-clean-probe.example.mjs" >"$TMP/unsupported.out" 2>&1
+if [ "$?" -ne 0 ] && ! grep -F -q 'secret' "$TMP/unsupported.out" && ! grep -F -q 'postgres://' "$TMP/unsupported.out" && [ ! -s "$TMP/unsupported-args.log" ]; then ok "clean-probe rejects unsupported URL options before psql"; else bad "clean-probe must fail closed for unsupported URL options"; fi
+
+if [ "$failures" -eq 0 ]; then echo "ALL TESTS PASS"; exit 0; fi
+exit 1

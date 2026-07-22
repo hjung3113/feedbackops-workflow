@@ -4,6 +4,10 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 ## In progress: v0.21 generic distribution and runtime symmetry
 
+- Output-producing prompts use one schema-derived output-contract module. CODEX validates canonical BLOCKER output before returning, dispatch rejects malformed fresh BLOCKER liveness, and selected-runtime model refusals are terminal. Model allocation records runner availability and fails before admission; upgrades warn FeedbackOps-profile targets without `VERIFY_CLEAN_COMMAND` and install a product-neutral executable clean-probe reference.
+- REVIEW publication now retains an immutable head-bound snapshot from the same already-validated bytes as its canonical evidence, preventing mutable-output rereads; a later failing REVIEW may explicitly supersede a subset of prior ACs through checked `closed_by.kind:"superseded_by"`. Malformed pre-existing BLOCKER bytes follow a host-owned quarantine/recovery path that records reason and permits one fresh monotonic-ordinal admission without canonicalizing worker evidence.
+- Schema-derived prompts now embed the complete canonical requested schema rather than a lossy projection. Completion requires an exact `new_file_allowlist` entry for every base-absent changed path, and dispatch requires that entry to remain inside `touch_allowlist`; partial supersession must carry every remaining AC into later active failure evidence; host ordinals are exact-next and `last_admission_key` is failure-bound.
+
 - Installation has explicit `feedbackops|generic` profiles. FeedbackOps remains
   a named compatibility path; generic installed assets must not inherit its
   verification, tracker, labels, domain, layout, or maintainer assumptions.
@@ -56,12 +60,12 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 
 - isolated worktree preparation and explicit Orca/cmux dispatch through one shared correctness core, with a retained atomic launch runner so either adapter receives only a short relative command even when the watchdog argv contains deep paths;
 - runtime-neutral dispatch with capability-probed Codex, Claude Code, or OpenCode execution; Codex write/review delegates to its hardened sandbox wrapper;
-- project-owned model allocation defaults, schema-validated evidence-gated Codex-only auto-dispatch, source-dated static-plus-reasoning review preference, and preserved install upgrades;
+- project-owned model allocation defaults (including omitted-model dispatch), schema-validated evidence-gated Codex-only auto-dispatch, source-dated static-plus-reasoning review preference, and preserved install upgrades;
 - shared process + filesystem liveness, per-runtime retry/refusal probes, and runtime-provenance RUN markers;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
 - a stable `verify.sh` CLI seam whose Vitest classification and canonical VERIFY payload construction live in the internal `scripts/lib/verify-result.cjs` module;
-- an explicit runtime-neutral REVIEWER publication path that requires read mode and host-validates final JSON before atomically publishing the sole canonical REVIEW artifact;
+- an explicit runtime-neutral REVIEWER publication path that requires read mode, holds linked-worktree Git HEAD/ref locks through publication, and host-validates final JSON before atomically publishing the sole canonical REVIEW artifact;
 - pre-review AC-ID existence checking;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
@@ -117,7 +121,7 @@ bash scripts/__tests__/run-all-contract.test.sh
 
 ### v0.18 — verifier clean-state and machine failures
 
-- Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, and passing evidence is embedded in the existing VERIFY artifact.
+- Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, passing evidence is embedded in the existing VERIFY artifact, and the reference adapter maps supported libpq TLS URL options to `PG*` variables without placing credential-bearing URLs in `psql` argv, rejecting unrecognized or empty query options before `psql` starts.
 - Every classifier failure exposes typed machine data, and failed canonical artifacts retain the same `code`/`expected`/`actual` records. Existing human diagnostics remain available.
 - REVIEW closure admission now documents and independently checks `lifecycle:"final"`, `status:"pass"`, and an all-met checklist; its existing `failure_closure_not_verified` machine code carries a stable predicate detail for lifecycle, status, or checklist failure.
 - No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `--fresh` is a stable reserved refusal until a target DB lifecycle adapter owns rebuild/drop behavior.
@@ -215,7 +219,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 - ROUND-STATE classifies every failed implementation round with one primary origin, optional secondary origins, failed AC ids, owner/action routing, and hash/HEAD-bound evidence references.
 - `redispatch-check.sh` validates live worktree HEAD plus coherent VERIFY/REVIEW failure verdicts, origin/action routing, and closure lineage/scope (exact failed ACs plus canonical verify filter or checklist item) before it blocks on two consecutive failures with the same primary origin or before a third redispatch.
-- `cmux-dispatch.sh` atomically records every write attempt before cmux, binds returned admission to the CLI issue/worktree, and consumes an immutable issue/ordinal key plus an issue-wide integrated-fix singleton in the Git common dir; dry-runs do not consume admission and read-only seats remain outside the circuit.
+- `cmux-dispatch.sh` proves `touch_allowlist` scope against the base tree before write admission, atomically records every write attempt before cmux, binds returned admission to the CLI issue/worktree, resolves a capability-checked model/effort tuple before write launch, and journals current normal/integrated markers before atomically exposing their immutable issue/ordinal key plus issue-wide integrated-fix singleton in the Git common dir. Prepared current records recover only before host ordinal advance; metadata-free integrated sentinels remain legacy consumed state. Stale recovery never steals a live owner merely for an old mtime, dry-runs neither consume nor recover admission, and read-only seats remain outside the circuit.
 - A tripped circuit rechecks oracle/contract first, requires a hard fact plus passing-analog parity instruction, and permits at most one manifest increment and one integrated fix batch; security findings may stop earlier.
 
 ### v0.14 — portable copy installation and transactional upgrade

@@ -3,7 +3,7 @@
 # the canonical ROUND-STATE acceptance criteria.
 #
 # Usage: scripts/prompt-ac-check.sh --round-state <json-file> \
-#   --manifest-revision <n> --prompt-file <markdown-file>
+#   --manifest-revision <n> --prompt-file <markdown-file> [--output-contract-role ROLE]
 #
 # Exit 0 = exact match; 1 = prompt block is missing/malformed/mismatched;
 # 2 = usage or canonical input error. Bash-3.2-compatible.
@@ -16,6 +16,7 @@ SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 round_state=""
 expected_revision=""
 prompt_file=""
+output_contract_role=""
 
 usage() {
   echo "usage: $0 --round-state <json-file> --manifest-revision <n> --prompt-file <markdown-file>" >&2
@@ -38,6 +39,7 @@ while [ "$#" -gt 0 ]; do
     --round-state) round_state="${2:-}"; shift 2 ;;
     --manifest-revision) expected_revision="${2:-}"; shift 2 ;;
     --prompt-file) prompt_file="${2:-}"; shift 2 ;;
+    --output-contract-role) output_contract_role="${2:-}"; shift 2 ;;
     *) usage; exit 2 ;;
   esac
 done
@@ -55,6 +57,13 @@ for required_file in "$round_state" "$prompt_file" "$ROUND_STATE_SCHEMA" "$SCHEM
     exit 2
   fi
 done
+
+if [ -n "$output_contract_role" ]; then
+  if ! "$SCRIPT_DIR/output-contract.sh" check --role "$output_contract_role" --prompt-file "$prompt_file"; then
+    echo "$PROG: output contract is missing or drifted" >&2
+    exit 1
+  fi
+fi
 
 node - "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" "$prompt_file" <<'NODE'
 const fs = require("fs");

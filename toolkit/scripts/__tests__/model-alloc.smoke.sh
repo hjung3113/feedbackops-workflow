@@ -30,7 +30,28 @@ NODE
   then pass "$name"; else fail "$name"; fi
 }
 
-assert_json "missing-config-uses-default-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"opus-4.8","review_effort":"medium"}' --role implementation
+assert_json "missing-config-uses-default-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"gpt-5.6-sol","review_effort":"medium"}' --role implementation
+
+"$ALLOC" --role implementation --runner claude >/dev/null 2>"$TMP_DIR/runtime-mismatch.err"
+if [ "$?" -eq 2 ] && grep -q 'unavailable via claude' "$TMP_DIR/runtime-mismatch.err"; then
+  pass "allocation derives availability from selected runtime"
+else
+  fail "allocation derives availability from selected runtime"
+fi
+
+# Existing schema-v1 target configs predate available_via.  Known provider
+# names migrate deterministically; unknown names still fail closed.
+node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/legacy-v1.json" <<'NODE'
+const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
+for (const capability of Object.values(v.capabilities)) delete capability.available_via;
+fs.writeFileSync(process.argv[3], JSON.stringify(v));
+NODE
+if "$ALLOC" --role implementation --config "$TMP_DIR/legacy-v1.json" --runner codex >/dev/null 2>&1; then pass "legacy schema-v1 config migrates known provider availability"; else fail "legacy schema-v1 config migration"; fi
+node - "$TMP_DIR/legacy-v1.json" <<'NODE'
+const fs=require("fs"), f=process.argv[2], v=JSON.parse(fs.readFileSync(f));
+v.roles.implementation={model:"unknown-model",effort:"low"}; v.capabilities["unknown-model"]={agentic_coding:1,static_coding:1,reasoning:1,input_per_million:1,output_per_million:1}; fs.writeFileSync(f,JSON.stringify(v));
+NODE
+if "$ALLOC" --role implementation --config "$TMP_DIR/legacy-v1.json" --runner codex >/dev/null 2>&1; then fail "unknown legacy provider fails closed"; else pass "unknown legacy provider fails closed"; fi
 
 node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/schema-invalid.json" <<'NODE'
 const fs = require("fs");
@@ -64,12 +85,21 @@ assert_json "blocker-promotes-implementation" '{"impl_model":"gpt-5.6-terra","im
 cat > "$TMP_DIR/rereview.json" <<'EOF'
 {"changed_lines":120,"file_count":3,"review_round":1,"consecutive_finding_rounds":[1],"blocker":false,"touch_set":["src/a.ts"]}
 EOF
-assert_json "rereview-demotes-review-effort" '{"review_model":"opus-4.8","review_effort":"low"}' --role reviewer --evidence "$TMP_DIR/rereview.json"
+assert_json "rereview-demotes-review-effort" '{"review_model":"gpt-5.6-sol","review_effort":"low"}' --role reviewer --evidence "$TMP_DIR/rereview.json"
 
 cat > "$TMP_DIR/contract.json" <<'EOF'
 {"changed_lines":20,"file_count":1,"review_round":0,"consecutive_finding_rounds":[],"blocker":false,"touch_set":["packages/shared/index.ts"]}
 EOF
 assert_json "contract-selects-sol-gate" '{"impl_model":"gpt-5.6-terra","impl_effort":"medium","contract_model":"gpt-5.6-sol","contract_effort":"medium"}' --role implementation --evidence "$TMP_DIR/contract.json"
+
+node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/final-unavailable.json" <<'NODE'
+const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
+v.capabilities["gpt-5.6-luna"].available_via=["claude"]; fs.writeFileSync(process.argv[3],JSON.stringify(v));
+NODE
+cat > "$TMP_DIR/trivial.json" <<'EOF'
+{"changed_lines":1,"file_count":1,"review_round":0,"consecutive_finding_rounds":[],"blocker":false,"touch_set":["src/a.ts"]}
+EOF
+if "$ALLOC" --role implementation --config "$TMP_DIR/final-unavailable.json" --runner codex --evidence "$TMP_DIR/trivial.json" >/dev/null 2>&1; then fail "adapted final model is revalidated"; else pass "adapted final model is revalidated"; fi
 
 cat > "$TMP_DIR/large-blocker.json" <<'EOF'
 {"changed_lines":401,"file_count":3,"review_round":2,"consecutive_finding_rounds":[1,2],"blocker":true,"touch_set":["src/a.ts"]}

@@ -99,6 +99,8 @@ CONDUCTOR는 dispatch 전에 `.review/ISSUE-123-CONTEXT.md`에 원자료를 정�
 
 `orchestrator`, `runtime`, `role`은 직교하는 축입니다. 각각 CLI가 환경 변수보다, 환경 변수가 target-local `.agent-workflow/workflow-config.json`보다 우선합니다. runtime/role을 생략하면 legacy compatibility 값(Codex/implementation)만 사용하며, 새 설치는 세 축을 명시하는 것이 운영 계약입니다. 선택한 runtime 또는 transport의 capability probe가 실패하면 admission 전 machine-readable reason으로 거부하며 다른 runtime/transport로 바꾸지 않습니다.
 
+산출물을 생성하는 좌석은 프롬프트에 스키마에서 파생한 출력 계약을 넣습니다. `.agent-workflow/scripts/output-contract.sh render --role reviewer` 또는 `--role implementation`으로 블록을 만들고, `check`로 설치된 스키마와의 일치를 검증하세요. BLOCKER는 스키마 검증을 통과한 fresh 파일만 디스패치 liveness 증거가 됩니다.
+
 ```bash
 cp docs/agents/workflow-config.example.json ../wt-123/.agent-workflow/workflow-config.json
 
@@ -157,7 +159,7 @@ Shared core는 admission 전에 선택 runtime의 runtime-specific host seam 또
 
 좌석 작업 후에는 clean candidate에서 선언된 순서대로 `scripts/candidate-integrate.sh`를 실행하고, candidate HEAD에 새 REVIEW/VERIFY/PR-DRAFT/completion/seat outcomes 전체가 모인 뒤 `scripts/candidate-close.sh evaluate`를 실행합니다. Integration step은 plan 순서와 정확히 일치하는 unique seat 목록이어야 하며, 각 evidence artifact 자체가 issue/round/revision/candidate HEAD/attempt/generation time을 직접 바인딩합니다. REVIEW는 `final`, PR-DRAFT는 `active` lifecycle만 현재 closure evidence입니다. Wrapper attempt ID만 바꾼 재사용, draft/superseded artifact, 비정상 RFC3339 timestamp, Worker HEAD의 green, mixed retry attempt, 이전 candidate HEAD, active blocker, dirty/conflicted candidate는 closure가 아닙니다. `candidate-close.sh inspect`는 closure 뒤의 한 커밋도 즉시 stale로 판정합니다. 기존 단일 write는 유효한 one-seat sequential plan이며, legacy no-plan 경로도 보수적인 직렬 실행으로 유지됩니다.
 
-설치하면 프로젝트 소유 `.agent-workflow/model-alloc.json`도 함께 생성됩니다. `scripts/model-alloc.sh --role implementation`은 실행 시 같은 schema로 설정을 검증하고, 증거가 없으면 안전한 기본 배치만 출력하며, canonical evidence의 연속된 findings round·작업량·계약 터치·재리뷰에 따라 배치 근거를 JSON으로 기록합니다. 리뷰 기본 우위는 source/release가 기록된 LiveBench의 `static_coding + reasoning` 단순 합으로 결정되고, 프로젝트가 명시적으로 완화할 때만 경고합니다. `agent-workflow.sh dispatch --orchestrator <cmux|orca> --allocate --allocator-role implementation`은 Codex 구현 모델만 자동 전달합니다. Opus/Fable/Claude 역할은 Codex로 전달하지 않으며, 업그레이드는 사용자 설정 파일을 보존합니다.
+설치하면 프로젝트 소유 `.agent-workflow/model-alloc.json`도 함께 생성됩니다. `scripts/model-alloc.sh --role implementation`은 실행 시 같은 schema로 설정을 검증하고, 증거가 없으면 안전한 기본 배치만 출력하며, canonical evidence의 연속된 findings round·작업량·계약 터치·재리뷰에 따라 배치 근거를 JSON으로 기록합니다. `dispatch`에 모델을 생략해도 worktree의 이 설정을 사용해 선택 tuple을 결정하고 preflight와 launch에 동일하게 전달합니다. 리뷰 기본 우위는 source/release가 기록된 LiveBench의 `static_coding + reasoning` 단순 합으로 결정되고, 프로젝트가 명시적으로 완화할 때만 경고합니다. `agent-workflow.sh dispatch --orchestrator <cmux|orca> --allocate --allocator-role implementation`은 Codex 구현 모델만 자동 전달합니다. Opus/Fable/Claude 역할은 Codex로 전달하지 않으며, 업그레이드는 사용자 설정 파일을 보존합니다. 이전 schema-v1 설정에 `available_via`가 없으면 upgrade는 경고만 내고 보존하며, dispatch는 알려진 모델 family의 runtime만 제한적으로 추론하고 알 수 없는 model은 fail-closed로 migration을 요구합니다.
 
 ### 4. 리뷰 전 계약 gate
 
@@ -174,9 +176,11 @@ scripts/completion-check.sh \
 
 `ac-check.sh`는 schema/base freshness와 revision을 확인하고 중복·미발견 AC-ID를 거부합니다. `completion-check.sh`는 worker 주장이나 `RUN.json`을 보지 않고 live `base_sha..HEAD` diff, target-native test discovery, `acceptance.expected_test_count`, compile consumers, full typecheck, trigger된 review obligation을 계약과 대조합니다. 불일치는 JSON과 non-zero exit로 리뷰를 hard-stop합니다. discovery 명령은 target profile 책임이며 core는 Vitest를 가정하지 않습니다.
 
-실패한 구현 라운드를 다시 보낼 때는 먼저 canonical ROUND-STATE의 `round_control.failures[]`에 primary origin, owner/action, 실패 AC와 HEAD-bound 증거를 기록한 뒤 다음 gate를 사용합니다.
+실패한 구현 라운드를 다시 보낼 때는 먼저 canonical ROUND-STATE의 `round_control.failures[]`에 primary origin, owner/action, 실패 AC와 HEAD-bound 증거를 기록한 뒤 다음 gate를 사용합니다. REVIEW는 게시 시 `ISSUE-N-REVIEW-<reviewed_head_sha>.json` immutable snapshot도 남기며, 후속 실패 REVIEW가 이전 AC 일부를 명시적으로 닫을 때는 `closed_by.kind: "superseded_by"`와 snapshot checklist assertion을 사용합니다. integrated fix는 singleton transaction을 ordinal보다 먼저 기록하므로 그 사이의 강제 종료도 다음 admission이 pair 전체를 회수할 수 있습니다. live owner의 issue lock은 오래된 mtime만으로 회수하지 않으며, dry-run은 admission recovery를 포함해 durable state를 바꾸지 않습니다. malformed pre-existing BLOCKER는 canonical evidence로 승격하지 않고 `ISSUE-N-BLOCKER-QUARANTINED-<sha>.json`에 보존되며 host-owned recovery가 새 ordinal admission을 한 번만 허용합니다.
 
 ```bash
+새 파일은 `touch_allowlist` glob만으로는 충분하지 않습니다. dispatch는 admission 전에 각 `touch_allowlist` path/glob가 `base_sha` tree의 기존 경로를 실제로 매칭함을 검증합니다. `base_sha`에 없던 변경 경로는 canonical `contract.new_file_allowlist[]`에 정확한 target-relative 파일명으로도 선언해야 하며, 그 항목도 `touch_allowlist` 패턴에 매칭되어야 하고 glob은 허용되지 않습니다. partial `superseded_by` closure는 남은 AC 전부가 뒤의 active failure에 승계될 때만 유효합니다. redispatch ordinal은 하나씩 연속 소비되고 active failure ordinal은 unique/order이며 `last_admission_key`는 같은 issue의 정확히 하나인 failure ordinal에 결속되어야 합니다.
+
 scripts/redispatch-check.sh \
   --round-state ../wt-123/.review/ISSUE-123-ROUND-STATE.json \
   --manifest-revision 4
@@ -203,7 +207,7 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
 
 기존 `verify.sh`는 FeedbackOps 호환 어댑터입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다. Generic target은 PostgreSQL, backend, Vitest, Node 가정을 상속하지 않습니다.
 
-REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review`로 실행합니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, host-side가 JSON schema, producer, issue, live HEAD를 검증한 뒤 canonical `.review/ISSUE-123-REVIEW.json`을 원자 게시합니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
+REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review`로 실행합니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, host-side가 JSON schema, producer, issue, live HEAD를 검증한 뒤 Git linked-worktree HEAD/ref lock 아래 canonical `.review/ISSUE-123-REVIEW.json`과 immutable snapshot을 원자 게시합니다. lock은 concurrent commit이 publication 사이에 끼어드는 것을 막고 실패 시 안전하게 해제됩니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
 
 ## Mental model
 
@@ -257,10 +261,12 @@ Release Captain merge decision
 | `ISSUE-N-CONTEXT.md`, `ISSUE-N-PROMPT.md` | uncommitted/non-archival CONDUCTOR prompt-authoring scratch; PROMPT에는 exact AC block |
 | `ISSUE-N-PR-DRAFT.json` | runtime-neutral 구현 handoff; 자체 테스트 주장은 참고일 뿐 |
 | `ISSUE-N-REVIEW.json` | 독립 REVIEWER의 판정과 patch instruction |
+| `ISSUE-N-REVIEW-<reviewed_head_sha>.json` | canonical REVIEW의 immutable content-identical evidence snapshot |
 | `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거 |
 | `ISSUE-N-RUN.json` | shared watchdog의 runtime/role/version/attempt 실행 상태; 병합 증거 아님 |
 | `ISSUE-N-TRANSPORT.json` | v2 runtime provenance + transport/runner receipt; v1은 legacy read-only 호환, 둘 다 비권위 |
 | `ISSUE-N-BLOCKER.json` | 구조화된 중단 사유와 필요한 결정 |
+| `ISSUE-N-BLOCKER-QUARANTINED-<sha>.json` | malformed pre-existing BLOCKER의 raw host recovery copy; worker evidence가 아님 |
 | `HEARTBEAT-*.json` | liveness 증거; correctness 증거 아님 |
 
 ## 더 읽을 문서

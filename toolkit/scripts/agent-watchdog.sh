@@ -19,8 +19,14 @@ const fs=require("fs"); const o={schema_version:"1",artifact_type:"agent_run",is
 progressed() { find "$CWD" -path '*/node_modules' -prune -o -path '*/.git' -prune -o -path '*/.review' -prune -o -newer "$STAMP" -print -quit | grep -q .; }
 kill_tree() { pkill -TERM -P "$1" 2>/dev/null || true; kill -TERM "$1" 2>/dev/null || true; sleep 1; pkill -KILL -P "$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true; }
 validate_review() {
-  node - "$1" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" <<'NODE'
-const fs=require("fs"),{execFileSync}=require("child_process"); try { const a=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), s=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); delete s.if; delete s.then; const {validate}=require(process.argv[4]); const head=execFileSync("git",["-C",process.argv[6],"rev-parse","HEAD"],{encoding:"utf8"}).trim(); const fail=a.status==="fail"&&(!Array.isArray(a.findings)||a.findings.length<1||typeof a.patch_instructions!=="string"); if(validate(s,a).length||fail||String(a.issue.number)!==process.argv[5]||a.reviewed_head_sha!==head)process.exit(2); } catch (_) { process.exit(2); }
+  node - "$1" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" <<'NODE'
+const fs=require("fs"); try { const a=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), s=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); delete s.if; delete s.then; const {validate}=require(process.argv[4]); const fail=a.status==="fail"&&(!Array.isArray(a.findings)||a.findings.length<1||typeof a.patch_instructions!=="string"); if(validate(s,a).length||fail||String(a.issue.number)!==process.argv[5]||a.reviewed_head_sha!==process.argv[7])process.exit(2); } catch (_) { process.exit(2); }
+NODE
+}
+blocker_signature() {
+  file="$1"; [ -f "$file" ] || { printf '%s\n' absent; return; }
+  node - "$file" <<'NODE'
+const fs=require("fs"),crypto=require("crypto"); try { const f=process.argv[2],s=fs.statSync(f); process.stdout.write(`${s.size}:${s.mtimeMs}:${crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex")}\n`); } catch (_) { process.stdout.write("unreadable\n"); }
 NODE
 }
 probe_runtime() {
@@ -42,6 +48,13 @@ while [ "$#" -gt 0 ]; do case "$1" in --issue) ISSUE_N="$2"; shift 2;; --runtime
 [ -d "$CWD" ] && [ -f "$PROMPT_FILE" ] || { echo 'invalid cwd or prompt file' >&2; exit 2; }
 [ "$PRODUCE_REVIEW" -eq 0 ] || { [ "$ROLE" = reviewer ] && [ "$MODE" = read ] || { echo '--produce-review requires reviewer read mode' >&2; exit 2; }; }
 [ "$CONDUCTOR_CONTROL" -eq 0 ] || { [ "$ROLE" = conductor ] && [ "$MODE" = read ] && [ "$PRODUCE_REVIEW" -eq 0 ] || { echo '--conductor-control requires conductor read mode' >&2; exit 2; }; [ -x "$CONTROL_PUBLISHER" ] || { echo 'conductor control publisher missing' >&2; exit 2; }; }
+REVIEW_START_HEAD=""
+if [ "$PRODUCE_REVIEW" -eq 1 ]; then
+  REVIEW_START_HEAD="$(git -C "$CWD" rev-parse HEAD 2>/dev/null || true)"
+  printf '%s' "$REVIEW_START_HEAD" | grep -Eq '^[0-9a-f]{40}$' || { echo 'cannot pin REVIEW start HEAD' >&2; exit 2; }
+fi
+BLOCKER_PATH="$CWD/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
+BLOCKER_BEFORE_SIG="$(blocker_signature "$BLOCKER_PATH")"
 case "$MAX_RETRIES" in ''|*[!0-9]*) echo '--max-retries must be a non-negative integer' >&2; exit 2;; esac
 CAPABILITIES="$($RUNTIME_EXEC capabilities --runtime "$RUNTIME")" || { echo "$CAPABILITIES" >&2; exit 3; }
 RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).version||"")}catch(_){process.exit(2)}})')" || { echo 'runtime capability output lacks version' >&2; exit 3; }
@@ -65,6 +78,14 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     if probe_runtime >/dev/null 2>&1; then :; else sleep "$PROBE_GAP"; if ! probe_runtime >/dev/null 2>&1; then write_marker refused "$attempt" "$pid" "$ec" || true; exit 4; fi; fi
     continue
   fi
+  BLOCKER_AFTER_SIG="$(blocker_signature "$BLOCKER_PATH")"
+  if [ "$PRODUCE_REVIEW" -eq 0 ] && [ "$BLOCKER_AFTER_SIG" != "$BLOCKER_BEFORE_SIG" ] && [ "$BLOCKER_AFTER_SIG" != absent ]; then
+    if ! node "$SCRIPT_DIR/lib/blocker-check.cjs" "$BLOCKER_PATH" "$SCRIPT_DIR/../schemas/blocker.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" >/dev/null 2>&1; then
+      echo 'ERROR: BLOCKER output is not schema-valid/current/consumable for this issue' >&2
+      write_marker refused "$attempt" "$pid" 1 || true
+      exit 1
+    fi
+  fi
   if [ "$PRODUCE_REVIEW" -eq 1 ]; then
   if [ "$RUNTIME" = codex ]; then REVIEW_SOURCE="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"; else REVIEW_SOURCE="$OUTPUT"; fi
   if ! validate_review "$REVIEW_SOURCE"; then
@@ -72,7 +93,12 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     write_marker refused "$attempt" "$pid" 1 || true
     exit 1
   fi
-  if [ "$RUNTIME" != codex ]; then mv "$OUTPUT" "$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"; OUTPUT=""; fi
+  if ! node "$SCRIPT_DIR/lib/review-publish.cjs" "$REVIEW_SOURCE" "$CWD/.review" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" >/dev/null 2>&1; then
+    echo 'ERROR: REVIEW publication lost its pinned HEAD or conflicted with immutable evidence' >&2
+    write_marker refused "$attempt" "$pid" 1 || true
+    exit 1
+  fi
+  if [ "$RUNTIME" != codex ]; then OUTPUT=""; fi
   fi
   if [ "$CONDUCTOR_CONTROL" -eq 1 ]; then
     if ! "$CONTROL_PUBLISHER" --issue "$ISSUE_N" --cwd "$CWD" --proposal "$OUTPUT"; then

@@ -93,6 +93,26 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$CWD"
+REVIEW_START_HEAD=""
+if [[ "$PRODUCE_REVIEW" -eq 1 ]]; then
+  REVIEW_START_HEAD="$(git -C "$CWD" rev-parse HEAD 2>/dev/null || true)"
+  [[ "$REVIEW_START_HEAD" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: cannot pin REVIEW start HEAD" >&2; exit 2; }
+fi
+
+blocker_signature() {
+  file="$1"
+  [ -f "$file" ] || { printf '%s\n' "absent"; return; }
+  node - "$file" <<'NODE'
+const fs=require("fs"), crypto=require("crypto"), file=process.argv[2];
+try {
+  const stat=fs.statSync(file);
+  const hash=crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+  process.stdout.write(String(stat.size)+":"+String(stat.mtimeMs)+":"+hash+"\n");
+} catch (_) { process.stdout.write("unreadable\n"); }
+NODE
+}
+BLOCKER_PATH="$CWD/.review/ISSUE-$ISSUE_N-BLOCKER.json"
+BLOCKER_BEFORE_SIG="$(blocker_signature "$BLOCKER_PATH")"
 
 EXTRA=()
 [[ -n "$MODEL" ]] && EXTRA+=( -m "$MODEL" )
@@ -169,24 +189,30 @@ wait "$CODEX_PID"
 CODEX_EXIT=$?
 set -e
 stop_heartbeat
+BLOCKER_AFTER_SIG="$(blocker_signature "$BLOCKER_PATH")"
+if [[ "$PRODUCE_REVIEW" -eq 0 && "$BLOCKER_AFTER_SIG" != "$BLOCKER_BEFORE_SIG" && "$BLOCKER_AFTER_SIG" != "absent" ]]; then
+  if ! node "$SCRIPT_DIR/lib/blocker-check.cjs" "$BLOCKER_PATH" "$SCRIPT_DIR/../schemas/blocker.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" >/dev/null 2>&1
+  then
+    echo "ERROR: BLOCKER output is not schema-valid/current/consumable for this issue; preserve it and regenerate the canonical artifact before redispatch" >&2
+    CODEX_EXIT=1
+  fi
+fi
 if [[ "$CODEX_EXIT" -eq 0 && "$PRODUCE_REVIEW" -eq 1 ]]; then
   canonical_review="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"
-  if ! node - "$REVIEW_OUTPUT_FILE" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" <<'NODE'
+if ! node - "$REVIEW_OUTPUT_FILE" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" <<'NODE'
 const fs = require("fs");
-const { execFileSync } = require("child_process");
-const [artifactFile, schemaFile, validatorFile, issueNumber, worktree] = process.argv.slice(2);
+const [artifactFile, schemaFile, validatorFile, issueNumber, worktree, expectedHead] = process.argv.slice(2);
 try {
   const artifact = JSON.parse(fs.readFileSync(artifactFile, "utf8"));
   const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
   const { validate } = require(validatorFile);
-  const liveHead = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const baseSchema = Object.assign({}, schema);
   delete baseSchema.if;
   delete baseSchema.then;
   const invalidFailedReview = artifact.status === "fail"
     && (!Array.isArray(artifact.findings) || artifact.findings.length < 1 || typeof artifact.patch_instructions !== "string");
   const errors = validate(baseSchema, artifact);
-  if (errors.length || invalidFailedReview || String(artifact.issue.number) !== issueNumber || artifact.reviewed_head_sha !== liveHead) {
+  if (errors.length || invalidFailedReview || String(artifact.issue.number) !== issueNumber || artifact.reviewed_head_sha !== expectedHead) {
     console.error(errors.join("; ") || "review issue, failed-review fields, or live HEAD mismatch");
     process.exit(2);
   }
@@ -198,6 +224,9 @@ NODE
     echo "ERROR: REVIEW output is not a schema-valid canonical artifact for this issue and live HEAD" >&2
     exit 1
   fi
-  mv "$REVIEW_OUTPUT_FILE" "$canonical_review"
+  if ! node "$SCRIPT_DIR/lib/review-publish.cjs" "$REVIEW_OUTPUT_FILE" "$CWD/.review" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" >/dev/null 2>&1; then
+    echo "ERROR: REVIEW publication lost its pinned HEAD or conflicted with immutable evidence" >&2
+    exit 1
+  fi
 fi
 exit "$CODEX_EXIT"

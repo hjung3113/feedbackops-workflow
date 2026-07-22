@@ -186,6 +186,14 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   mv "$STDERR_LOG" "$attempt_stderr"
   echo "codex-watchdog: attempt $attempt stderr preserved at $attempt_stderr" >&2
 
+  # A provider/model refusal is a terminal contract failure, not a transient
+  # liveness failure. Retrying the same unsupported model only burns attempts.
+  if grep -Eiq 'invalid_request_error|model[[:space:]_-]+(not supported|not_found|unsupported)|status[=: ]+400|(^|[^0-9])400([^0-9]|$)' "$attempt_stderr"; then
+    write_marker "refused" "$attempt" "$pid" "$ec" || true
+    echo "FAIL-FAST: provider refused the selected model; no retry attempted" >&2
+    exit 4
+  fi
+
   if [ "$killed_for_stall" -eq 1 ]; then
     continue
   fi

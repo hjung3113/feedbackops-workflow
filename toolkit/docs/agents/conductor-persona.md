@@ -74,6 +74,27 @@ ROUND-STATE is the sole authority for AC wording. The final prompt contains exac
 
 The JSON array must copy `acceptance.criteria[]` exactly, including order, IDs, and statements. `prompt-ac-check.sh` rejects missing, extra, duplicate, malformed, or reworded entries before Standard/Full launch or canonical redispatch side effects.
 
+### Scope lock and deferral
+
+Before dispatch, derive a short **issue acceptance matrix** from the issue body and
+its explicitly requested comments. Each row names the reported symptom, the
+observable acceptance check, and the files permitted to address it. That matrix
+is the complete authority for the current issue.
+
+- A reviewer may report a newly discovered defect, but it is **not** a finding
+  for the current issue unless it makes a matrix acceptance check fail.
+- Record an out-of-scope discovery as a deferred follow-up with its evidence;
+  do not edit for it, widen the touch set, add another redispatch, or block
+  completion on it without the user's explicit scope expansion.
+- Re-review only the matrix checks and changed files. Do not ask for a
+  whole-diff adversarial P1/P2 audit after the first scoped review.
+- Once every matrix check passes, run the declared verification once and report
+  readiness. Further hardening is a separate task, not an implicit loop.
+
+This rule is intentionally stronger than a general "scope" reminder: a
+CONDUCTOR must optimize for resolving the reported issue, not for exhausting
+possible defects in adjacent workflow code.
+
 ## 8. Decisions CONDUCTOR owns
 
 You own the cross-cutting orchestration calls:
