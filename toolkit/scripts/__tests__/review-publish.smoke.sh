@@ -246,6 +246,9 @@ fi
 # The runner's output path is mutable. Once publication has read and
 # validated it, a later rewrite must not make the immutable snapshot differ
 # from the canonical bytes.
+# Advance to a fresh review target: the prior snapshot for the preceding HEAD
+# is intentionally immutable and must reject different bytes.
+git -C "$WT" -c user.name=Smoke -c user.email=smoke@example.test commit --allow-empty -qm "advance review snapshot fixture"
 bytes_head="$(git -C "$WT" rev-parse HEAD)"
 bytes_source="$TMP_ROOT/bytes-review.json"
 bytes_original="$TMP_ROOT/bytes-review-original.json"
