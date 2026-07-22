@@ -158,6 +158,29 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
+cp "$TMP_DIR/chunk-state.json" "$TMP_DIR/escaping-allowlist.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.touch_allowlist=["../outside/**"]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/escaping-allowlist.json"
+( bash "$CHECK" --round-state "$TMP_DIR/escaping-allowlist.json" --manifest-revision 3 ) > "$TMP_DIR/escaping-allowlist-output.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_touch_allowlist" ? 0 : 1)' "$TMP_DIR/escaping-allowlist-output.json"; then
+  echo "ok   - touch allowlist cannot escape the repository"
+else
+  echo "NOT OK - touch allowlist escape validation"
+  FAILURES=$((FAILURES + 1))
+fi
+
+printf 'new file\n' > "$WORKTREE/allowed/new-file.txt"
+git -C "$WORKTREE" add allowed/new-file.txt
+git -C "$WORKTREE" commit -qm unlisted-new-file
+assert_case "rejects a new path unless it is explicitly listed" 1 "$TMP_DIR/state.json" "new_path_not_explicitly_allowed"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.new_file_allowlist=["allowed/new-file.txt"]; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
+( bash "$CHECK" --round-state "$TMP_DIR/state.json" --manifest-revision 3 ) > "$TMP_DIR/explicit-new-file.json" 2>/dev/null
+if [ "$?" -eq 0 ]; then
+  echo "ok   - explicit new-file allowlist permits only the named path"
+else
+  echo "NOT OK - explicit new-file allowlist permits only the named path"
+  FAILURES=$((FAILURES + 1))
+fi
+
 mkdir -p "$WORKTREE/unpromised"
 printf 'surprise\n' > "$WORKTREE/unpromised/file.txt"
 git -C "$WORKTREE" add unpromised/file.txt

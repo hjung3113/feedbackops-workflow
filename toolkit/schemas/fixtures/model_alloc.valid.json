@@ -4,15 +4,15 @@
   "release": "2026-06-25",
   "roles": {
     "implementation": { "model": "gpt-5.6-terra", "effort": "low" },
-    "reviewer": { "model": "opus-4.8", "effort": "medium" },
+    "reviewer": { "model": "gpt-5.6-sol", "effort": "medium" },
     "contract_gate": { "model": "gpt-5.6-sol", "effort": "medium" },
     "trivial_implementation": { "model": "gpt-5.6-luna", "effort": "low" }
   },
   "capabilities": {
-    "gpt-5.6-terra": { "agentic_coding": 68, "static_coding": 78.2, "reasoning": 90.6, "input_per_million": 2.5, "output_per_million": 15 },
-    "opus-4.8": { "agentic_coding": 56.1, "static_coding": 79.3, "reasoning": 89.7, "input_per_million": 5, "output_per_million": 25 },
-    "gpt-5.6-sol": { "agentic_coding": 65.6, "static_coding": 83.9, "reasoning": 91.7, "input_per_million": 5, "output_per_million": 30 },
-    "gpt-5.6-luna": { "agentic_coding": 53.8, "static_coding": 82.9, "reasoning": 85.6, "input_per_million": 1, "output_per_million": 6 }
+    "gpt-5.6-terra": { "agentic_coding": 68, "static_coding": 78.2, "reasoning": 90.6, "input_per_million": 2.5, "output_per_million": 15, "available_via": ["codex"] },
+    "opus-4.8": { "agentic_coding": 56.1, "static_coding": 79.3, "reasoning": 89.7, "input_per_million": 5, "output_per_million": 25, "available_via": ["claude"] },
+    "gpt-5.6-sol": { "agentic_coding": 65.6, "static_coding": 83.9, "reasoning": 91.7, "input_per_million": 5, "output_per_million": 30, "available_via": ["codex"] },
+    "gpt-5.6-luna": { "agentic_coding": 53.8, "static_coding": 82.9, "reasoning": 85.6, "input_per_million": 1, "output_per_million": 6, "available_via": ["codex"] }
   },
   "signals": { "trivial_changed_lines": 50, "large_changed_lines": 400, "large_file_count": 8 },
   "prompt_authoring": { "target_tokens": 1200 }

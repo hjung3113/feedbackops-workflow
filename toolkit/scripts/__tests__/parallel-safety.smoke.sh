@@ -49,7 +49,10 @@ printf '%s\n' base > "$BASE/src/shared/a/file.txt"
 git -C "$BASE" add . && git -C "$BASE" -c user.name=smoke -c user.email=smoke@example.test commit -qm base
 BASE_HEAD="$(git -C "$BASE" rev-parse HEAD)"
 GOOD_PLAN="$TMP/good-plan.json"
-write_plan "$GOOD_PLAN" "$BASE_HEAD" exact src/api exact src/ui ""
+# The dispatch contract is bound to the plan's exact write set.  Use existing
+# base-tree files here: directory prefixes are useful for integration scopes,
+# but are not a valid exact contract entry under the preflight policy.
+write_plan "$GOOD_PLAN" "$BASE_HEAD" exact src/api/base.txt exact src/ui/base.txt ""
 
 out1="$TMP/decision-1.json"; out2="$TMP/decision-2.json"
 bash "$PLAN" decide --plan "$GOOD_PLAN" --target "$BASE" > "$out1"
@@ -91,14 +94,14 @@ if ! bash "$PLAN" decide --plan "$TRAVERSAL" --target "$BASE" > "$TMP/traversal.
 # Real source repos and candidate for integration.
 API="$TMP/api"; UI="$TMP/ui"; CAND="$TMP/candidate"
 git clone -q "$BASE" "$API"; git clone -q "$BASE" "$UI"; git clone -q "$BASE" "$CAND"
-printf '%s\n' api > "$API/src/api/feature.txt"; git -C "$API" add . && git -C "$API" -c user.name=smoke -c user.email=smoke@example.test commit -qm api
-printf '%s\n' ui > "$UI/src/ui/feature.txt"; git -C "$UI" add . && git -C "$UI" -c user.name=smoke -c user.email=smoke@example.test commit -qm ui
+printf '%s\n' api > "$API/src/api/base.txt"; git -C "$API" add . && git -C "$API" -c user.name=smoke -c user.email=smoke@example.test commit -qm api
+printf '%s\n' ui > "$UI/src/ui/base.txt"; git -C "$UI" add . && git -C "$UI" -c user.name=smoke -c user.email=smoke@example.test commit -qm ui
 API_HEAD="$(git -C "$API" rev-parse HEAD)"; UI_HEAD="$(git -C "$UI" rev-parse HEAD)"
 mkdir -p "$CAND/.review"
 INTEGRATION="$CAND/.review/ISSUE-14-INTEGRATION.json"
 bash "$INTEGRATE" --plan "$GOOD_PLAN" --target "$CAND" --candidate-worktree "$CAND" \
   --source "api=$API@$API_HEAD" --source "ui=$UI@$UI_HEAD" --output "$INTEGRATION" > "$TMP/integrate.out"; ec=$?
-if [ "$ec" -eq 0 ] && [ -f "$CAND/src/api/feature.txt" ] && [ -f "$CAND/src/ui/feature.txt" ] \
+if [ "$ec" -eq 0 ] && [ "$(cat "$CAND/src/api/base.txt")" = "api" ] && [ "$(cat "$CAND/src/ui/base.txt")" = "ui" ] \
   && node -e 'const v=require(process.argv[1]);process.exit(v.status==="pass"&&v.steps.length===2&&v.steps.every(x=>x.status==="integrated")?0:1)' "$INTEGRATION"; then
   pass "declared topological order records source and resulting candidate heads"
 else fail "successful candidate integration ($(cat "$TMP/integrate.out"))"; fi
@@ -130,11 +133,12 @@ ADMIT="$TMP/admit"; git clone -q "$BASE" "$ADMIT"; mkdir -p "$ADMIT/.review"
 cp "$GOOD_PLAN" "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json"
 cp "$ROOT/schemas/fixtures/round_state.valid.json" "$ADMIT/.review/ISSUE-14-ROUND-STATE.json"
 node - "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" "$ADMIT" "$BASE_HEAD" "$(git -C "$ADMIT" branch --show-current)" <<'NODE'
-const fs=require("fs"),[f,wt,head,branch]=process.argv.slice(2),v=JSON.parse(fs.readFileSync(f));v.issue={number:14,title:"parallel"};v.revision=1;v.base_sha=head;v.head_sha=head;v.base_branch=branch;v.worktree_path=fs.realpathSync(wt);v.contract.touch_allowlist=["src/api"];delete v.round_control;fs.writeFileSync(f,JSON.stringify(v));
+const fs=require("fs"),[f,wt,head,branch]=process.argv.slice(2),v=JSON.parse(fs.readFileSync(f));v.issue={number:14,title:"parallel"};v.revision=1;v.base_sha=head;v.head_sha=head;v.base_branch=branch;v.worktree_path=fs.realpathSync(wt);v.contract.touch_allowlist=["src/api/base.txt"];delete v.round_control;fs.writeFileSync(f,JSON.stringify(v));
 NODE
 node - "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" "$ADMIT/.review/ISSUE-14-PROMPT.md" <<'NODE'
 const fs=require("fs"),[stateFile,promptFile]=process.argv.slice(2),v=JSON.parse(fs.readFileSync(stateFile));fs.writeFileSync(promptFile,["worker","<!-- agent-workflow:ac-block:start -->","```json",JSON.stringify(v.acceptance.criteria),"```","<!-- agent-workflow:ac-block:end -->",""] .join("\n"));
 NODE
+"$ROOT/scripts/output-contract.sh" render --role implementation >> "$ADMIT/.review/ISSUE-14-PROMPT.md"
 ADMIT_TIER="$(node -e 'process.stdout.write(require(process.argv[1]).tier.name)' "$ADMIT/.review/ISSUE-14-ROUND-STATE.json")"
 planned_dry="$TMP/planned-dry.out"
 bash "$ROOT/scripts/cmux-dispatch.sh" --issue 14 --worktree "$ADMIT" --tier "$ADMIT_TIER" \
@@ -145,7 +149,7 @@ bash "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target
 bash "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume true > "$TMP/admit-two.out" & p2=$!
 wait "$p1"; e1=$?; wait "$p2"; e2=$?; successes=0; [ "$e1" -eq 0 ] && successes=$((successes+1)); [ "$e2" -eq 0 ] && successes=$((successes+1))
 if [ "$successes" -eq 1 ] && { grep -q parallel_admission_already_consumed "$TMP/admit-one.out" || grep -q parallel_admission_already_consumed "$TMP/admit-two.out"; }; then pass "concurrent same-seat plan admission is single-use"; else fail "concurrent plan admission"; fi
-node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.contract.touch_allowlist=["src/ui"];fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT/.review/ISSUE-14-ROUND-STATE.json"
+node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.contract.touch_allowlist=["src/ui/base.txt"];fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT/.review/ISSUE-14-ROUND-STATE.json"
 if ! bash "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume false > "$TMP/write-mismatch.out" \
   && grep -q plan_write_set_mismatch "$TMP/write-mismatch.out"; then pass "plan admission binds seat write set before launch"; else fail "write-set admission mismatch"; fi
 

@@ -477,6 +477,12 @@ commit_installation() {
     echo "installed: $MODEL_ALLOC_DEST"
   elif [[ -f "$MODEL_ALLOC_DEST" ]]; then
     echo "warning: preserving project-owned model allocation config: $MODEL_ALLOC_DEST" >&2
+    if ! node -e 'try { const v=JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); const missing=v.roles && v.capabilities && Object.keys(v.capabilities).some(k => !Array.isArray(v.capabilities[k].available_via)); process.exit(missing ? 1 : 0); } catch (e) { process.exit(0); }' "$MODEL_ALLOC_DEST"; then
+      # Schema-v1 configurations shipped before available_via existed. Keep
+      # them project-owned on upgrade; model-alloc.sh infers only known model
+      # families at use time and fails closed for an unknown family.
+      echo "warning: existing model allocation config lacks capabilities.*.available_via; preserving legacy schema-v1 config (known provider families are inferred at dispatch; unknown models require migration)." >&2
+    fi
     if ! node -e 'try { process.exit(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).schema_version === "1" ? 0 : 1); } catch (e) { process.exit(1); }' "$MODEL_ALLOC_DEST"; then
       echo "warning: model allocation config needs an explicit schema migration; it was not overwritten" >&2
     fi
@@ -513,6 +519,9 @@ cleanup_stage
 
 if [[ "$UPGRADE" -eq 1 ]]; then
   echo "upgrade backup: $BACKUP_ROOT"
+  if [[ "$PROFILE" == "feedbackops" ]] && [[ -z "${VERIFY_CLEAN_COMMAND:-}" ]]; then
+    echo "warning: VERIFY_CLEAN_COMMAND is not configured; canonical issue verification will fail until the target adopts docs/agents/verify-clean-probe.example.mjs or its equivalent." >&2
+  fi
 fi
 
 cat <<EOF
