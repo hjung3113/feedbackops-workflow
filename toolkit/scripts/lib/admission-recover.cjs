@@ -3,14 +3,20 @@ const fs = require("fs");
 const path = require("path");
 
 const args = process.argv.slice(2);
-let routeDigestIndex = args.indexOf("--route-digest");
 let expectedRouteDigest = null;
-if (routeDigestIndex !== -1) {
-  if ((args[0] !== "publish" && args[0] !== "recover")
-      || routeDigestIndex !== args.length - 2) process.exit(2);
-  expectedRouteDigest = args[routeDigestIndex + 1];
-  args.splice(routeDigestIndex, 2);
+let routeBinding = null;
+for (let index = args.length - 2; index >= 1; index -= 1) {
+  if (args[index] !== "--route-digest" && args[index] !== "--route-binding") continue;
+  const option = args[index], value = args[index + 1];
+  if (!value || (option === "--route-digest" && expectedRouteDigest !== null)
+      || (option === "--route-binding" && routeBinding !== null)) process.exit(2);
+  if (option === "--route-digest") expectedRouteDigest = value;
+  else {
+    try { routeBinding = JSON.parse(value); } catch (_) { process.exit(2); }
+  }
+  args.splice(index, 2);
 }
+if (routeBinding !== null && args[0] !== "publish") process.exit(2);
 const [mode, integratedDir, admissionDir, roundState, issue, key, ownerPid] = args;
 if (!mode || !integratedDir) process.exit(2);
 const txName = ".admission-transaction.json";
@@ -32,7 +38,25 @@ const processAlive = pid => {
 const safeIssue = value => /^[1-9][0-9]*$/.test(String(value));
 const safeKey = value => new RegExp("^issue-[1-9][0-9]*-dispatch-[1-9][0-9]*$").test(String(value));
 const safeRouteDigest = value => /^[a-f0-9]{64}$/.test(String(value));
+const safeRouteBinding = value => {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+      || Object.keys(value).sort().join(",") !== "decision_reason_codes,policy_digest,role,route_digest,runtime,selected,selection_basis,tier,transport"
+      || !safeRouteDigest(value.route_digest) || !safeRouteDigest(value.policy_digest)
+      || !["codex", "claude", "opencode"].includes(value.runtime)
+      || !["implementation", "reviewer", "verifier"].includes(value.role)
+      || !["trivial", "standard", "full_cluster"].includes(value.tier)
+      || !["cmux", "orca"].includes(value.transport)
+      || value.selection_basis !== "ordered_policy"
+      || !Array.isArray(value.decision_reason_codes) || value.decision_reason_codes.length < 1
+      || !value.decision_reason_codes.every(code => ["model_alloc", "ordered_policy"].includes(code))
+      || !value.selected || typeof value.selected !== "object"
+      || Object.keys(value.selected).sort().join(",") !== "effort,model"
+      || !/^[A-Za-z0-9._-]{1,64}$/.test(value.selected.model || "")
+      || !["low", "medium", "high"].includes(value.selected.effort)) return false;
+  return new Set(value.decision_reason_codes).size === value.decision_reason_codes.length;
+};
 if (expectedRouteDigest !== null && !safeRouteDigest(expectedRouteDigest)) process.exit(2);
+if (routeBinding !== null && (!safeRouteBinding(routeBinding) || routeBinding.route_digest !== expectedRouteDigest)) process.exit(2);
 const routeFailure = (transaction, expected = expectedRouteDigest) => {
   if (!expected) return null;
   if (!transaction || !Object.prototype.hasOwnProperty.call(transaction, "route_digest")) return "route_digest_unbound";
@@ -114,6 +138,7 @@ if (mode === "publish") {
   const pending = `${target}.pending.${process.pid}.${Date.now()}`;
   const tx = { version: 1, issue: String(issue), admission_key: key, round_state: path.resolve(roundState), status: "prepared", kind };
   if (expectedRouteDigest) tx.route_digest = expectedRouteDigest;
+  if (routeBinding) tx.routing = routeBinding;
   try {
     // POSIX rename may replace an empty destination directory.  Admission
     // publication is serialized by the issue lock, so a target that already

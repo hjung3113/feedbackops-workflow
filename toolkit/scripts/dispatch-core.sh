@@ -343,6 +343,7 @@ ROUTE_POLICY_ACTIVE=0
 ROUTE_POLICY_JSON=""
 ROUTE_POLICY_DIGEST=""
 ROUTE_DIGEST=""
+ROUTE_BINDING=""
 if [ "$ROLE" = "implementation" ] && [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ] \
     && [ "$DRY_RUN" -eq 0 ] && [ "$MODEL_SUPPLIED" -eq 0 ] && [ "$EFFORT_SUPPLIED" -eq 0 ]; then
   ROUTE_POLICY_READ="$(bash "$ROUTE_SCRIPT" policy read --git-common-dir "$GIT_COMMON_DIR" --worktree "$ABS_WORKTREE")"
@@ -842,8 +843,11 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     ROUTE_DEMAND="$(node - "$ABS_ROUND_STATE" "$RUNTIME" "$ROLE" "$TIER" "$ADMISSION_KEY" <<'NODE'
 const fs = require("fs");
 try {
-  const [stateFile, runtime, role, tier, admissionKey] = process.argv.slice(2);
+  const [stateFile, runtime, role, suppliedTier, admissionKey] = process.argv.slice(2);
   const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  const tier = state.tier && state.tier.name;
+  if (!["trivial", "standard", "full_cluster"].includes(tier)
+      || (suppliedTier && suppliedTier !== tier)) process.exit(2);
   const value = {
     runtime, role, write_mode: "canonical_redispatch", tier,
     issue: state.issue && state.issue.number,
@@ -857,27 +861,13 @@ try {
 } catch (_) { process.exit(2); }
 NODE
 )" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
-    ROUTE_OFFER="$(node - "$RUNTIME_CAPABILITY_JSON" "$RUNTIME_PERMISSION_FILE" <<'NODE'
-const crypto = require("crypto");
-const fs = require("fs");
-try {
-  const [capabilityJson, permissionFile] = process.argv.slice(2);
-  const capability = JSON.parse(capabilityJson);
-  const profile = {
-    modes: capability.modes || [], write_isolation: capability.write_isolation || null,
-    config_application: capability.config_application || null, requires: capability.requires || []
-  };
-  if (permissionFile) profile.permission_file_sha256 = crypto.createHash("sha256").update(fs.readFileSync(permissionFile)).digest("hex");
-  const permission_profile_digest = crypto.createHash("sha256").update(JSON.stringify(profile)).digest("hex");
-  const now = new Date();
-  const expires = new Date(now.getTime() + 5 * 60 * 1000);
-  process.stdout.write(JSON.stringify({
-    runtime: capability.runtime, executable: capability.executable, version: capability.version,
-    observed_at: now.toISOString(), expires_at: expires.toISOString(), permission_profile_digest
-  }));
-} catch (_) { process.exit(2); }
-NODE
-)" || { printf '%s\n' '{"status":"refused","code":"runner_offer_invalid"}'; exit 3; }
+    ROUTE_PROBE="$(AGENT_WORKFLOW_ROUTE_EXECUTABLE="$RUNTIME_BIN_PIN" AGENT_WORKFLOW_ROUTE_CAPABILITY_JSON="$RUNTIME_CAPABILITY_JSON" AGENT_WORKFLOW_ROUTE_PERMISSION_FILE="$RUNTIME_PERMISSION_FILE" bash "$ROUTE_SCRIPT" probe --runtime "$RUNTIME" --depth static)"
+    route_probe_status=$?
+    if [ "$route_probe_status" -ne 0 ]; then
+      printf '%s\n' "$ROUTE_PROBE"
+      exit "$route_probe_status"
+    fi
+    ROUTE_OFFER="$(node -e 'try { const value=JSON.parse(process.argv[1]); if (value.status !== "admitted" || !value.offer || typeof value.offer !== "object") process.exit(2); process.stdout.write(JSON.stringify(value.offer)); } catch (_) { process.exit(2); }' "$ROUTE_PROBE")" || { printf '%s\n' '{"status":"refused","code":"runner_offer_invalid"}'; exit 3; }
     ROUTE_ALLOC="$(node - "$MODEL" "$EFFORT" <<'NODE'
 const [model, effort] = process.argv.slice(2);
 if (!model || !effort) process.exit(2);
@@ -894,6 +884,24 @@ NODE
       printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'
       exit 3
     }
+    ROUTE_BINDING="$(node - "$ROUTE_RESULT" "$ROUTE_DEMAND" "$ADAPTER" <<'NODE'
+try {
+  const [resultJson, demandJson, transport] = process.argv.slice(2);
+  const result = JSON.parse(resultJson), demand = JSON.parse(demandJson);
+  if (result.status !== "admitted" || !/^[a-f0-9]{64}$/.test(result.route_digest || "")
+      || !/^[a-f0-9]{64}$/.test(result.policy_digest || "")
+      || !result.selected || typeof result.selected.model !== "string"
+      || !/^(low|medium|high)$/.test(result.selected.effort || "")
+      || !Array.isArray(result.reasons) || !result.reasons.length) process.exit(2);
+  process.stdout.write(JSON.stringify({
+    route_digest: result.route_digest, policy_digest: result.policy_digest,
+    runtime: demand.runtime, role: demand.role, tier: demand.tier, transport,
+    selection_basis: "ordered_policy", decision_reason_codes: result.reasons,
+    selected: result.selected
+  }));
+} catch (_) { process.exit(2); }
+NODE
+)" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
     model_compatibility_preflight || exit $?
   fi
 
@@ -936,7 +944,7 @@ NODE
       # SIGKILL can therefore be recovered as a current prepared record;
       # metadata-free directories remain legacy consumed sentinels.
       if [ -n "$ROUTE_DIGEST" ]; then
-        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated --route-digest "$ROUTE_DIGEST" >/dev/null 2>&1
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated --route-digest "$ROUTE_DIGEST" --route-binding "$ROUTE_BINDING" >/dev/null 2>&1
       else
         node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1
       fi
@@ -955,7 +963,7 @@ NODE
         exit 97
       fi
       if [ -n "$ROUTE_DIGEST" ]; then
-        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated --route-digest "$ROUTE_DIGEST" >/dev/null 2>&1
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated --route-digest "$ROUTE_DIGEST" --route-binding "$ROUTE_BINDING" >/dev/null 2>&1
       else
         node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1
       fi
@@ -974,7 +982,7 @@ NODE
       echo "ERROR: redispatch admission already consumed: issue $ISSUE_N exhausted its integrated fix admission" >&2
       exit 1
     elif [ -n "$ROUTE_DIGEST" ]; then
-      node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" normal --route-digest "$ROUTE_DIGEST" >/dev/null 2>&1
+      node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" normal --route-digest "$ROUTE_DIGEST" --route-binding "$ROUTE_BINDING" >/dev/null 2>&1
       if [ "$?" -ne 0 ]; then
         node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
         echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2

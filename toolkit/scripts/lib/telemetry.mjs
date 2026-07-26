@@ -229,6 +229,7 @@ const routedProvenance = ({ repo, round, roundSource, receiptSource, issue, salt
   if (!safeDirectory(admissionRoot) || !safeDirectory(admissionDir) || !safeRegularFile(bindingFile))
     die("policy telemetry admission binding is missing or unsafe");
   const binding = json(bindingFile);
+  const route = binding.routing;
   const bindingFailures = [
     binding.version !== 1 && "version",
     binding.status !== "committed" && "status",
@@ -237,6 +238,16 @@ const routedProvenance = ({ repo, round, roundSource, receiptSource, issue, salt
     !sameRealpath(binding.round_state, roundSource.absolute) && "round_state",
     binding.route_digest !== receipt.routing.route_digest && "route_digest",
     !["normal", "integrated"].includes(binding.kind) && "kind",
+    !route || typeof route !== "object" && "routing",
+    route?.route_digest !== receipt.routing.route_digest && "routing.route_digest",
+    route?.policy_digest !== receipt.routing.policy_digest && "routing.policy_digest",
+    route?.runtime !== receipt.runtime && "routing.runtime",
+    route?.role !== receipt.role && "routing.role",
+    route?.transport !== receipt.adapter && "routing.transport",
+    route?.selection_basis !== receipt.routing.selection_basis && "routing.selection_basis",
+    JSON.stringify(route?.decision_reason_codes) !== JSON.stringify(receipt.routing.decision_reason_codes) && "routing.decision_reason_codes",
+    route?.selected?.model !== receipt.routing.selected.model && "routing.selected.model",
+    route?.selected?.effort !== receipt.routing.selected.effort && "routing.selected.effort",
   ].filter(Boolean);
   if (bindingFailures.length)
     die(`policy telemetry admission binding does not match receipt: ${bindingFailures.join(",")}`);
@@ -250,18 +261,19 @@ const routedProvenance = ({ repo, round, roundSource, receiptSource, issue, salt
       singleton.version !== 1 || singleton.status !== "committed" || singleton.kind !== "integrated" ||
       String(singleton.issue) !== String(issue) || singleton.admission_key !== key ||
       !sameRealpath(singleton.round_state, roundSource.absolute) || singleton.route_digest !== binding.route_digest
+      || JSON.stringify(singleton.routing) !== JSON.stringify(route)
     )
       die("policy telemetry integrated binding does not match ordinal");
   }
   return {
-    selection_basis: receipt.routing.selection_basis,
-    route_pseudonym: hmac(salt, receipt.routing.route_digest),
-    policy_digest: `sha256:${receipt.routing.policy_digest}`,
-    runtime: receipt.runtime,
-    decision_reason_codes: receipt.routing.decision_reason_codes,
-    model: receipt.routing.selected.model,
-    effort: receipt.routing.selected.effort,
-    transport: receipt.adapter,
+    selection_basis: route.selection_basis,
+    route_pseudonym: hmac(salt, route.route_digest),
+    policy_digest: `sha256:${route.policy_digest}`,
+    runtime: route.runtime,
+    decision_reason_codes: route.decision_reason_codes,
+    model: route.selected.model,
+    effort: route.selected.effort,
+    transport: route.transport,
     role,
   };
 };
@@ -888,7 +900,8 @@ function report() {
       total = list.reduce((n, c) => n + c.attempts, 0),
       available = list.reduce((n, c) => n + c.attempts - c.unavailable_samples, 0),
       ratio = total ? available / total : 0,
-      completeIndependent = list.filter((c) => c.complete).length;
+      completeChains = list.filter((c) => c.complete),
+      completeIndependent = completeChains.length;
     if (completeIndependent < minimum || ratio < threshold) {
       suppressed.push(`routing:${key}`);
       continue;
@@ -906,6 +919,11 @@ function report() {
       sample_count: total,
       chain_count: list.length,
       complete_independent_chains: completeIndependent,
+      complete_green_rate: completeIndependent / list.length,
+      mean_retries_to_green: completeIndependent
+        ? completeChains.reduce((n, c) => n + c.retries, 0) / completeIndependent : 0,
+      mean_wall_time_ms: completeIndependent
+        ? completeChains.reduce((n, c) => n + c.wall_time_ms, 0) / completeIndependent : 0,
       observed_cost: list.reduce((n, c) => n + c.observed_cost, 0),
       estimated_cost: list.reduce((n, c) => n + c.estimated_cost, 0),
       unavailable_samples: total - available,
