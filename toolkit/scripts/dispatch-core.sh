@@ -72,6 +72,8 @@ PROMPT_FILE=""
 WS_NAME=""
 MODEL=""
 EFFORT=""
+MODEL_SUPPLIED=0
+EFFORT_SUPPLIED=0
 ALLOCATE=0
 ALLOCATOR_ROLE=""
 ALLOC_EVIDENCE=""
@@ -130,6 +132,9 @@ write_launch_runner() {
   runner_tmp="$runner_dir/.launch.sh.tmp"
   {
     printf '%s\n' '#!/usr/bin/env bash'
+    # Policy state is host-only. A worker receives the selected tuple and
+    # never the host-state override/path that made the selection possible.
+    printf '%s\n' 'unset AGENT_WORKFLOW_HOST_STATE'
     printf 'exec env NODE_OPTIONS= '
     printf '%q ' "AGENT_WORKFLOW_RUNTIME_BIN=$RUNTIME_BIN_PIN"
     printf '%q ' "$WATCHDOG" --runtime "$RUNTIME" --role "$ROLE" --mode "$RUNTIME_MODE" --issue "$ISSUE_N" --prompt-file "$ABS_PROMPT_FILE" --cwd "$ABS_WORKTREE"
@@ -190,8 +195,8 @@ while [ $# -gt 0 ]; do
     --worktree) WORKTREE="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --name) WS_NAME="$2"; shift 2 ;;
-    --model) MODEL="$2"; shift 2 ;;
-    --effort) EFFORT="$2"; shift 2 ;;
+    --model) MODEL="$2"; MODEL_SUPPLIED=1; shift 2 ;;
+    --effort) EFFORT="$2"; EFFORT_SUPPLIED=1; shift 2 ;;
     --allocate) ALLOCATE=1; shift 1 ;;
     --allocator-role) ALLOCATOR_ROLE="$2"; shift 2 ;;
     --alloc-evidence) ALLOC_EVIDENCE="$2"; shift 2 ;;
@@ -296,6 +301,78 @@ ABS_WORKTREE="$(cd "$WORKTREE" && pwd)"
 if ! git -C "$ABS_WORKTREE" rev-parse --git-dir >/dev/null 2>&1; then
   echo "ERROR: not a git worktree (git rev-parse --git-dir failed): $ABS_WORKTREE" >&2
   exit 2
+fi
+
+# Classify write mode before any allocation or remote model compatibility
+# preflight.  Route binding extends canonical redispatch admission only; later
+# policy code consumes this one classification rather than re-reading mutable
+# RUN/BLOCKER state at each allocator site.
+RUN_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-RUN.json"
+BLOCKER_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
+DEFAULT_ROUND_STATE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-ROUND-STATE.json"
+WRITE_ATTEMPT_DIR="$ABS_WORKTREE/.review/.write-dispatch-issue-${ISSUE_N}-started"
+ADMISSION_KEY=""
+REDISPATCH_REQUIRED=0
+INITIAL_WRITE=0
+if [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ]; then
+  if [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
+    REDISPATCH_REQUIRED=1
+  elif [ -f "$DEFAULT_ROUND_STATE" ] && node -e '
+    try {
+      const value=require(process.argv[1]);
+      process.exit(value.round_control && Array.isArray(value.round_control.failures) && value.round_control.failures.length > 0 ? 0 : 1);
+    } catch (e) { process.exit(1); }
+  ' "$DEFAULT_ROUND_STATE"; then
+    REDISPATCH_REQUIRED=1
+  fi
+  if [ "$REDISPATCH_REQUIRED" -eq 0 ]; then
+    INITIAL_WRITE=1
+  fi
+fi
+
+# A policy is an explicit host-side opt-in. Manual model/effort flags and
+# dry-runs never inspect it, so their legacy paths cannot be blocked by stale
+# host policy state. The policy reader is deliberately not the selector.
+GIT_COMMON_RAW="$(git -C "$ABS_WORKTREE" rev-parse --git-common-dir)"
+case "$GIT_COMMON_RAW" in
+  /*) GIT_COMMON_DIR="$GIT_COMMON_RAW" ;;
+  *) GIT_COMMON_DIR="$(cd "$ABS_WORKTREE/$GIT_COMMON_RAW" && pwd -P)" ;;
+esac
+ROUTE_SCRIPT="$SCRIPT_DIR/route.sh"
+ROUTE_POLICY_ACTIVE=0
+ROUTE_POLICY_JSON=""
+ROUTE_POLICY_DIGEST=""
+ROUTE_DIGEST=""
+if [ "$ROLE" = "implementation" ] && [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ] \
+    && [ "$DRY_RUN" -eq 0 ] && [ "$MODEL_SUPPLIED" -eq 0 ] && [ "$EFFORT_SUPPLIED" -eq 0 ]; then
+  ROUTE_POLICY_READ="$(bash "$ROUTE_SCRIPT" policy read --git-common-dir "$GIT_COMMON_DIR" --worktree "$ABS_WORKTREE")"
+  route_policy_status=$?
+  if [ "$route_policy_status" -ne 0 ]; then
+    printf '%s\n' "$ROUTE_POLICY_READ"
+    exit "$route_policy_status"
+  fi
+  ROUTE_POLICY_STATUS="$(node -e 'try { const v=JSON.parse(process.argv[1]); process.stdout.write(v.status || ""); } catch (e) { process.exit(2); }' "$ROUTE_POLICY_READ")" || {
+    echo "ERROR: route_policy_invalid" >&2
+    exit 3
+  }
+  if [ "$ROUTE_POLICY_STATUS" = "active" ]; then
+    ROUTE_POLICY_ACTIVE=1
+    ROUTE_POLICY_JSON="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (!v.policy || typeof v.policy_digest !== "string") process.exit(2); process.stdout.write(JSON.stringify(v.policy)); } catch (e) { process.exit(2); }' "$ROUTE_POLICY_READ")" || {
+      echo "ERROR: route_policy_invalid" >&2
+      exit 3
+    }
+    ROUTE_POLICY_DIGEST="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (!/^[a-f0-9]{64}$/.test(v.policy_digest || "")) process.exit(2); process.stdout.write(v.policy_digest); } catch (e) { process.exit(2); }' "$ROUTE_POLICY_READ")" || {
+      echo "ERROR: route_policy_invalid" >&2
+      exit 3
+    }
+    if [ "$INITIAL_WRITE" -eq 1 ]; then
+      printf '%s\n' '{"status":"refused","code":"route_mode_unbound"}'
+      exit 3
+    fi
+  elif [ "$ROUTE_POLICY_STATUS" != "bypass" ]; then
+    echo "ERROR: route_policy_invalid" >&2
+    exit 3
+  fi
 fi
 RUNTIME_ADAPTER="$SCRIPT_DIR/agent-runtime.sh"
 [ -x "$RUNTIME_ADAPTER" ] || { echo "ERROR: runtime_adapter_missing: $RUNTIME_ADAPTER" >&2; exit 2; }
@@ -435,12 +512,6 @@ if [ -n "$MODEL" ] && [ -z "$EFFORT" ]; then
   esac
 fi
 
-GIT_COMMON_RAW="$(git -C "$ABS_WORKTREE" rev-parse --git-common-dir)"
-case "$GIT_COMMON_RAW" in
-  /*) GIT_COMMON_DIR="$GIT_COMMON_RAW" ;;
-  *) GIT_COMMON_DIR="$(cd "$ABS_WORKTREE/$GIT_COMMON_RAW" && pwd -P)" ;;
-esac
-
 if [ -z "$PROMPT_FILE" ]; then
   PROMPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-PROMPT.md"
   # Compatibility only: existing operators may still have a pre-v0.20 .txt
@@ -483,12 +554,14 @@ esac
 
 # Compatibility is proven before any adapter launch, runner creation, or write
 # admission. The probe is intentionally tiny and may be replaced by a
-# host-owned command for offline/managed runtimes.
-if [ "$DRY_RUN" -eq 0 ] && [ -n "$MODEL" ]; then
+# host-owned command for offline/managed runtimes. Policy-routed dispatches
+# defer this until canonical redispatch facts have produced a Route digest.
+model_compatibility_preflight() {
+  [ "$DRY_RUN" -eq 0 ] && [ -n "$MODEL" ] || return 0
   if [ -n "${AGENT_WORKFLOW_MODEL_PROBE_CMD:-}" ]; then
     if ! RUNTIME="$RUNTIME" MODEL="$MODEL" EFFORT="$EFFORT" sh -c "$AGENT_WORKFLOW_MODEL_PROBE_CMD" </dev/null >/dev/null 2>&1; then
       echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
-      exit 2
+      return 2
     fi
   elif ! case "$RUNTIME" in
     codex) "$RUNTIME_BIN_PIN" exec --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
@@ -497,8 +570,12 @@ if [ "$DRY_RUN" -eq 0 ] && [ -n "$MODEL" ]; then
     *) false ;;
   esac; then
     echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
-    exit 2
+    return 2
   fi
+  return 0
+}
+if [ "$ROUTE_POLICY_ACTIVE" -eq 0 ]; then
+  model_compatibility_preflight || exit $?
 fi
 
 if [ -z "$WS_NAME" ]; then
@@ -541,33 +618,10 @@ NODE
   ADAPTER_CAPABILITIES_JSON="${CAPABILITY_FIELDS#*	}"
 fi
 
-RUN_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-RUN.json"
-BLOCKER_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
-DEFAULT_ROUND_STATE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-ROUND-STATE.json"
-WRITE_ATTEMPT_DIR="$ABS_WORKTREE/.review/.write-dispatch-issue-${ISSUE_N}-started"
-
-# A prior same-issue RUN/BLOCKER makes this a write-capable implementation
-# redispatch. Bind admission to canonical ROUND-STATE policy before transport is
-# allowed to start. Read-only seats do not mutate implementation state and are
-# outside this circuit.
-ADMISSION_KEY=""
-REDISPATCH_REQUIRED=0
-INITIAL_WRITE=0
-if [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ]; then
-  if [ -f "$BLOCKER_FILE" ] || [ -d "$WRITE_ATTEMPT_DIR" ]; then
-    REDISPATCH_REQUIRED=1
-  elif [ -f "$DEFAULT_ROUND_STATE" ] && node -e '
-    try {
-      const value=require(process.argv[1]);
-      process.exit(value.round_control && Array.isArray(value.round_control.failures) && value.round_control.failures.length > 0 ? 0 : 1);
-    } catch (e) { process.exit(1); }
-  ' "$DEFAULT_ROUND_STATE"; then
-    REDISPATCH_REQUIRED=1
-  fi
-  if [ "$REDISPATCH_REQUIRED" -eq 0 ]; then
-    INITIAL_WRITE=1
-  fi
-fi
+# Preserve the legacy no-policy error ordering: mode classification is early,
+# but its initial-write contract remains checked where callers historically saw
+# it. A later opted-in route check may refuse an initial write earlier without
+# altering this compatibility path.
 if [ "$INITIAL_WRITE" -eq 1 ]; then
   case "$TIER" in
     trivial)
@@ -588,6 +642,7 @@ if [ "$INITIAL_WRITE" -eq 1 ]; then
       ;;
   esac
 fi
+
 if [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIEW" -eq 0 ] && [ -n "$ROUND_STATE" ]; then
   case "$ROUND_STATE" in
     /*) ABS_ROUND_STATE="$ROUND_STATE" ;;
@@ -780,6 +835,68 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     exit 1
   fi
 
+  # The pure selector consumes only canonical admission facts and the tuple
+  # already produced by model-alloc. It runs before the remote model probe and
+  # before any durable admission, marker, runner, or transport side effect.
+  if [ "$ROUTE_POLICY_ACTIVE" -eq 1 ]; then
+    ROUTE_DEMAND="$(node - "$ABS_ROUND_STATE" "$RUNTIME" "$ROLE" "$TIER" "$ADMISSION_KEY" <<'NODE'
+const fs = require("fs");
+try {
+  const [stateFile, runtime, role, tier, admissionKey] = process.argv.slice(2);
+  const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+  const value = {
+    runtime, role, write_mode: "canonical_redispatch", tier,
+    issue: state.issue && state.issue.number,
+    worktree_path: state.worktree_path,
+    head_sha: state.head_sha,
+    base_sha: state.base_sha,
+    round_state_revision: state.revision,
+    admission_key: admissionKey
+  };
+  process.stdout.write(JSON.stringify(value));
+} catch (_) { process.exit(2); }
+NODE
+)" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
+    ROUTE_OFFER="$(node - "$RUNTIME_CAPABILITY_JSON" "$RUNTIME_PERMISSION_FILE" <<'NODE'
+const crypto = require("crypto");
+const fs = require("fs");
+try {
+  const [capabilityJson, permissionFile] = process.argv.slice(2);
+  const capability = JSON.parse(capabilityJson);
+  const profile = {
+    modes: capability.modes || [], write_isolation: capability.write_isolation || null,
+    config_application: capability.config_application || null, requires: capability.requires || []
+  };
+  if (permissionFile) profile.permission_file_sha256 = crypto.createHash("sha256").update(fs.readFileSync(permissionFile)).digest("hex");
+  const permission_profile_digest = crypto.createHash("sha256").update(JSON.stringify(profile)).digest("hex");
+  const now = new Date();
+  const expires = new Date(now.getTime() + 5 * 60 * 1000);
+  process.stdout.write(JSON.stringify({
+    runtime: capability.runtime, executable: capability.executable, version: capability.version,
+    observed_at: now.toISOString(), expires_at: expires.toISOString(), permission_profile_digest
+  }));
+} catch (_) { process.exit(2); }
+NODE
+)" || { printf '%s\n' '{"status":"refused","code":"runner_offer_invalid"}'; exit 3; }
+    ROUTE_ALLOC="$(node - "$MODEL" "$EFFORT" <<'NODE'
+const [model, effort] = process.argv.slice(2);
+if (!model || !effort) process.exit(2);
+process.stdout.write(JSON.stringify({ model, effort }));
+NODE
+)" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
+    ROUTE_RESULT="$(bash "$ROUTE_SCRIPT" decide --demand "$ROUTE_DEMAND" --offer "$ROUTE_OFFER" --policy "$ROUTE_POLICY_JSON" --policy-digest "$ROUTE_POLICY_DIGEST" --model-alloc "$ROUTE_ALLOC" --now "$(date -u '+%Y-%m-%dT%H:%M:%SZ')")"
+    route_status=$?
+    if [ "$route_status" -ne 0 ]; then
+      printf '%s\n' "$ROUTE_RESULT"
+      exit "$route_status"
+    fi
+    ROUTE_DIGEST="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (v.status !== "admitted" || !/^[a-f0-9]{64}$/.test(v.route_digest || "")) process.exit(2); process.stdout.write(v.route_digest); } catch (e) { process.exit(2); }' "$ROUTE_RESULT")" || {
+      printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'
+      exit 3
+    }
+    model_compatibility_preflight || exit $?
+  fi
+
   echo "dispatch-core: redispatch admission: mode=$ADMISSION_MODE key=$ADMISSION_KEY"
   if [ "$DRY_RUN" -eq 0 ]; then
     ADMISSION_ROOT="$GIT_COMMON_DIR/agent-workflow/redispatch-admissions"
@@ -799,8 +916,18 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
     fi
     ADMISSION_DIR="$ADMISSION_ROOT/$ADMISSION_KEY"
     INTEGRATED_DIR="$ADMISSION_ROOT/issue-${ISSUE_N}-integrated-fix"
-    if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" recover "$INTEGRATED_DIR" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" >/dev/null 2>&1; then
+    if [ -n "$ROUTE_DIGEST" ]; then
+      RECOVERY_OUTPUT="$(node "$SCRIPT_DIR/lib/admission-recover.cjs" recover "$INTEGRATED_DIR" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" --route-digest "$ROUTE_DIGEST")"
+    else
+      RECOVERY_OUTPUT="$(node "$SCRIPT_DIR/lib/admission-recover.cjs" recover "$INTEGRATED_DIR" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N")"
+    fi
+    recovery_status=$?
+    if [ "$recovery_status" -ne 0 ]; then
       node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+      if [ "$recovery_status" -eq 3 ]; then
+        printf '%s\n' "$RECOVERY_OUTPUT"
+        exit 3
+      fi
       echo "ERROR: could not recover interrupted integrated admission" >&2
       exit 2
     fi
@@ -808,7 +935,12 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
       # Journal before visibility for both the singleton and ordinal.  A
       # SIGKILL can therefore be recovered as a current prepared record;
       # metadata-free directories remain legacy consumed sentinels.
-      if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1; then
+      if [ -n "$ROUTE_DIGEST" ]; then
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated --route-digest "$ROUTE_DIGEST" >/dev/null 2>&1
+      else
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$INTEGRATED_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1
+      fi
+      if [ "$?" -ne 0 ]; then
         node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
         echo "ERROR: redispatch admission already consumed: integrated fix admission already consumed for issue $ISSUE_N" >&2
         exit 1
@@ -822,7 +954,12 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
         # still bypassing all subsequent admission work (there are no traps).
         exit 97
       fi
-      if ! node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1; then
+      if [ -n "$ROUTE_DIGEST" ]; then
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated --route-digest "$ROUTE_DIGEST" >/dev/null 2>&1
+      else
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" integrated >/dev/null 2>&1
+      fi
+      if [ "$?" -ne 0 ]; then
         node "$SCRIPT_DIR/lib/admission-recover.cjs" rollback "$INTEGRATED_DIR" "$ADMISSION_DIR" >/dev/null 2>&1 || true
         node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
         echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
@@ -836,6 +973,13 @@ if [ "$REDISPATCH_REQUIRED" -eq 1 ]; then
       node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
       echo "ERROR: redispatch admission already consumed: issue $ISSUE_N exhausted its integrated fix admission" >&2
       exit 1
+    elif [ -n "$ROUTE_DIGEST" ]; then
+      node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" normal --route-digest "$ROUTE_DIGEST" >/dev/null 2>&1
+      if [ "$?" -ne 0 ]; then
+        node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
+        echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
+        exit 1
+      fi
     elif ! node "$SCRIPT_DIR/lib/admission-recover.cjs" publish "$ADMISSION_ROOT" "$ADMISSION_DIR" "$ABS_ROUND_STATE" "$ISSUE_N" "$ADMISSION_KEY" "$$" normal >/dev/null 2>&1; then
       node "$SCRIPT_DIR/lib/admission-recover.cjs" release-lock "$ISSUE_ADMISSION_LOCK/.admission-lock.json" >/dev/null 2>&1 || true
       echo "ERROR: redispatch admission already consumed: $ADMISSION_KEY" >&2
@@ -925,6 +1069,7 @@ RUNNER_FILE=""
 RUNNER_COMMAND=""
 DRY_RUNNER_RELATIVE=".review/ISSUE-${ISSUE_N}-launch.<unique>/launch.sh"
 RUNNER_PREVIEW="exec env NODE_OPTIONS="
+RUNNER_PREVIEW="unset AGENT_WORKFLOW_HOST_STATE; $RUNNER_PREVIEW"
 RUNNER_PREVIEW="$RUNNER_PREVIEW AGENT_WORKFLOW_RUNTIME_BIN=$RUNTIME_BIN_PIN"
 RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --runtime $RUNTIME --role $ROLE --mode $RUNTIME_MODE --issue $ISSUE_N --prompt-file $ABS_PROMPT_FILE --cwd $ABS_WORKTREE"
 # Unpinned dispatch silently inherits the user's codex config default model,
@@ -986,12 +1131,12 @@ fi
 RECEIPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-TRANSPORT.json"
 RUNNER_SHA="$(node -e 'const fs=require("fs"),crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$RUNNER_FILE")"
 CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" <<'NODE'
+node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" "$ROUTE_DIGEST" "$ROUTE_POLICY_DIGEST" "$MODEL" "$EFFORT" "${ADMISSION_MODE:-}" "${ADMISSION_DIR:-}" "${INTEGRATED_DIR:-}" <<'NODE'
 const fs = require("fs");
-const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt, runtime, role, runtimeCapabilitiesJson] = process.argv.slice(2);
+const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt, runtime, role, runtimeCapabilitiesJson, routeDigest, policyDigest, model, effort, admissionMode, admissionDir, integratedDir] = process.argv.slice(2);
 const runtimeCapabilities = JSON.parse(runtimeCapabilitiesJson);
 const value = {
-  schema_version: "2", artifact_type: "transport_receipt", authoritative: false,
+  schema_version: routeDigest ? "3" : "2", artifact_type: "transport_receipt", authoritative: false,
   issue: Number(issue), adapter, adapter_version: version,
   runtime, role, runtime_version: runtimeCapabilities.version,
   capabilities: JSON.parse(capabilitiesJson), external_handle: handle,
@@ -999,6 +1144,23 @@ const value = {
   runner: { path: runnerPath, relative_path: runnerRelative, sha256: runnerSha },
   launched_at: launchedAt, created_at: createdAt
 };
+if (routeDigest) {
+  if (!/^[a-f0-9]{64}$/.test(routeDigest) || !/^[a-f0-9]{64}$/.test(policyDigest || "")) process.exit(2);
+  const readBinding = directory => JSON.parse(fs.readFileSync(`${directory}/.admission-transaction.json`, "utf8"));
+  let ordinal;
+  try { ordinal = readBinding(admissionDir); } catch (_) { process.exit(2); }
+  if (ordinal.route_digest !== routeDigest) process.exit(2);
+  if (admissionMode === "integrated_fix") {
+    let singleton;
+    try { singleton = readBinding(integratedDir); } catch (_) { process.exit(2); }
+    if (singleton.route_digest !== routeDigest) process.exit(2);
+  }
+  value.routing = {
+    route_digest: routeDigest, policy_digest: policyDigest,
+    selection_basis: "ordered_policy", decision_reason_codes: ["model_alloc", "ordered_policy"],
+    selected: { model, effort }
+  };
+}
 const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
 const { validate } = require(validatorFile);
 const errors = validate(schema, value);

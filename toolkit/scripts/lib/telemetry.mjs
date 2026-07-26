@@ -14,7 +14,8 @@ const die = (m, c = 2) => {
     console.error(`telemetry: ${m}`);
     process.exit(c);
   },
-  sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
+  sha = (b) => crypto.createHash("sha256").update(b).digest("hex"),
+  hmac = (key, value) => crypto.createHmac("sha256", key).update(value).digest("hex");
 const [command, ...argv] = process.argv.slice(2),
   opt = {};
 for (let i = 0; i < argv.length; i++) {
@@ -137,6 +138,133 @@ const containedPath = (
   return resolved;
 };
 const validRfc3339 = (value) => parseRfc3339(value) !== null;
+const sampleIdentity = (sample) => {
+  const identity = {
+    project: sample.project_pseudonym,
+    issue: sample.issue,
+    round: sample.round,
+    revision: sample.manifest_revision,
+    attempt: sample.attempt,
+    role: sample.role,
+    task_class: sample.task_class,
+    tier: sample.tier,
+    model: sample.model,
+    effort: sample.effort,
+    head: sample.head_sha,
+    retry_of: sample.retry_of,
+  };
+  if (sample.schema_version === "2") {
+    identity.schema_version = "2";
+    identity.routing = sample.routing;
+  }
+  return identity;
+};
+const safeAdmissionKey = (value) => /^issue-[1-9][0-9]*-dispatch-[1-9][0-9]*$/.test(value || "");
+const safeRegularFile = (file) => {
+  try {
+    const stat = fs.lstatSync(file);
+    return stat.isFile() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+const safeDirectory = (directory) => {
+  try {
+    const stat = fs.lstatSync(directory);
+    return stat.isDirectory() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
+const commonDir = (repo) => {
+  let value;
+  try {
+    value = execFileSync("git", ["-C", repo, "rev-parse", "--git-common-dir"], {
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    die("cannot resolve git common directory");
+  }
+  try {
+    return fs.realpathSync(path.isAbsolute(value) ? value : path.join(repo, value));
+  } catch {
+    die("git common directory is uncheckable");
+  }
+};
+const sameRealpath = (left, right) => {
+  try {
+    return fs.realpathSync(left) === fs.realpathSync(right);
+  } catch {
+    return false;
+  }
+};
+const telemetryRole = (receiptRole) => ({
+  implementation: "implementation",
+  reviewer: "review",
+  verifier: "verification",
+}[receiptRole] || null);
+const routedProvenance = ({ repo, round, roundSource, receiptSource, issue, salt }) => {
+  const receipt = receiptSource.value;
+  if (receipt.schema_version !== "3" || !receipt.routing)
+    die("policy telemetry requires a v3 transport receipt");
+  if (
+    receipt.issue !== issue || !receipt.runtime || !receipt.role || !receipt.routing.selected ||
+    !/^[a-f0-9]{64}$/.test(receipt.routing.route_digest || "") ||
+    !/^[a-f0-9]{64}$/.test(receipt.routing.policy_digest || "")
+  )
+    die("transport receipt routing provenance is malformed");
+  const role = telemetryRole(receipt.role);
+  if (!role) die("transport receipt role is not telemetry-collectable");
+  try {
+    if (fs.realpathSync(receipt.worktree_path) !== repo)
+      die("transport receipt worktree does not match telemetry target");
+  } catch {
+    die("transport receipt worktree is uncheckable");
+  }
+  const key = round.round_control?.last_admission_key;
+  if (!safeAdmissionKey(key)) die("policy telemetry lacks current admission binding");
+  const admissionRoot = path.join(commonDir(repo), "agent-workflow", "redispatch-admissions");
+  const admissionDir = path.join(admissionRoot, key);
+  const bindingFile = path.join(admissionDir, ".admission-transaction.json");
+  if (!safeDirectory(admissionRoot) || !safeDirectory(admissionDir) || !safeRegularFile(bindingFile))
+    die("policy telemetry admission binding is missing or unsafe");
+  const binding = json(bindingFile);
+  const bindingFailures = [
+    binding.version !== 1 && "version",
+    binding.status !== "committed" && "status",
+    String(binding.issue) !== String(issue) && "issue",
+    binding.admission_key !== key && "admission_key",
+    !sameRealpath(binding.round_state, roundSource.absolute) && "round_state",
+    binding.route_digest !== receipt.routing.route_digest && "route_digest",
+    !["normal", "integrated"].includes(binding.kind) && "kind",
+  ].filter(Boolean);
+  if (bindingFailures.length)
+    die(`policy telemetry admission binding does not match receipt: ${bindingFailures.join(",")}`);
+  if (binding.kind === "integrated") {
+    const singletonFile = path.join(admissionRoot, `issue-${issue}-integrated-fix`, ".admission-transaction.json");
+    const singletonDir = path.dirname(singletonFile);
+    if (!safeDirectory(singletonDir) || !safeRegularFile(singletonFile))
+      die("policy telemetry integrated binding is missing or unsafe");
+    const singleton = json(singletonFile);
+    if (
+      singleton.version !== 1 || singleton.status !== "committed" || singleton.kind !== "integrated" ||
+      String(singleton.issue) !== String(issue) || singleton.admission_key !== key ||
+      !sameRealpath(singleton.round_state, roundSource.absolute) || singleton.route_digest !== binding.route_digest
+    )
+      die("policy telemetry integrated binding does not match ordinal");
+  }
+  return {
+    selection_basis: receipt.routing.selection_basis,
+    route_pseudonym: hmac(salt, receipt.routing.route_digest),
+    policy_digest: `sha256:${receipt.routing.policy_digest}`,
+    runtime: receipt.runtime,
+    decision_reason_codes: receipt.routing.decision_reason_codes,
+    model: receipt.routing.selected.model,
+    effort: receipt.routing.selected.effort,
+    transport: receipt.adapter,
+    role,
+  };
+};
 function checkUsage(value) {
   const keys = [
       "kind",
@@ -198,7 +326,8 @@ function collect() {
     blockerS = safeSource(repo, "blocker", opt.blocker),
     closureS = safeSource(repo, "candidate_closure", opt.closure),
     integrationS = safeSource(repo, "integration", opt.integration),
-    evidenceS = safeSource(repo, "candidate_evidence", opt.evidence_set);
+    evidenceS = safeSource(repo, "candidate_evidence", opt.evidence_set),
+    receiptS = safeSource(repo, "transport_receipt", opt.receipt);
   assertArtifact(roundS, "round_state.schema.json");
   assertArtifact(runS, "run.schema.json");
   assertArtifact(reviewS, "review.schema.json");
@@ -207,6 +336,11 @@ function collect() {
   assertArtifact(closureS, "candidate_closure.schema.json");
   assertArtifact(integrationS, "integration_result.schema.json");
   assertArtifact(evidenceS, "candidate_evidence_set.schema.json");
+  assertArtifact(receiptS, "transport_receipt.schema.json");
+  if (opt.route_digest || opt.policy_digest || opt.routing)
+    die("raw routing provenance is never accepted from telemetry CLI");
+  if (receiptS && (opt.model || opt.effort || opt.transport || opt.runtime || opt.role))
+    die("policy telemetry derives role/runtime/model/effort/transport from receipt; omit tuple flags");
   if (closureS && (!integrationS || !evidenceS))
     die("candidate_closure requires canonical integration and evidence sources");
   if (!closureS && (integrationS || evidenceS))
@@ -245,6 +379,7 @@ function collect() {
       candidate_closure: `.review/ISSUE-${issue}-CLOSURE.json`,
       integration: `.review/ISSUE-${issue}-INTEGRATION.json`,
       candidate_evidence: `.review/ISSUE-${issue}-CANDIDATE-EVIDENCE.json`,
+      transport_receipt: `.review/ISSUE-${issue}-TRANSPORT.json`,
     };
   for (const s of [
     roundS,
@@ -255,6 +390,7 @@ function collect() {
     closureS,
     integrationS,
     evidenceS,
+    receiptS,
   ].filter(Boolean))
     if (s.path !== expectedPaths[s.kind])
       die(`${s.kind} artifact path is not canonical`);
@@ -429,6 +565,9 @@ function collect() {
   } catch {
     die("target-local --salt-file is required");
   }
+  const routing = receiptS
+    ? routedProvenance({ repo, round, roundSource: roundS, receiptSource: receiptS, issue, salt })
+    : null;
   let projectIdentity;
   try {
     projectIdentity = execFileSync(
@@ -450,15 +589,22 @@ function collect() {
       round: roundNumber,
       revision,
       attempt,
-      role: opt.role,
+      role: routing ? routing.role : opt.role,
       task_class: opt.task_class,
       tier: round.tier?.name,
-      model: opt.model,
-      effort: opt.effort,
+      model: routing ? routing.model : opt.model,
+      effort: routing ? routing.effort : opt.effort,
       head: round.head_sha,
       retry_of: opt.retry_of || "",
     },
-    sampleId = sha(JSON.stringify(identity)),
+    versionedIdentity = routing ? { ...identity, schema_version: "2", routing: {
+      selection_basis: routing.selection_basis,
+      route_pseudonym: routing.route_pseudonym,
+      policy_digest: routing.policy_digest,
+      runtime: routing.runtime,
+      decision_reason_codes: routing.decision_reason_codes,
+    } } : identity,
+    sampleId = sha(JSON.stringify(versionedIdentity)),
     artifacts = [
       roundS,
       runS,
@@ -468,11 +614,12 @@ function collect() {
       closureS,
       integrationS,
       evidenceS,
+      receiptS,
     ]
       .filter(Boolean)
       .map(({ kind, path, sha256 }) => ({ kind, path, sha256 }));
   const sample = {
-    schema_version: "1",
+    schema_version: routing ? "2" : "1",
     artifact_type: "telemetry_sample",
     sample_id: sampleId,
     project_pseudonym: project,
@@ -480,14 +627,14 @@ function collect() {
     round: roundNumber,
     manifest_revision: revision,
     attempt,
-    role: opt.role,
+    role: routing ? routing.role : opt.role,
     task_class: opt.task_class,
     tier: round.tier.name,
-    model: opt.model,
-    effort: opt.effort,
+    model: routing ? routing.model : opt.model,
+    effort: routing ? routing.effort : opt.effort,
     base_sha: round.base_sha,
     head_sha: round.head_sha,
-    transport: opt.transport,
+    transport: routing ? routing.transport : opt.transport,
     started_at: new Date(start).toISOString(),
     ended_at: new Date(end).toISOString(),
     duration_ms: end - start,
@@ -497,6 +644,15 @@ function collect() {
     artifacts,
     usage,
   };
+  if (routing) {
+    sample.routing = {
+      selection_basis: routing.selection_basis,
+      route_pseudonym: routing.route_pseudonym,
+      policy_digest: routing.policy_digest,
+      runtime: routing.runtime,
+      decision_reason_codes: routing.decision_reason_codes,
+    };
+  }
   const errors = validate(schema("telemetry_sample.schema.json"), sample);
   if (errors.length) die(`sample schema rejected: ${errors[0]}`);
   const store = containedPath(
@@ -567,21 +723,7 @@ function report() {
   const byId = new Map(samples.map((s) => [s.sample_id, s])),
     groups = new Map();
   for (const s of samples) {
-    const storedIdentity = {
-      project: s.project_pseudonym,
-      issue: s.issue,
-      round: s.round,
-      revision: s.manifest_revision,
-      attempt: s.attempt,
-      role: s.role,
-      task_class: s.task_class,
-      tier: s.tier,
-      model: s.model,
-      effort: s.effort,
-      head: s.head_sha,
-      retry_of: s.retry_of,
-    };
-    if (sha(JSON.stringify(storedIdentity)) !== s.sample_id)
+    if (sha(JSON.stringify(sampleIdentity(s))) !== s.sample_id)
       die(`stored sample identity rejected: ${s.sample_id}`);
     const closureErrors = validateTelemetrySampleClosure(s, closureSchema, validate);
     if (closureErrors.length)
@@ -699,21 +841,96 @@ function report() {
       usage_completeness: ratio,
     });
   }
+  const routingCohortMap = new Map(),
+    hasRoutingSamples = samples.some((s) => s.schema_version === "2");
+  for (const chain of chains) {
+    const list = chain.sample_ids.map((id) => byId.get(id));
+    if (!list.some((s) => s.schema_version === "2")) continue;
+    const first = list[0],
+      routingSignature = JSON.stringify({
+        selection_basis: first.routing?.selection_basis,
+        policy_digest: first.routing?.policy_digest,
+        runtime: first.routing?.runtime,
+        decision_reason_codes: first.routing?.decision_reason_codes,
+      }),
+      tupleSignature = JSON.stringify({
+        role: first.role, task_class: first.task_class, tier: first.tier,
+        model: first.model, effort: first.effort,
+      });
+    if (
+      !list.every((s) => s.schema_version === "2") ||
+      !list.every((s) => JSON.stringify({
+        selection_basis: s.routing?.selection_basis,
+        policy_digest: s.routing?.policy_digest,
+        runtime: s.routing?.runtime,
+        decision_reason_codes: s.routing?.decision_reason_codes,
+      }) === routingSignature) ||
+      !list.every((s) => JSON.stringify({
+        role: s.role, task_class: s.task_class, tier: s.tier,
+        model: s.model, effort: s.effort,
+      }) === tupleSignature)
+    ) {
+      suppressed.push(`routing-inhomogeneous:${chain.chain_id}`);
+      continue;
+    }
+    const key = [
+      first.routing.selection_basis, first.routing.policy_digest,
+      first.routing.runtime, first.role,
+      first.task_class, first.tier, first.model, first.effort,
+    ].join("|");
+    if (!routingCohortMap.has(key)) routingCohortMap.set(key, []);
+    routingCohortMap.get(key).push(chain);
+  }
+  const routingCohorts = [];
+  for (const [key, list] of [...routingCohortMap.entries()].sort()) {
+    const firstChain = list[0],
+      first = byId.get(firstChain.sample_ids[0]),
+      total = list.reduce((n, c) => n + c.attempts, 0),
+      available = list.reduce((n, c) => n + c.attempts - c.unavailable_samples, 0),
+      ratio = total ? available / total : 0,
+      completeIndependent = list.filter((c) => c.complete).length;
+    if (completeIndependent < minimum || ratio < threshold) {
+      suppressed.push(`routing:${key}`);
+      continue;
+    }
+    routingCohorts.push({
+      key,
+      selection_basis: first.routing.selection_basis,
+      policy_digest: first.routing.policy_digest,
+      runtime: first.routing.runtime,
+      role: first.role,
+      task_class: first.task_class,
+      tier: first.tier,
+      model: first.model,
+      effort: first.effort,
+      sample_count: total,
+      chain_count: list.length,
+      complete_independent_chains: completeIndependent,
+      observed_cost: list.reduce((n, c) => n + c.observed_cost, 0),
+      estimated_cost: list.reduce((n, c) => n + c.estimated_cost, 0),
+      unavailable_samples: total - available,
+      usage_completeness: ratio,
+    });
+  }
   const out = {
-    schema_version: "1",
+    schema_version: hasRoutingSamples ? "2" : "1",
     artifact_type: "telemetry_report",
     window: {
       from: new Date(from).toISOString(),
       to: new Date(to).toISOString(),
     },
-    policy: { minimum_samples: minimum, minimum_completeness: threshold },
+    policy: hasRoutingSamples
+      ? { minimum_samples: minimum, minimum_complete_independent_chains: minimum, minimum_completeness: threshold }
+      : { minimum_samples: minimum, minimum_completeness: threshold },
     samples: samples.length,
     chains,
     cohorts,
     suppressed_cohorts: suppressed,
-    interpretation:
-      "Advisory local evidence only. No-green and incomplete chains remain visible. Observed and estimated costs are separate; unavailable is never zero. This command never mutates model allocation or tier policy.",
+    interpretation: hasRoutingSamples
+      ? "Advisory local evidence only. No-green and incomplete chains remain visible. Observed and estimated costs are separate; unavailable is never zero. Routing cohorts describe associations, not causal improvement; confounders remain. Only homogeneous schema-v2 policy samples form routing cohorts, and insufficient evidence is suppressed. This command never mutates model allocation or tier policy."
+      : "Advisory local evidence only. No-green and incomplete chains remain visible. Observed and estimated costs are separate; unavailable is never zero. This command never mutates model allocation or tier policy.",
   };
+  if (hasRoutingSamples) out.routing_cohorts = routingCohorts;
   const errors = validate(schema("telemetry_report.schema.json"), out);
   if (errors.length) die(`report schema rejected: ${errors[0]}`);
   process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);

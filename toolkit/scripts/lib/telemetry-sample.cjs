@@ -9,6 +9,14 @@ function validateTelemetrySampleClosure(sample, closureSchema, validate) {
   const closureArtifacts = byKind("candidate_closure");
   const integrationArtifacts = byKind("integration");
   const evidenceArtifacts = byKind("candidate_evidence");
+  const receiptArtifacts = byKind("transport_receipt");
+  if (sample?.schema_version === "2") {
+    const expectedReceipt = `.review/ISSUE-${sample.issue}-TRANSPORT.json`;
+    if (receiptArtifacts.length !== 1 || receiptArtifacts[0]?.path !== expectedReceipt)
+      errors.push("routing_receipt_artifact_missing_or_mismatched");
+  } else if (receiptArtifacts.length) {
+    errors.push("legacy_sample_has_routing_receipt");
+  }
   if (sample?.closure === null) {
     if (closureArtifacts.length || integrationArtifacts.length || evidenceArtifacts.length || sample.terminal === "green") errors.push("closure_absence_mismatch");
     return errors;

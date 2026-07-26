@@ -30,7 +30,7 @@
     "usage"
   ],
   "properties": {
-    "schema_version": { "const": "1" },
+    "schema_version": { "enum": ["1", "2"] },
     "artifact_type": { "const": "telemetry_sample" },
     "sample_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "project_pseudonym": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
@@ -80,8 +80,37 @@
       "minItems": 2,
       "items": { "$ref": "#/definitions/artifact" }
     },
-    "usage": { "$ref": "#/definitions/usage" }
+    "usage": { "$ref": "#/definitions/usage" },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selection_basis", "route_pseudonym", "policy_digest", "runtime", "decision_reason_codes"],
+      "properties": {
+        "selection_basis": { "const": "ordered_policy" },
+        "route_pseudonym": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "policy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "runtime": { "enum": ["codex", "claude", "opencode"] },
+        "decision_reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["model_alloc", "ordered_policy"] },
+          "uniqueItems": true
+        }
+      }
+    }
   },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": { "schema_version": { "const": "1" } },
+      "not": { "type": "object", "required": ["routing"] }
+    },
+    {
+      "type": "object",
+      "required": ["routing"],
+      "properties": { "schema_version": { "const": "2" } }
+    }
+  ],
   "definitions": {
     "artifact": {
       "type": "object",
@@ -89,7 +118,7 @@
       "required": ["kind", "path", "sha256"],
       "properties": {
         "kind": {
-          "enum": ["round_state", "run", "review", "verify", "blocker", "candidate_closure", "integration", "candidate_evidence"]
+          "enum": ["round_state", "run", "review", "verify", "blocker", "candidate_closure", "integration", "candidate_evidence", "transport_receipt"]
         },
         "path": { "type": "string", "pattern": "^[^/].*" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }

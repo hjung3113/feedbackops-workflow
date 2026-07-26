@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DISPATCH="$SCRIPT_DIR/../cmux-dispatch.sh"
 WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
+ROUTE="$SCRIPT_DIR/../route.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 # Runtime admission capability-probes the executable. Use a deterministic
@@ -186,6 +187,55 @@ INITIAL_STATE="$WT/.review/ISSUE-301-ROUND-STATE.json"
 make_round_state 301 "$WT" 1 "$INITIAL_STATE"
 VALID_INITIAL_STATE="$TMP_ROOT/valid-initial-state.json"
 cp "$INITIAL_STATE" "$VALID_INITIAL_STATE"
+
+# An explicit host policy refuses every initial-write tier before allocation or
+# the remote compatibility probe. Manual tuples and dry-runs remain complete
+# routing bypasses even while that policy is active.
+ROUTE_HOST_STATE="$TMP_ROOT/route-host-state"
+ROUTE_POLICY="$TMP_ROOT/route-policy.json"
+GIT_COMMON_DIR="$(git -C "$WT" rev-parse --path-format=absolute --git-common-dir)"
+printf '%s\n' '{"version":1,"rules":[{"when":{"runtime":"codex","role":"implementation"},"candidates":{"from":"model_alloc"},"fallback":"deny"}]}' > "$ROUTE_POLICY"
+route_install_out="$TMP_ROOT/route-policy-install.out"
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_HOST_STATE" bash "$ROUTE" policy install --git-common-dir "$GIT_COMMON_DIR" --worktree "$WT" --policy-file "$ROUTE_POLICY" >"$route_install_out" 2>&1
+if [ "$?" -eq 0 ]; then
+  pass "host policy install enables an explicit dispatch opt-in"
+else
+  fail "host policy install enables an explicit dispatch opt-in ($(cat "$route_install_out"))"
+fi
+for policy_tier in trivial standard full_cluster; do
+  policy_initial_out="$TMP_ROOT/policy-initial-$policy_tier.out"
+  probe_sentinel="$TMP_ROOT/probe-called-$policy_tier"
+  AGENT_WORKFLOW_HOST_STATE="$ROUTE_HOST_STATE" AGENT_WORKFLOW_MODEL_PROBE_CMD="touch '$probe_sentinel'; exit 9" bash "$DISPATCH" --issue 301 --worktree "$WT" --tier "$policy_tier" --round-state "$INITIAL_STATE" --manifest-revision 1 >"$policy_initial_out" 2>&1
+  ec=$?
+  if [ "$ec" -eq 3 ] && grep -q 'route_mode_unbound' "$policy_initial_out" && [ ! -e "$probe_sentinel" ]; then
+    pass "policy initial $policy_tier refuses before model allocation probe"
+  else
+    fail "policy initial $policy_tier refuses before model allocation probe (ec=$ec: $(cat "$policy_initial_out"))"
+  fi
+done
+manual_policy_out="$TMP_ROOT/manual-policy-bypass.out"
+manual_probe="$TMP_ROOT/manual-policy-probe"
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_HOST_STATE" AGENT_WORKFLOW_MODEL_PROBE_CMD="touch '$manual_probe'; exit 9" bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --model gpt-5.6-terra --effort low >"$manual_policy_out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && [ -e "$manual_probe" ] && grep -q 'model_compatibility_unavailable' "$manual_policy_out" && ! grep -q 'route_mode_unbound' "$manual_policy_out"; then
+  pass "manual tuple bypasses active routing policy"
+else
+  fail "manual tuple bypasses active routing policy (ec=$ec: $(cat "$manual_policy_out"))"
+fi
+policy_dry_run_out="$TMP_ROOT/policy-dry-run-bypass.out"
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_HOST_STATE" bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >"$policy_dry_run_out" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && ! grep -q 'route_mode_unbound' "$policy_dry_run_out"; then
+  pass "dry-run bypasses active routing policy"
+else
+  fail "dry-run bypasses active routing policy (ec=$ec: $(cat "$policy_dry_run_out"))"
+fi
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_HOST_STATE" bash "$ROUTE" policy deactivate --git-common-dir "$GIT_COMMON_DIR" --worktree "$WT" >/dev/null 2>&1
+if [ "$?" -eq 0 ]; then
+  pass "host policy deactivate restores no-policy dispatch"
+else
+  fail "host policy deactivate restores no-policy dispatch"
+fi
 printf '%s\n' '{}' > "$INITIAL_STATE"
 stderr_file="$TMP_ROOT/malformed-initial-round-state.stderr"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >/dev/null 2>"$stderr_file"
@@ -808,6 +858,97 @@ printf '%s\n' '{"id":"cmux-admit"}'
 exit 0
 EOF
 chmod +x "$ADMIT_BIN/cmux"
+
+# A policy-selected canonical redispatch binds the same opaque digest to the
+# authoritative ordinal and its integrated-fix recovery companion. This uses
+# an isolated repository so the ordinary no-policy admission checks below keep
+# proving their legacy digest-free record shape.
+ROUTE_ADMIT_WT="$TMP_ROOT/wt-route-admission"
+git clone -q "$ADMIT_WT" "$ROUTE_ADMIT_WT"
+mkdir -p "$ROUTE_ADMIT_WT/.review/evidence"
+ROUTE_ADMIT_STATE="$ROUTE_ADMIT_WT/.review/ISSUE-308-ROUND-STATE.json"
+cp "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" "$ROUTE_ADMIT_STATE"
+node - "$ROUTE_ADMIT_WT" "$ROUTE_ADMIT_STATE" "$ADMIT_EVIDENCE_HEAD" <<'NODE'
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const [worktree, stateFile, evidenceHead] = process.argv.slice(2);
+const artifact = JSON.parse(fs.readFileSync(path.join(worktree, ".review/evidence/F-307.json"), "utf8"));
+artifact.issue = 308;
+artifact.cwd = worktree;
+for (const name of ["F-308.json", "F-308-2.json", "hard-fact-308.json"]) {
+  fs.writeFileSync(path.join(worktree, ".review/evidence", name), JSON.stringify(artifact));
+}
+const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+const ref = name => {
+  const relative = `.review/evidence/${name}`;
+  const content = fs.readFileSync(path.join(worktree, relative));
+  return { kind: "verify", path: relative, content_sha256: crypto.createHash("sha256").update(content).digest("hex"), head_sha: evidenceHead };
+};
+state.issue = { number: 308, title: "route digest binding" };
+state.worktree_path = worktree;
+const first = state.round_control.failures[0];
+first.id = "F-1";
+first.dispatch_ordinal = 1;
+first.evidence = [ref("F-308.json")];
+const second = JSON.parse(JSON.stringify(first));
+second.id = "F-2";
+second.dispatch_ordinal = 2;
+second.evidence = [ref("F-308-2.json")];
+state.round_control = {
+  next_dispatch_ordinal: 3,
+  failures: [first, second],
+  diagnosis: {
+    trigger: "same_origin",
+    failure_ids: ["F-1", "F-2"],
+    records: [
+      { kind: "oracle_contract_recheck", summary: "oracle checked", evidence: { kind: "live_probe", path: ".review/evidence/oracle.json", content_sha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(worktree, ".review/evidence/oracle.json"))).digest("hex"), head_sha: evidenceHead } },
+      { kind: "hard_fact", summary: "hard fact", evidence: { kind: "verify", path: ".review/evidence/hard-fact-308.json", content_sha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(worktree, ".review/evidence/hard-fact-308.json"))).digest("hex"), head_sha: evidenceHead } },
+      { kind: "passing_analog", summary: "passing analog", instruction: "guess_forbidden_copy_passing_analog_to_parity", evidence: { kind: "diff", path: ".review/evidence/passing.json", content_sha256: crypto.createHash("sha256").update(fs.readFileSync(path.join(worktree, ".review/evidence/passing.json"))).digest("hex"), head_sha: evidenceHead } }
+    ],
+    integrated_fix_batch: { dispatch_ordinal: 3, failure_ids: ["F-1", "F-2"], status: "ready" }
+  }
+};
+fs.writeFileSync(stateFile, JSON.stringify(state));
+fs.writeFileSync(path.join(worktree, ".review/ISSUE-308-PROMPT.txt"), ["worker instructions", "<!-- agent-workflow:ac-block:start -->", "```json", JSON.stringify(state.acceptance.criteria), "```", "<!-- agent-workflow:ac-block:end -->", ""].join("\n"));
+fs.writeFileSync(path.join(worktree, ".review/ISSUE-308-RUN.json"), '{"schema_version":"1","artifact_type":"codex_run","issue":308,"attempt":1,"started_at":"2026-07-13T00:00:00Z","updated_at":"2026-07-13T00:00:00Z","status":"exited","exit_code":1}\n');
+NODE
+ROUTE_ADMIT_COMMON="$(git -C "$ROUTE_ADMIT_WT" rev-parse --path-format=absolute --git-common-dir)"
+ROUTE_ADMIT_HOST_STATE="$TMP_ROOT/route-admission-host-state"
+ROUTE_ADMIT_POLICY="$TMP_ROOT/route-admission-policy.json"
+printf '%s\n' '{"version":1,"rules":[{"when":{"runtime":"codex","role":"implementation"},"candidates":{"from":"model_alloc"},"fallback":"deny"}]}' > "$ROUTE_ADMIT_POLICY"
+route_admit_install="$TMP_ROOT/route-admission-policy-install.out"
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" bash "$ROUTE" policy install --git-common-dir "$ROUTE_ADMIT_COMMON" --worktree "$ROUTE_ADMIT_WT" --policy-file "$ROUTE_ADMIT_POLICY" >"$route_admit_install" 2>&1
+ROUTE_ADMIT_BIN="$TMP_ROOT/bin-route-admission-cmux"
+mkdir -p "$ROUTE_ADMIT_BIN"
+cat > "$ROUTE_ADMIT_BIN/cmux" <<EOF
+#!/usr/bin/env bash
+. "$CMUX_PROBE_HELPER"
+printf '%s\n' '{"schema_version":"1","artifact_type":"codex_run","issue":308,"attempt":2,"started_at":"2026-07-20T10:00:00Z","updated_at":"2026-07-20T10:00:00Z","status":"running"}' > "$ROUTE_ADMIT_WT/.review/ISSUE-308-RUN.json"
+printf '%s\n' '{"id":"cmux-route-admit"}'
+exit 0
+EOF
+chmod +x "$ROUTE_ADMIT_BIN/cmux"
+route_admit_out="$TMP_ROOT/route-admission.out"
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
+  bash "$DISPATCH" --issue 308 --worktree "$ROUTE_ADMIT_WT" --round-state "$ROUTE_ADMIT_STATE" --manifest-revision 5 --poll-timeout 3 >"$route_admit_out" 2>&1
+route_admit_ec=$?
+route_admit_root="$ROUTE_ADMIT_COMMON/agent-workflow/redispatch-admissions"
+if [ "$route_admit_ec" -eq 0 ] && node - "$route_admit_root/issue-308-dispatch-3/.admission-transaction.json" "$route_admit_root/issue-308-integrated-fix/.admission-transaction.json" "$ROUTE_ADMIT_WT/.review/ISSUE-308-TRANSPORT.json" <<'NODE'
+const fs = require("fs");
+const [ordinalFile, singletonFile, receiptFile] = process.argv.slice(2);
+try {
+  const ordinal = JSON.parse(fs.readFileSync(ordinalFile, "utf8"));
+  const singleton = JSON.parse(fs.readFileSync(singletonFile, "utf8"));
+  const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
+  process.exit(/^[a-f0-9]{64}$/.test(ordinal.route_digest || "") && ordinal.route_digest === singleton.route_digest && receipt.schema_version === "3" && receipt.routing && receipt.routing.route_digest === ordinal.route_digest && receipt.routing.selected.model === "gpt-5.6-terra" && receipt.routing.selected.effort === "low" ? 0 : 1);
+} catch (_) { process.exit(1); }
+NODE
+then
+  pass "policy redispatch binds one route digest to admission and receipt provenance"
+else
+  fail "policy redispatch route digest receipt binding (ec=$route_admit_ec: $(cat "$route_admit_out"))"
+fi
 # A live issue-lock owner remains authoritative even when its lock file is
 # older than the recovery threshold. Staleness may only reclaim a dead owner.
 live_lock_dir="$admission_root/.issue-307-lock"
@@ -850,10 +991,18 @@ first_ec=$?
 admission_second="$TMP_ROOT/admission-second.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_second" 2>&1
 second_ec=$?
-if [ "$first_ec" -eq 0 ] && [ "$second_ec" -eq 2 ] && grep -q "key=issue-307-dispatch-2" "$admission_first" && grep -q "unbound_last_admission" "$admission_second"; then
-  pass "write redispatch requires recorded failure evidence before another ordinal"
+if [ "$first_ec" -eq 0 ] && [ "$second_ec" -eq 2 ] && grep -q "key=issue-307-dispatch-2" "$admission_first" && grep -q "unbound_last_admission" "$admission_second" \
+  && node - "$admission_root/issue-307-dispatch-2/.admission-transaction.json" <<'NODE'
+const fs = require("fs");
+try {
+  const transaction = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  process.exit(Object.prototype.hasOwnProperty.call(transaction, "route_digest") ? 1 : 0);
+} catch (_) { process.exit(1); }
+NODE
+then
+  pass "no-policy redispatch keeps its admission record digest-free"
 else
-  fail "write redispatch failure-evidence binding (first=$first_ec second=$second_ec: $(cat "$admission_second"))"
+  fail "no-policy redispatch admission shape (first=$first_ec second=$second_ec: $(cat "$admission_second"))"
 fi
 
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.revision=6; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"

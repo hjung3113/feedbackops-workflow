@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "artifact_type", "authoritative", "issue", "adapter", "adapter_version", "capabilities", "external_handle", "worktree_path", "runner", "launched_at", "created_at"],
   "properties": {
-    "schema_version": { "enum": ["1", "2"] },
+    "schema_version": { "enum": ["1", "2", "3"] },
     "artifact_type": { "const": "transport_receipt" },
     "authoritative": { "const": false },
     "issue": { "type": "integer", "minimum": 1 },
@@ -27,6 +27,31 @@
         "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_digest", "policy_digest", "selection_basis", "decision_reason_codes", "selected"],
+      "properties": {
+        "route_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "policy_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "selection_basis": { "const": "ordered_policy" },
+        "decision_reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["model_alloc", "ordered_policy"] },
+          "uniqueItems": true
+        },
+        "selected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "effort"],
+          "properties": {
+            "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+            "effort": { "enum": ["low", "medium", "high"] }
+          }
+        }
+      }
+    },
     "launched_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
     "created_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
   },
@@ -36,6 +61,11 @@
       "type": "object",
       "required": ["runtime", "role", "runtime_version"],
       "properties": { "schema_version": { "const": "2" } }
+    },
+    {
+      "type": "object",
+      "required": ["runtime", "role", "runtime_version", "routing"],
+      "properties": { "schema_version": { "const": "3" } }
     }
   ]
 }
