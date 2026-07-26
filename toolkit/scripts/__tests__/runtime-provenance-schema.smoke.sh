@@ -44,6 +44,7 @@ check_fixture transport_receipt transport_receipt.runtime.valid.json valid
 check_fixture transport_receipt transport_receipt.runtime.invalid.json invalid
 check_fixture transport_receipt transport_receipt.routing.valid.json valid
 check_fixture transport_receipt transport_receipt.routing.invalid.json invalid
+check_fixture transport_receipt transport_receipt.routing.legacy.invalid.json invalid
 
 if [ "$FAILURES" -eq 0 ]; then
   echo "--- ALL CASES PASS"

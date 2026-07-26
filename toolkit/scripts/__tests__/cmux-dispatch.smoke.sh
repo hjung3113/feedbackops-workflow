@@ -929,6 +929,15 @@ printf '%s\n' '{"id":"cmux-route-admit"}'
 exit 0
 EOF
 chmod +x "$ROUTE_ADMIT_BIN/cmux"
+route_admit_wrong_tier="$TMP_ROOT/route-admission-wrong-tier.out"
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
+  bash "$DISPATCH" --issue 308 --worktree "$ROUTE_ADMIT_WT" --tier standard --round-state "$ROUTE_ADMIT_STATE" --manifest-revision 5 --poll-timeout 3 >"$route_admit_wrong_tier" 2>&1
+route_admit_wrong_tier_ec=$?
+if [ "$route_admit_wrong_tier_ec" -eq 3 ] && grep -q 'route_demand_invalid' "$route_admit_wrong_tier"; then
+  pass "policy redispatch derives tier from canonical ROUND-STATE"
+else
+  fail "policy redispatch rejects a CLI tier that disagrees with ROUND-STATE (ec=$route_admit_wrong_tier_ec: $(cat "$route_admit_wrong_tier"))"
+fi
 route_admit_out="$TMP_ROOT/route-admission.out"
 AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
   bash "$DISPATCH" --issue 308 --worktree "$ROUTE_ADMIT_WT" --round-state "$ROUTE_ADMIT_STATE" --manifest-revision 5 --poll-timeout 3 >"$route_admit_out" 2>&1
@@ -941,7 +950,7 @@ try {
   const ordinal = JSON.parse(fs.readFileSync(ordinalFile, "utf8"));
   const singleton = JSON.parse(fs.readFileSync(singletonFile, "utf8"));
   const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
-  process.exit(/^[a-f0-9]{64}$/.test(ordinal.route_digest || "") && ordinal.route_digest === singleton.route_digest && receipt.schema_version === "3" && receipt.routing && receipt.routing.route_digest === ordinal.route_digest && receipt.routing.selected.model === "gpt-5.6-terra" && receipt.routing.selected.effort === "low" ? 0 : 1);
+  process.exit(/^[a-f0-9]{64}$/.test(ordinal.route_digest || "") && ordinal.route_digest === singleton.route_digest && ordinal.routing && ordinal.routing.tier === "full_cluster" && ordinal.routing.runtime === "codex" && ordinal.routing.transport === "cmux" && ordinal.routing.selected.model === "gpt-5.6-terra" && ordinal.routing.selected.effort === "low" && receipt.schema_version === "3" && receipt.routing && receipt.routing.route_digest === ordinal.route_digest && receipt.routing.selected.model === "gpt-5.6-terra" && receipt.routing.selected.effort === "low" ? 0 : 1);
 } catch (_) { process.exit(1); }
 NODE
 then

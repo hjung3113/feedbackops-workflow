@@ -31,11 +31,36 @@ cat > "$TMP/policy.json" <<'EOF'
 EOF
 printf '%s\n' '{"model":"gpt-5.6-terra","effort":"medium"}' > "$TMP/alloc.json"
 
+# Static identity/configuration is a host-side cached probe. It establishes
+# only the pinned executable identity; it does not claim model availability.
+PROBE_BIN="$TMP/probe-bin"
+mkdir -p "$PROBE_BIN"
+cat > "$PROBE_BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+[ "${1:-}" = "--version" ] || exit 2
+if [ -n "${PROBE_CALLS:-}" ]; then printf 'called\n' >> "$PROBE_CALLS"; fi
+printf 'codex-smoke 1.2.3\n'
+EOF
+chmod +x "$PROBE_BIN/codex"
+
 # A project opts in only through an explicit host-side install. The worktree
 # never supplies routing policy bytes to dispatch.
 HOST_STATE="$TMP/host-state"
 GIT_COMMON="$TMP/git-common"
 mkdir -p "$GIT_COMMON"
+expect "static probe emits a cached bounded offer" 0 env PATH="$PROBE_BIN:$PATH" AGENT_WORKFLOW_HOST_STATE="$HOST_STATE" AGENT_WORKFLOW_ROUTE_VERSION="codex-smoke 1.2.3" bash "$ROUTE" probe --runtime codex --depth static --ttl-seconds 60
+grep -q '"status":"admitted"' "$TMP/out" && grep -q '"version":"codex-smoke 1.2.3"' "$TMP/out" && ok "static probe records pinned executable identity" || bad "static probe offer shape"
+PROBE_CALLS="$TMP/probe-calls"
+expect "static probe reuses a fresh safe cache without rerunning version" 0 env PATH="$PROBE_BIN:$PATH" AGENT_WORKFLOW_HOST_STATE="$HOST_STATE" PROBE_CALLS="$PROBE_CALLS" bash "$ROUTE" probe --runtime codex --depth static --ttl-seconds 60
+[ ! -e "$PROBE_CALLS" ] && grep -q '"version":"codex-smoke 1.2.3"' "$TMP/out" && ok "static probe cache hit preserves observed identity" || bad "static probe cache hit"
+CACHE_FILE="$(printf '%s\n' "$HOST_STATE"/route-offers/*.json)"
+node - "$CACHE_FILE" <<'NODE'
+const fs=require("fs"),f=process.argv[2],o=JSON.parse(fs.readFileSync(f));o.expires_at="2026-07-01T00:00:00.000Z";fs.writeFileSync(f,JSON.stringify(o));fs.chmodSync(f,0o600);
+NODE
+expect "expired static probe cache refreshes from a new host observation" 0 env PATH="$PROBE_BIN:$PATH" AGENT_WORKFLOW_HOST_STATE="$HOST_STATE" AGENT_WORKFLOW_ROUTE_VERSION="codex-smoke 1.2.4" PROBE_CALLS="$PROBE_CALLS" bash "$ROUTE" probe --runtime codex --depth static --ttl-seconds 60
+grep -q '"version":"codex-smoke 1.2.4"' "$TMP/out" && ok "expired static cache does not reuse an old observation" || bad "expired static cache refresh"
+chmod 0664 "$CACHE_FILE"
+expect "unsafe static probe cache is refused" 3 env PATH="$PROBE_BIN:$PATH" AGENT_WORKFLOW_HOST_STATE="$HOST_STATE" bash "$ROUTE" probe --runtime codex --depth static --ttl-seconds 60
 expect "host root inside a worktree is refused" 3 env AGENT_WORKFLOW_HOST_STATE="$TMP/route-smoke/host-state" bash "$ROUTE" policy install --git-common-dir "$GIT_COMMON" --worktree "$TMP/route-smoke" --policy-file "$TMP/policy.json"
 expect "host root inside Git common dir is refused" 3 env AGENT_WORKFLOW_HOST_STATE="$GIT_COMMON/host-state" bash "$ROUTE" policy install --git-common-dir "$GIT_COMMON" --worktree "$TMP/route-smoke" --policy-file "$TMP/policy.json"
 dd if=/dev/zero of="$TMP/oversize-policy.json" bs=1 count=262145 2>/dev/null
