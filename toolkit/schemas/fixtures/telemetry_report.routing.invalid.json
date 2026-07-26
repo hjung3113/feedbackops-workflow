@@ -1,0 +1,31 @@
+{
+  "schema_version": "2",
+  "artifact_type": "telemetry_report",
+  "window": { "from": "2026-07-01T00:00:00Z", "to": "2026-08-01T00:00:00Z" },
+  "policy": { "minimum_samples": 1, "minimum_complete_independent_chains": 1, "minimum_completeness": 0 },
+  "samples": 1,
+  "chains": [],
+  "cohorts": [],
+  "suppressed_cohorts": [],
+  "routing_cohorts": [
+    {
+      "key": "bad",
+      "selection_basis": "ordered_policy",
+      "policy_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "runtime": "codex",
+      "role": "implementation",
+      "task_class": "workflow",
+      "tier": "standard",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "sample_count": 1,
+      "chain_count": 1,
+      "complete_independent_chains": -1,
+      "observed_cost": 0,
+      "estimated_cost": 0,
+      "unavailable_samples": 1,
+      "usage_completeness": 0
+    }
+  ],
+  "interpretation": "Invalid cohort fixture."
+}

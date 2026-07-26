@@ -15,7 +15,7 @@
     "interpretation"
   ],
   "properties": {
-    "schema_version": { "const": "1" },
+    "schema_version": { "enum": ["1", "2"] },
     "artifact_type": { "const": "telemetry_report" },
     "window": {
       "type": "object",
@@ -32,6 +32,7 @@
       "required": ["minimum_samples", "minimum_completeness"],
       "properties": {
         "minimum_samples": { "type": "integer", "minimum": 1 },
+        "minimum_complete_independent_chains": { "type": "integer", "minimum": 1 },
         "minimum_completeness": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
@@ -42,8 +43,27 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
-    "interpretation": { "type": "string", "minLength": 1 }
+    "interpretation": { "type": "string", "minLength": 1 },
+    "routing_cohorts": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/routing_cohort" }
+    }
   },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": { "schema_version": { "const": "1" } },
+      "not": { "type": "object", "required": ["routing_cohorts"] }
+    },
+    {
+      "type": "object",
+      "required": ["routing_cohorts"],
+      "properties": {
+        "schema_version": { "const": "2" },
+        "policy": { "type": "object", "required": ["minimum_complete_independent_chains"] }
+      }
+    }
+  ],
   "definitions": {
     "chain": {
       "type": "object",
@@ -139,6 +159,46 @@
         "sample_count": { "type": "integer", "minimum": 1 },
         "chain_count": { "type": "integer", "minimum": 1 },
         "complete_green_chains": { "type": "integer", "minimum": 0 },
+        "observed_cost": { "type": "number", "minimum": 0 },
+        "estimated_cost": { "type": "number", "minimum": 0 },
+        "unavailable_samples": { "type": "integer", "minimum": 0 },
+        "usage_completeness": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "routing_cohort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "selection_basis",
+        "policy_digest",
+        "runtime",
+        "role",
+        "task_class",
+        "tier",
+        "model",
+        "effort",
+        "sample_count",
+        "chain_count",
+        "complete_independent_chains",
+        "observed_cost",
+        "estimated_cost",
+        "unavailable_samples",
+        "usage_completeness"
+      ],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "selection_basis": { "const": "ordered_policy" },
+        "policy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "runtime": { "enum": ["codex", "claude", "opencode"] },
+        "role": { "enum": ["implementation", "review", "verification", "contract_gate"] },
+        "task_class": { "enum": ["feature", "bugfix", "refactor", "docs", "test", "workflow"] },
+        "tier": { "enum": ["trivial", "standard", "full_cluster"] },
+        "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+        "effort": { "enum": ["low", "medium", "high"] },
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "chain_count": { "type": "integer", "minimum": 1 },
+        "complete_independent_chains": { "type": "integer", "minimum": 0 },
         "observed_cost": { "type": "number", "minimum": 0 },
         "estimated_cost": { "type": "number", "minimum": 0 },
         "unavailable_samples": { "type": "integer", "minimum": 0 },

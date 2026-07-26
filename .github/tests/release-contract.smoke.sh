@@ -121,6 +121,8 @@ assert_exists "telemetry sample schema" "$PRODUCT_ROOT/schemas/telemetry_sample.
 assert_exists "telemetry report schema" "$PRODUCT_ROOT/schemas/telemetry_report.schema.json"
 assert_exists "semantic closure telemetry fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_sample.closure.valid.json"
 assert_exists "invalid semantic closure telemetry fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_sample.closure.invalid.json"
+assert_exists "routed telemetry sample fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_sample.routing.valid.json"
+assert_exists "routed telemetry report fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_report.routing.valid.json"
 assert_exists "candidate closure schema" "$PRODUCT_ROOT/schemas/candidate_closure.schema.json"
 assert_exists "candidate closure RFC3339 fixture" "$PRODUCT_ROOT/schemas/fixtures/candidate_closure.timestamp.invalid.json"
 assert_exists "candidate integration schema" "$PRODUCT_ROOT/schemas/integration_result.schema.json"

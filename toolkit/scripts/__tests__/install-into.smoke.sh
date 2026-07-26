@@ -86,6 +86,8 @@ assert_current_content() {
   assert_true "$label includes telemetry report schema" test -e "$target/.agent-workflow/schemas/telemetry_report.schema.json"
   assert_true "$label includes semantic closure telemetry fixtures" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.closure.valid.json"
   assert_true "$label includes invalid semantic closure telemetry fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.closure.invalid.json"
+  assert_true "$label includes routed telemetry sample fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.routing.valid.json"
+  assert_true "$label includes routed telemetry report fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_report.routing.valid.json"
   assert_true "$label includes candidate closure schema" test -e "$target/.agent-workflow/schemas/candidate_closure.schema.json"
   assert_true "$label includes candidate closure RFC3339 fixture" test -e "$target/.agent-workflow/schemas/fixtures/candidate_closure.timestamp.invalid.json"
   assert_true "$label includes candidate integration schema" test -e "$target/.agent-workflow/schemas/integration_result.schema.json"
