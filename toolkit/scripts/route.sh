@@ -70,6 +70,7 @@ try {
   const cacheDir = path.join(hostRoot, "route-offers");
   const cacheFile = path.join(cacheDir, `${sha256(JSON.stringify({ runtime, executable, permission_profile_digest }))}.json`);
   const now = Date.now();
+  if (fs.existsSync(cacheFile) && !safeFile(cacheFile)) refuse("runner_offer_invalid");
   if (safeFile(cacheFile)) {
     const cached = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
     if (cached.runtime === runtime && cached.executable === executable && cached.permission_profile_digest === permission_profile_digest
