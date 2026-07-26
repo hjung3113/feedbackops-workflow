@@ -153,7 +153,7 @@ printf '%s\n' '{"orchestrator":"orca","runtime":"opencode","role":"implementatio
 
 Conductor가 canonical ROUND-STATE를 갱신해야 할 때는 `--runtime <runtime> --role conductor --read-only --conductor-control`을 사용합니다. Runtime은 product-code write 권한 없이 proposal 하나만 출력하고, host publisher가 issue, live HEAD, worktree, base, schema, exact path, monotonic revision을 검증한 뒤 해당 ROUND-STATE만 원자 게시합니다. 검증 실패 시 아무 control artifact도 게시하지 않습니다.
 
-Shared core는 admission 전에 선택 runtime의 runtime-specific host seam 또는 caller PATH를 canonical absolute executable로 고정하고, runner에는 `AGENT_WORKFLOW_RUNTIME_BIN` 하나만 전달합니다. 관측된 version은 `agent_run` RUN과 schema v2 transport receipt에 runtime/role과 함께 바인딩됩니다. v1 receipt는 legacy transport-only read compatibility이며 현재 runtime provenance를 증명하지 않습니다. Target config는 executable을 주입할 수 없습니다.
+Shared core는 admission 전에 선택 runtime의 runtime-specific host seam 또는 caller PATH를 canonical absolute executable로 고정하고, runner에는 `AGENT_WORKFLOW_RUNTIME_BIN` 하나만 전달합니다. 관측된 version은 `agent_run` RUN과 schema v2 transport receipt에 runtime/role과 함께 바인딩됩니다. Policy-opted canonical redispatch만 schema v3 receipt에 host admission과 교차 검증된 route/policy digest 및 선택 tuple을 파생 복사합니다. 이 receipt는 비권위 provenance이며 route를 재생성하거나 completion을 증명하지 않습니다. v1 receipt는 legacy transport-only read compatibility이며 현재 runtime provenance를 증명하지 않습니다. Target config는 executable을 주입할 수 없습니다.
 
 둘 이상의 write seat를 제안할 때는 먼저 canonical `ISSUE-123-EXECUTION-PLAN.json`을 만들고 `scripts/parallel-plan.sh decide --plan <plan> --target <repo>`를 실행합니다. 정확하고 배타적인 target-relative write set, dependency 없음, shared generated/lock/migration surface 비접촉, per-seat DB/env 격리, rate-limit budget이 모두 증명된 pair만 병렬입니다. 나머지는 reason code와 함께 직렬화됩니다. 각 dispatch는 `--execution-plan <plan> --seat <id>`로 plan binding을 소비합니다.
 
@@ -264,7 +264,7 @@ Release Captain merge decision
 | `ISSUE-N-REVIEW-<reviewed_head_sha>.json` | canonical REVIEW의 immutable content-identical evidence snapshot |
 | `ISSUE-N-VERIFY.json` | 현재 HEAD에 대한 VERIFIER의 canonical 검증 증거 |
 | `ISSUE-N-RUN.json` | shared watchdog의 runtime/role/version/attempt 실행 상태; 병합 증거 아님 |
-| `ISSUE-N-TRANSPORT.json` | v2 runtime provenance + transport/runner receipt; v1은 legacy read-only 호환, 둘 다 비권위 |
+| `ISSUE-N-TRANSPORT.json` | v2 runtime provenance + transport/runner receipt; policy-opted canonical redispatch는 v3에 admission-bound route provenance를 파생 복사; v1은 legacy read-only 호환, 모두 비권위 |
 | `ISSUE-N-BLOCKER.json` | 구조화된 중단 사유와 필요한 결정 |
 | `ISSUE-N-BLOCKER-QUARANTINED-<sha>.json` | malformed pre-existing BLOCKER의 raw host recovery copy; worker evidence가 아님 |
 | `HEARTBEAT-*.json` | liveness 증거; correctness 증거 아님 |

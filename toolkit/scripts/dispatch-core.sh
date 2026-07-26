@@ -1131,12 +1131,12 @@ fi
 RECEIPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-TRANSPORT.json"
 RUNNER_SHA="$(node -e 'const fs=require("fs"),crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$RUNNER_FILE")"
 CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" <<'NODE'
+node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" "$ROUTE_DIGEST" "$ROUTE_POLICY_DIGEST" "$MODEL" "$EFFORT" "${ADMISSION_MODE:-}" "${ADMISSION_DIR:-}" "${INTEGRATED_DIR:-}" <<'NODE'
 const fs = require("fs");
-const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt, runtime, role, runtimeCapabilitiesJson] = process.argv.slice(2);
+const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt, runtime, role, runtimeCapabilitiesJson, routeDigest, policyDigest, model, effort, admissionMode, admissionDir, integratedDir] = process.argv.slice(2);
 const runtimeCapabilities = JSON.parse(runtimeCapabilitiesJson);
 const value = {
-  schema_version: "2", artifact_type: "transport_receipt", authoritative: false,
+  schema_version: routeDigest ? "3" : "2", artifact_type: "transport_receipt", authoritative: false,
   issue: Number(issue), adapter, adapter_version: version,
   runtime, role, runtime_version: runtimeCapabilities.version,
   capabilities: JSON.parse(capabilitiesJson), external_handle: handle,
@@ -1144,6 +1144,23 @@ const value = {
   runner: { path: runnerPath, relative_path: runnerRelative, sha256: runnerSha },
   launched_at: launchedAt, created_at: createdAt
 };
+if (routeDigest) {
+  if (!/^[a-f0-9]{64}$/.test(routeDigest) || !/^[a-f0-9]{64}$/.test(policyDigest || "")) process.exit(2);
+  const readBinding = directory => JSON.parse(fs.readFileSync(`${directory}/.admission-transaction.json`, "utf8"));
+  let ordinal;
+  try { ordinal = readBinding(admissionDir); } catch (_) { process.exit(2); }
+  if (ordinal.route_digest !== routeDigest) process.exit(2);
+  if (admissionMode === "integrated_fix") {
+    let singleton;
+    try { singleton = readBinding(integratedDir); } catch (_) { process.exit(2); }
+    if (singleton.route_digest !== routeDigest) process.exit(2);
+  }
+  value.routing = {
+    route_digest: routeDigest, policy_digest: policyDigest,
+    selection_basis: "ordered_policy", decision_reason_codes: ["model_alloc", "ordered_policy"],
+    selected: { model, effort }
+  };
+}
 const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
 const { validate } = require(validatorFile);
 const errors = validate(schema, value);

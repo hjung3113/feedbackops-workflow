@@ -95,6 +95,7 @@ assert_exists "target profile schema" "$PRODUCT_ROOT/schemas/target-profile.sche
 assert_exists "target profile examples" "$PRODUCT_ROOT/schemas/profiles/node.example.json"
 assert_exists "target-neutral verifier" "$PRODUCT_ROOT/scripts/target-verify.sh"
 assert_exists "transport receipt schema" "$PRODUCT_ROOT/schemas/transport_receipt.schema.json"
+assert_exists "routing receipt fixture" "$PRODUCT_ROOT/schemas/fixtures/transport_receipt.routing.valid.json"
 assert_exists "review capsule schema" "$PRODUCT_ROOT/schemas/review_capsule.schema.json"
 assert_exists "review capsule renderer" "$PRODUCT_ROOT/scripts/review-capsule.sh"
 assert_exists "parallel planner" "$PRODUCT_ROOT/scripts/parallel-plan.sh"

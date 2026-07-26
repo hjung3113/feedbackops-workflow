@@ -25,10 +25,12 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 - OpenCode config is injected as `OPENCODE_CONFIG_CONTENT` and must define the
   deny-first named primary `agent-workflow`; invocation pins `--agent
   agent-workflow` to reject built-in/default-agent fallback.
-- Transport receipt schema v2 requires runtime provenance. Schema v1 remains
-  legacy-readable but non-authoritative. The selected runtime executable is
-  resolved to one absolute pin before admission and cannot come from target
-  config.
+- Transport receipt schema v2 requires runtime provenance. Policy-opted
+  canonical redispatches use receipt v3 only after its route digest matches the
+  host admission binding; the digest is derivative provenance, never admission
+  or completion authority. Schema v1 remains legacy-readable but
+  non-authoritative. The selected runtime executable is resolved to one
+  absolute pin before admission and cannot come from target config.
 - Read-only `--conductor-control` accepts one untrusted ROUND-STATE proposal and
   delegates the only write to a locked host publisher with schema, issue,
   live-HEAD, worktree, base, path, and revision checks.
@@ -103,7 +105,7 @@ bash scripts/__tests__/run-all-contract.test.sh
 
 - `agent-workflow.sh` exposes `capabilities`, `dispatch`, and `inspect`. Dispatch selection is explicit and deterministic: CLI, then `AGENT_WORKFLOW_ORCHESTRATOR`, then target-local config; missing, unknown, or unavailable selections fail without a default or fallback.
 - `dispatch-core.sh` is the sole owner of ROUND-STATE/prompt validation, HEAD/worktree binding, atomic admission, launch-unique runners, and RUN/BLOCKER freshness. Thin cmux and Orca adapters receive only a typed seat request; `cmux-dispatch.sh` remains an explicit cmux compatibility facade.
-- Every launch publishes a schema-valid, non-authoritative `ISSUE-N-TRANSPORT.json`. `inspect` queries the adapter's external handle read-only and normalizes live, missing/stale, and unverifiable probes while independently detecting a missing or changed runner. Orca launch and inspect share one handle normalizer for `terminal_id`, `terminalId`, `handle`, and `id`. cmux launch accepts exactly one create-result `id`/`workspace_id`/`workspaceId`/`ref`, never the requested display name, and inspect matches only that unique identity; none of this transport evidence replaces canonical REVIEW/VERIFY evidence.
+- Every launch publishes a schema-valid, non-authoritative `ISSUE-N-TRANSPORT.json`; policy-opted canonical redispatch uses v3 only after validating the immutable ordinal binding (and integrated companion when applicable). `inspect` queries the adapter's external handle read-only and normalizes live, missing/stale, and unverifiable probes while independently detecting a missing or changed runner. Orca launch and inspect share one handle normalizer for `terminal_id`, `terminalId`, `handle`, and `id`. cmux launch accepts exactly one create-result `id`/`workspace_id`/`workspaceId`/`ref`, never the requested display name, and inspect matches only that unique identity; none of this transport evidence replaces canonical REVIEW/VERIFY evidence.
 - Before admission, cmux proves a `0.64.0` version floor plus side-effect-free help for the actual workspace-create cwd/command contract, and Orca proves create worktree/title/command/JSON plus read-only list capabilities. Probe failures do not consume admission. Orca opens a fresh bare-shell terminal at the exact existing worktree and refuses ambiguous handles. Offline fake-adapter smokes cover selection, no fallback, parity, receipts, and external-handle inspection; live GUI E2E remains a separately labeled gate.
 - The core resolves the caller's Codex binary to one absolute executable before admission and pins it through the runner, watchdog, and safe wrapper; the host-only override is fail-closed and target config cannot inject a binary. cmux receipts use one proven create-result id/ref rather than a display name, so duplicate names and removed workspaces inspect correctly.
 

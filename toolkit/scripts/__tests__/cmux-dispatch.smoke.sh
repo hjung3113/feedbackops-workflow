@@ -934,19 +934,20 @@ AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" CMUX_DISPATCH_POLL_INTERVAL=
   bash "$DISPATCH" --issue 308 --worktree "$ROUTE_ADMIT_WT" --round-state "$ROUTE_ADMIT_STATE" --manifest-revision 5 --poll-timeout 3 >"$route_admit_out" 2>&1
 route_admit_ec=$?
 route_admit_root="$ROUTE_ADMIT_COMMON/agent-workflow/redispatch-admissions"
-if [ "$route_admit_ec" -eq 0 ] && node - "$route_admit_root/issue-308-dispatch-3/.admission-transaction.json" "$route_admit_root/issue-308-integrated-fix/.admission-transaction.json" <<'NODE'
+if [ "$route_admit_ec" -eq 0 ] && node - "$route_admit_root/issue-308-dispatch-3/.admission-transaction.json" "$route_admit_root/issue-308-integrated-fix/.admission-transaction.json" "$ROUTE_ADMIT_WT/.review/ISSUE-308-TRANSPORT.json" <<'NODE'
 const fs = require("fs");
-const [ordinalFile, singletonFile] = process.argv.slice(2);
+const [ordinalFile, singletonFile, receiptFile] = process.argv.slice(2);
 try {
   const ordinal = JSON.parse(fs.readFileSync(ordinalFile, "utf8"));
   const singleton = JSON.parse(fs.readFileSync(singletonFile, "utf8"));
-  process.exit(/^[a-f0-9]{64}$/.test(ordinal.route_digest || "") && ordinal.route_digest === singleton.route_digest ? 0 : 1);
+  const receipt = JSON.parse(fs.readFileSync(receiptFile, "utf8"));
+  process.exit(/^[a-f0-9]{64}$/.test(ordinal.route_digest || "") && ordinal.route_digest === singleton.route_digest && receipt.schema_version === "3" && receipt.routing && receipt.routing.route_digest === ordinal.route_digest && receipt.routing.selected.model === "gpt-5.6-terra" && receipt.routing.selected.effort === "low" ? 0 : 1);
 } catch (_) { process.exit(1); }
 NODE
 then
-  pass "policy redispatch binds one route digest to ordinal and integrated companion"
+  pass "policy redispatch binds one route digest to admission and receipt provenance"
 else
-  fail "policy redispatch route digest binding (ec=$route_admit_ec: $(cat "$route_admit_out"))"
+  fail "policy redispatch route digest receipt binding (ec=$route_admit_ec: $(cat "$route_admit_out"))"
 fi
 # A live issue-lock owner remains authoritative even when its lock file is
 # older than the recovery threshold. Staleness may only reclaim a dead owner.

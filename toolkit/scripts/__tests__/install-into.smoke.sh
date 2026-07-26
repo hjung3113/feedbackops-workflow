@@ -100,6 +100,7 @@ assert_current_content() {
   assert_true "$label includes cmux adapter" test -x "$target/.agent-workflow/scripts/adapters/cmux.sh"
   assert_true "$label includes Orca adapter" test -x "$target/.agent-workflow/scripts/adapters/orca.sh"
   assert_true "$label includes receipt schema" test -e "$target/.agent-workflow/schemas/transport_receipt.schema.json"
+  assert_true "$label includes routing receipt fixtures" test -e "$target/.agent-workflow/schemas/fixtures/transport_receipt.routing.valid.json"
   assert_true "$label includes workflow config example" test -e "$target/.agent-workflow/docs/agents/workflow-config.example.json"
   assert_true "$label includes parallel planner" test -x "$target/.agent-workflow/scripts/parallel-plan.sh"
   assert_true "$label includes candidate integrator" test -x "$target/.agent-workflow/scripts/candidate-integrate.sh"
