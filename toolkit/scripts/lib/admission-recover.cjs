@@ -2,7 +2,16 @@
 const fs = require("fs");
 const path = require("path");
 
-const [mode, integratedDir, admissionDir, roundState, issue, key, ownerPid] = process.argv.slice(2);
+const args = process.argv.slice(2);
+let routeDigestIndex = args.indexOf("--route-digest");
+let expectedRouteDigest = null;
+if (routeDigestIndex !== -1) {
+  if ((args[0] !== "publish" && args[0] !== "recover")
+      || routeDigestIndex !== args.length - 2) process.exit(2);
+  expectedRouteDigest = args[routeDigestIndex + 1];
+  args.splice(routeDigestIndex, 2);
+}
+const [mode, integratedDir, admissionDir, roundState, issue, key, ownerPid] = args;
 if (!mode || !integratedDir) process.exit(2);
 const txName = ".admission-transaction.json";
 const read = file => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return null; } };
@@ -22,6 +31,17 @@ const processAlive = pid => {
 };
 const safeIssue = value => /^[1-9][0-9]*$/.test(String(value));
 const safeKey = value => new RegExp("^issue-[1-9][0-9]*-dispatch-[1-9][0-9]*$").test(String(value));
+const safeRouteDigest = value => /^[a-f0-9]{64}$/.test(String(value));
+if (expectedRouteDigest !== null && !safeRouteDigest(expectedRouteDigest)) process.exit(2);
+const routeFailure = (transaction, expected = expectedRouteDigest) => {
+  if (!expected) return null;
+  if (!transaction || !Object.prototype.hasOwnProperty.call(transaction, "route_digest")) return "route_digest_unbound";
+  return transaction.route_digest === expected ? null : "route_digest_mismatch";
+};
+const reportRouteFailure = code => {
+  process.stdout.write(`${code}\n`);
+  process.exit(process.exitCode || 3);
+};
 const contained = (parent, child) => {
   const root = path.resolve(parent);
   const target = path.resolve(child);
@@ -33,14 +53,6 @@ function validPair(root, singleton, admission, issue, key) {
   return path.resolve(singleton) === path.join(base, `issue-${issue}-integrated-fix`)
     && path.resolve(admission) === path.join(base, key)
     && contained(base, singleton) && contained(base, admission);
-}
-function validPrepare(singleton, admission, issue, key) {
-  const root = path.dirname(singleton);
-  if (!safeIssue(issue) || !safeKey(key) || path.resolve(singleton) !== path.join(root, `issue-${issue}-integrated-fix`)) return false;
-  // The first durable record intentionally lives in the singleton before the
-  // ordinal directory exists; the second copy must live at the exact ordinal.
-  return path.resolve(admission) === path.resolve(singleton)
-    || validPair(root, singleton, admission, issue, key);
 }
 function validAdmission(root, admission, issue, key) {
   return safeIssue(issue) && safeKey(key)
@@ -87,12 +99,6 @@ if (mode === "acquire-lock") {
     process.exit(1);
   }
 }
-if (mode === "prepare") {
-  if (!key || !issue || !roundState || !validPrepare(integratedDir, admissionDir, issue, key)) process.exit(2);
-  const tx = { version: 1, issue: String(issue), admission_key: key, round_state: path.resolve(roundState), status: "prepared" };
-  try { write(path.join(integratedDir, txName), tx); write(path.join(admissionDir, txName), tx); } catch (_) { process.exit(2); }
-  process.exit(0);
-}
 // Publish every current admission only after its journal exists in a private
 // sibling directory.  mkdir(target) followed by writing metadata has a fatal
 // SIGKILL interval: a later conductor cannot distinguish a consumed legacy
@@ -100,13 +106,14 @@ if (mode === "prepare") {
 if (mode === "publish") {
   const root = integratedDir;
   const target = admissionDir;
-  const kind = process.argv[9];
+  const kind = args[7];
   if (!root || !target || !key || !issue || !roundState
       || (kind !== "normal" && kind !== "integrated")
       || (!(kind === "integrated" && path.resolve(target) === path.join(path.resolve(root), `issue-${issue}-integrated-fix`))
         && !validAdmission(root, target, issue, key))) process.exit(2);
   const pending = `${target}.pending.${process.pid}.${Date.now()}`;
   const tx = { version: 1, issue: String(issue), admission_key: key, round_state: path.resolve(roundState), status: "prepared", kind };
+  if (expectedRouteDigest) tx.route_digest = expectedRouteDigest;
   try {
     // POSIX rename may replace an empty destination directory.  Admission
     // publication is serialized by the issue lock, so a target that already
@@ -204,7 +211,16 @@ if (fs.existsSync(admissionDir)) {
       && String(normal.issue) === String(issue)
       && normal.admission_key === path.basename(admissionDir)
       && validAdmission(admissionRoot, admissionDir, issue, normal.admission_key)) {
-    if (isAdvanced(state, normal.admission_key)) {
+    const advanced = isAdvanced(state, normal.admission_key);
+    const normalRouteFailure = routeFailure(normal);
+    if (normalRouteFailure) {
+      if (!advanced && normal.status === "prepared") {
+        remove(admissionDir);
+        process.exit(process.exitCode || 0);
+      }
+      reportRouteFailure(normalRouteFailure);
+    }
+    if (advanced) {
       if (normal.status !== "committed") {
         try { normal.status = "committed"; write(path.join(admissionDir, txName), normal); } catch (_) { process.exit(2); }
       }
@@ -221,8 +237,33 @@ const tx = read(path.join(integratedDir, txName));
 // safe migration behavior: deleting it could admit a second integrated fix.
 if (!tx) process.exit(0);
 if (!safeIssue(issue) || !safeKey(tx.admission_key) || String(tx.issue) !== String(issue) || !validPair(admissionRoot, integratedDir, path.join(admissionRoot, tx.admission_key), issue, tx.admission_key)) process.exit(2);
+// A recovery invocation owns only its current admission key.  A prior-key
+// singleton remains the existing durable sentinel; it is never adopted or
+// reclaimed by a later route attempt.
+if (expectedRouteDigest && key && tx.admission_key !== key) process.exit(0);
 let advanced = Boolean(tx && tx.status === "committed");
 advanced = advanced || isAdvanced(state, tx.admission_key);
+if (expectedRouteDigest) {
+  const ordinalFile = path.join(admissionRoot, tx.admission_key, txName);
+  const ordinal = read(ordinalFile);
+  const singletonFailure = routeFailure(tx);
+  const ordinalFailure = routeFailure(ordinal);
+  let integratedFailure = singletonFailure || ordinalFailure;
+  if (!integratedFailure && (!ordinal || ordinal.kind !== "integrated"
+      || String(ordinal.issue) !== String(tx.issue)
+      || ordinal.admission_key !== tx.admission_key)) {
+    integratedFailure = "route_digest_unbound";
+  }
+  if (!integratedFailure && ordinal.route_digest !== tx.route_digest) integratedFailure = "route_digest_mismatch";
+  if (integratedFailure) {
+    if (!advanced && tx.status === "prepared") {
+      remove(integratedDir);
+      remove(path.join(admissionRoot, tx.admission_key));
+      process.exit(process.exitCode || 0);
+    }
+    reportRouteFailure(integratedFailure);
+  }
+}
 if (advanced) {
   try { tx.status = "committed"; write(path.join(integratedDir, txName), tx); if (fs.existsSync(path.join(admissionDir, txName))) write(path.join(admissionDir, txName), tx); } catch (_) { process.exit(2); }
   process.exit(0);

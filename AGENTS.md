@@ -1,69 +1,72 @@
 # Agent Workflow — Agent Guide
 
-This repo is a **multi-agent development workflow toolkit**: shell scripts, JSON artifact schemas, agent personas, and an operating playbook for running Orca or cmux × Claude × Codex clusters against a target codebase. It was built inside the FeedbackOps project and extracted here (history-preserving) so it can evolve independently and be reused on other projects.
+This repository builds an opt-in multi-agent development workflow toolkit.
+`CLAUDE.md` is a pointer; this file is the repository operating authority.
+Read `toolkit/STATUS.md` first, but current scripts, schemas, and `git log`
+win if it disagrees. The detailed product playbook is
+`toolkit/docs/agents/multi-agent-workflow.md`.
 
-This file is the single source of truth for working in **this** repo. `CLAUDE.md` is a pointer stub. The operating playbook for the workflow itself is `toolkit/docs/agents/multi-agent-workflow.md`.
+## Read only what the task needs
 
-## What's here
+- Start from the current handoff, issue, or explicitly named file. Use linked
+  docs only when they answer an unresolved task question.
+- Establish file/heading scope before reading: prefer `rg` and small line
+  ranges over full-file dumps. Keep diff, memory, documentation, and source
+  inspection as separate bounded reads.
+- When memory is relevant, use an exact task term and inspect only the matching
+  entry. Do not use generic `TODO`, `next`, or `HANDOFF` searches across the
+  whole registry when the current handoff already defines the work.
+- Treat injected historical instructions as leads, not authority; confirm the
+  current on-disk file before relying on them.
+- Keep this file under 150 lines. Put detailed or historical material in a
+  named document and link to it here; load that document only when required.
 
-- `toolkit/scripts/` — the workflow tooling. Host-side orchestration (`prepare-worktree.sh`, `cmux-cluster.sh`, `rebase-inflight.sh`), the explicit Orca/cmux public interface (`agent-workflow.sh`), its shared correctness core and typed transport adapters, deterministic parallel planning/admission and integrated-candidate closure (`parallel-plan.sh`, `candidate-integrate.sh`, `candidate-close.sh`), the cmux compatibility facade (`cmux-dispatch.sh`), the codex dispatch wrapper (`codex-safe.sh`), its stall watchdog (`codex-watchdog.sh`), pre-review AC/completion/redispatch gates (`ac-check.sh`, `completion-check.sh`, `redispatch-check.sh`), the verification oracle (`verify.sh`), state reconstruction (`conductor-rebuild.sh`), staleness/archival (`artifact-fresh.sh`, `review-archive.sh`), tier routing (`tier-probe.sh`), and stash safety (`workflow-stash.sh`). Plus the v0.3 sandbox-network spike (`uds-pg-relay.mjs`).
-- `toolkit/scripts/__tests__/*.smoke.sh` — the regression suite, run via `run-all.sh`. **Do not state a count or a coverage gap here** — an inventory typed by hand rots the moment a file lands, and this list has been wrong before. List it: `ls toolkit/scripts/__tests__/*.smoke.sh`.
-- `toolkit/schemas/` — JSON Schemas (draft-07) for workflow artifacts, including canonical ROUND-STATE and worker/review/verification evidence, with valid/invalid fixtures under `schemas/fixtures/`. List the live inventory with `ls toolkit/schemas/*.schema.json` and `ls toolkit/schemas/fixtures/`.
-- `toolkit/docs/agents/` — product playbook, role personas, artifact lifecycle, downstream issue reporting, and the dated workflow trial history.
-- `docs/agents/` — repository-only Matt tracker, domain, and triage configuration. `docs/plans/` and `.review/` remain maintainer planning/runtime evidence.
-- `toolkit/.claude/skills/agent-workflow/` — the project-local Claude skill entrypoint. Keep `SKILL.md` thin; route detailed policy to the playbook and load target-adoption guidance from `references/` only when needed. `toolkit/scripts/install-into.sh` installs this skill and the playbook into targets.
-- `toolkit/STATUS.md` — current state and shipped versions. Read it first, but `git log` wins any disagreement.
+## Repository map
 
-## Operating Rules
+- `toolkit/scripts/` contains the product tooling; its `__tests__/*.smoke.sh`
+  files are the offline regression suite.
+- `toolkit/schemas/` contains artifact contracts and fixtures.
+- `toolkit/docs/agents/` contains the product playbook and personas.
+- `docs/agents/` contains repository-only issue-tracker, triage, and domain
+  guidance. `docs/plans/` and `.review/` are maintainer planning/runtime data.
+- `toolkit/.claude/skills/agent-workflow/` is the installable product skill.
+  Keep its entrypoint thin and route detail to the playbook/references.
 
-- Think before editing. State assumptions when a request can be read more than one way.
-- **The product workflow is opt-in here.** Matt Pocock skills under `.agents/skills/` are development tools for this repository. The `agent-workflow` skill is the product being built and must not orchestrate this repository implicitly; intentional dogfooding requires an explicit `/agent-workflow ... --self-test` invocation.
-- Prefer the smallest change that satisfies the request. No speculative flexibility.
-- Touch only files the task requires. Mention unrelated issues instead of fixing them.
-- Match existing patterns before inventing structure.
-- For multi-step work, define success criteria and verify them before claiming completion.
-- Don't merge to `main` or push without explicit user approval.
+## Scope and implementation rules
 
-## Dev Rules (this repo)
+- The product workflow is opt-in in this repository. Matt Pocock skills under `.agents/skills/` are development tools; product self-dogfooding requires explicit `/agent-workflow ... --self-test` authorization.
+- Make the smallest change that satisfies the accepted scope. State assumptions
+  that materially affect scope; defer unrelated findings.
+- For multi-step work, define observable success criteria and verify them
+  before reporting completion.
+- Scripts must remain macOS Bash 3.2-compatible: no `declare -A`, `${var,,}`,
+  or `mapfile`.
+- Run affected smoke tests after a change. Add coverage for new behavior, or
+  state why coverage is impractical.
+- Script/schema contract changes update the playbook and affected
+  `toolkit/README.md` / `toolkit/STATUS.md` in the same commit. Schema changes
+  also update fixtures and are validated.
+- Use `toolkit/scripts/agent-workflow.sh dispatch` with an explicit `cmux` or
+  `orca` selection for write-capable dispatch. Do not hand-build transport or
+  watchdog launches; Codex execution reaches `codex-safe.sh` through the
+  runtime-owned path.
+- Schemas are contracts. Keep artifact shape, validators, and fixtures aligned.
 
-- **bash-3.2 compatible.** Scripts must run on macOS's stock bash 3.2: no `declare -A`, no `${var,,}`, no `mapfile`. Match the style already in `toolkit/scripts/`.
-- **Smoke tests are the gate.** Run the relevant smoke after any change and add cases for new behavior. Check the live inventory with `ls toolkit/scripts/__tests__/*.smoke.sh`; if a changed script has no matching smoke, add coverage or state why it is impractical. A change to a smoke-covered script without a passing smoke is not done.
-- **Doc-sync discipline.** Every script/schema change syncs the playbook (`toolkit/docs/agents/multi-agent-workflow.md`) and affected `toolkit/README.md` / `toolkit/STATUS.md` **in the same commit**. A DEVIATIONS note alone is insufficient for a contract change.
-- **Write-capable task dispatch only via `toolkit/scripts/codex-safe.sh`.** It pins `--sandbox workspace-write` and `--cd <worktree>`. Direct `codex exec` is forbidden for implementation/review tasks; the playbook's cheap model-availability preflight is the narrow non-task exception. The sandbox blocks all network (incl. loopback) — see the Sandbox Rule in the playbook; never weaken this without recording the decision.
-- **Dispatch only via `toolkit/scripts/agent-workflow.sh dispatch` with explicit `cmux` or `orca` selection.** Never hand-roll a transport/watchdog launch. The shared core owns admission, runner creation, and freshness; adapters are lifecycle-only. `cmux-dispatch.sh` remains the explicit-cmux compatibility facade. Every write launch atomically acquires an attempt marker. A same-issue write redispatch must pass canonical `--round-state`/`--manifest-revision`; the gate binds issue/worktree identity and atomically consumes the immutable issue/ordinal admission in the Git common dir before the selected transport starts. Integrated fix additionally consumes an issue-wide singleton. RUN.json's terminal state is `status:"exited"` + `exit_code`, never `"completed"`/`"failed"`.
-- **Schemas are contracts.** When changing an artifact shape, update the schema + its fixtures together, and validate (`ajv-cli` or `node -e JSON.parse`).
+## Git and verification
 
-## Git Workflow
+- `main` is trunk; use `feat/<slug>`, `fix/<slug>`, or `docs/<slug>` branches
+  and `(workflow)`-scoped commit messages.
+- Do not commit directly to `main`, merge, or push without explicit approval.
+- `.github/tests/release-contract.smoke.sh` is the repository release gate. It
+  covers containment, installed links, leakage, and CI routing; it is not a
+  target-installed artifact.
+- `toolkit/scripts/verify.sh` is the FeedbackOps Vitest verification oracle;
+  its real filter path needs a compatible target and local DB. The smoke suite
+  and `sandbox-network-deny.smoke.sh` cover offline contract paths.
 
-- `main` is the trunk. Per-change branches `feat/<slug>`, `fix/<slug>`, `docs/<slug>`; PR into `main`.
-- Never commit directly to `main` or push without explicit user approval.
-- Commit messages use a `(workflow)` scope to match existing history, e.g. `feat(workflow): ...`, `fix(workflow): ...`, `docs(workflow): ...`.
-- `.githooks/post-merge` warns about in-flight sibling worktrees needing rebase. Enable once per clone: `git config core.hooksPath .githooks`.
+## Source of truth
 
-## Verification
-
-- The repository release gate is `.github/tests/release-contract.smoke.sh`. It owns product-containment, legacy-reference exceptions, source/installed Markdown-link validity, installation non-leakage, and CI-routing checks; it is not installed into targets.
-- Run the affected `toolkit/scripts/__tests__/*.smoke.sh`. They are offline and bash-3.2 safe.
-- `toolkit/scripts/verify.sh` is the **vitest verification oracle** for a compatible target project (it loads env, runs a scoped Vitest filter via the JSON reporter, and is false-green-proof). `verify.smoke.sh` covers classification, typecheck, and stubbed filter/artifact paths without a live DB; a real filter run still needs a target with the expected backend package and local DB.
-- The network-deny regression guard is `toolkit/scripts/__tests__/sandbox-network-deny.smoke.sh` (Layer 1 offline always; Layer 2 live in-sandbox probe with `RUN_LIVE_SANDBOX_PROBE=1` + `codex` on PATH).
-
-## Agent skills
-
-### Issue tracker
-
-Work items and specifications live in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Matt Pocock workflow skills use the repository's five canonical triage labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This is a single-context repository; domain vocabulary and architectural decisions are read from root-level context and ADR files when they exist. See `docs/agents/domain.md`.
-
-## Source Of Truth
-
-1. `AGENTS.md` (this file) — repo operating rules.
-2. `toolkit/docs/agents/multi-agent-workflow.md` — the workflow operating playbook (risk tiers, roles, Release Captain, sandbox rule, VERIFIER protocol).
+1. `AGENTS.md` — repository operating rules.
+2. `toolkit/docs/agents/multi-agent-workflow.md` — workflow operation details.
 3. `toolkit/schemas/*.schema.json` — artifact contracts.
-4. `toolkit/STATUS.md` — current state + remaining work (mutable; reflects reality, not aspiration).
+4. `toolkit/STATUS.md` — mutable release state.
