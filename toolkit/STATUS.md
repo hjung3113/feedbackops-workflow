@@ -272,8 +272,8 @@ Profile-driven preparation and tier routing remain deferred until they can consu
 
 - **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
 - **P1 procedure/templates:** #9, #10, and #11 are shipped (circuit breaker, compile-atomic chunks, and canonical Standard round-0 state).
-- **P2 toolkit/procedure:** #13 verifier output/freshness is shipped; #14 and #17 remain evidence-gated integrated-head closure and re-review capsule work; #19 is shipped in `codex-safe.sh`.
-- **P3 telemetry:** #18 implementation is review-ready; live issue closure still waits for merged evidence before tier allocation is revisited.
+- **P2 toolkit/procedure:** #13, #14, #17, and #19 are shipped: verifier freshness, integrated-head closure, re-review capsules, and the `codex-safe.sh` main-checkout grant.
+- **P3 telemetry:** #18 is shipped. Any future tier-allocation revision still requires merged live evidence; no follow-up issue is currently open.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
 
 GitHub issues are the live roadmap; this section is a readable index, not a second issue tracker.
