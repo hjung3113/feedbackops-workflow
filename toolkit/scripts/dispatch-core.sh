@@ -545,9 +545,11 @@ case "$ABS_PROMPT_FILE" in
       *) OUTPUT_CONTRACT_ROLE="" ;;
     esac
     if [ -n "$OUTPUT_CONTRACT_ROLE" ]; then
-      OUTPUT_CONTRACT="$SCRIPT_DIR/output-contract.sh"
+      OUTPUT_CONTRACT="$PRODUCT_HOME/scripts/output-contract.sh"
       if [ ! -x "$OUTPUT_CONTRACT" ] || ! bash "$OUTPUT_CONTRACT" check --role "$OUTPUT_CONTRACT_ROLE" --prompt-file "$ABS_PROMPT_FILE" >/dev/null; then
-        echo "ERROR: output-contract admission denied: prompt must contain the exact schema-derived $OUTPUT_CONTRACT_ROLE contract" >&2
+        echo "ERROR: output-contract admission denied: prompt must contain the exact schema-derived contract for role '$OUTPUT_CONTRACT_ROLE'." >&2
+        printf 'Fix: bash %q render --role %q >> %q\n' "$OUTPUT_CONTRACT" "$OUTPUT_CONTRACT_ROLE" "$ABS_PROMPT_FILE" >&2
+        printf 'Then verify: bash %q check --role %q --prompt-file %q\n' "$OUTPUT_CONTRACT" "$OUTPUT_CONTRACT_ROLE" "$ABS_PROMPT_FILE" >&2
         exit 1
       fi
     fi
