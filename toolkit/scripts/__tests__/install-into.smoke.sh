@@ -309,6 +309,51 @@ EOF
   chmod +x "$installed_watchdog"
 }
 
+assert_product_home_worktree_contract() {
+  target="$1"
+  product_home="$target/.agent-workflow"
+  worktree="$TMP_DIR/fresh-linked-worktree"
+  transport_bin="$TMP_DIR/product-home-transport-bin"
+  mkdir -p "$transport_bin"
+  cat > "$transport_bin/cmux" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'cmux 0.64.0'; exit 0 ;;
+  workspace) [ "${2:-}" = create ] && [ "${3:-}" = --help ] && { echo 'create [flags]'; exit 0; } ;;
+  new-workspace) [ "${2:-}" = --help ] && { echo '--cwd PATH --command COMMAND'; exit 0; } ;;
+esac
+exit 2
+EOF
+  chmod +x "$transport_bin/cmux"
+
+  git init -q "$target"
+  git -C "$target" config user.email smoke@example.test
+  git -C "$target" config user.name smoke
+  printf '%s\n' '.agent-workflow/' > "$target/.gitignore"
+  git -C "$target" add .gitignore project.txt
+  git -C "$target" commit -qm 'initial target'
+  git -C "$target" worktree add -q -b issue-62 "$worktree" HEAD
+  mkdir -p "$worktree/.review"
+  printf '%s\n' 'worktree-owned evidence' > "$worktree/.review/keep.txt"
+  printf '%s\n' 'worker prompt' > "$worktree/.review/ISSUE-62-PROMPT.md"
+  bash "$product_home/scripts/output-contract.sh" render --role implementation >> "$worktree/.review/ISSUE-62-PROMPT.md"
+  printf '%s\n' '{"orchestrator":"cmux"}' > "$product_home/workflow-config.json"
+
+  assert_true "fresh linked worktree omits ignored product home" test ! -e "$worktree/.agent-workflow"
+  assert_true "product-home output contract renders in fresh linked worktree" grep -F -q 'agent-workflow:output-contract' "$worktree/.review/ISSUE-62-PROMPT.md"
+  assert_exit "product-home output contract checks fresh linked worktree prompt" PASS bash "$product_home/scripts/output-contract.sh" check --role implementation --prompt-file "$worktree/.review/ISSUE-62-PROMPT.md"
+  dispatch_out="$TMP_DIR/product-home-dispatch.out"
+  PATH="$transport_bin:$PATH" AGENT_WORKFLOW_CODEX_BIN="$AGENT_WORKFLOW_CODEX_BIN" \
+    bash "$product_home/scripts/agent-workflow.sh" dispatch --issue 62 --worktree "$worktree" --read-only --dry-run >"$dispatch_out" 2>&1
+  dispatch_status=$?
+  if [ "$dispatch_status" -eq 0 ] && grep -F -q 'orchestrator=cmux source=config' "$dispatch_out"; then
+    ok "product-home dispatch dry-run works from fresh linked worktree"
+  else
+    not_ok "product-home dispatch dry-run works from fresh linked worktree"
+  fi
+  assert_true "product-home commands preserve worktree-local review evidence" grep -F -q 'worktree-owned evidence' "$worktree/.review/keep.txt"
+}
+
 fresh="$TMP_DIR/fresh target"
 mkdir -p "$fresh/.review"
 printf '%s\n' evidence > "$fresh/.review/keep.txt"
@@ -320,6 +365,7 @@ assert_true "fresh install preserves review evidence" grep -F -q evidence "$fres
 assert_true "fresh install preserves unrelated project files" grep -F -q project "$fresh/project.txt"
 assert_no_maintainer_leakage "$fresh"
 assert_true "default install records FeedbackOps profile" grep -F -q '"profile":"feedbackops"' "$fresh/.agent-workflow/install-profile.json"
+assert_product_home_worktree_contract "$fresh"
 
 generic="$TMP_DIR/generic target"
 mkdir -p "$generic"

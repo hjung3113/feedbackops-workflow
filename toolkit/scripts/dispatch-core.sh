@@ -53,6 +53,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 WATCHDOG="$SCRIPT_DIR/agent-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
 PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
@@ -461,7 +462,7 @@ fi
 if [ "$ALLOCATE" -eq 1 ]; then
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
+  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
   if [ -f "$ALLOC_CONFIG" ]; then
     if [ -n "$ALLOC_EVIDENCE" ]; then
       ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
@@ -491,7 +492,7 @@ fi
 if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
+  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
   if [ -f "$ALLOC_CONFIG" ]; then
     DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
   else
@@ -544,9 +545,11 @@ case "$ABS_PROMPT_FILE" in
       *) OUTPUT_CONTRACT_ROLE="" ;;
     esac
     if [ -n "$OUTPUT_CONTRACT_ROLE" ]; then
-      OUTPUT_CONTRACT="$SCRIPT_DIR/output-contract.sh"
+      OUTPUT_CONTRACT="$PRODUCT_HOME/scripts/output-contract.sh"
       if [ ! -x "$OUTPUT_CONTRACT" ] || ! bash "$OUTPUT_CONTRACT" check --role "$OUTPUT_CONTRACT_ROLE" --prompt-file "$ABS_PROMPT_FILE" >/dev/null; then
-        echo "ERROR: output-contract admission denied: prompt must contain the exact schema-derived $OUTPUT_CONTRACT_ROLE contract" >&2
+        echo "ERROR: output-contract admission denied: prompt must contain the exact schema-derived contract for role '$OUTPUT_CONTRACT_ROLE'." >&2
+        printf 'Fix: bash %q render --role %q >> %q\n' "$OUTPUT_CONTRACT" "$OUTPUT_CONTRACT_ROLE" "$ABS_PROMPT_FILE" >&2
+        printf 'Then verify: bash %q check --role %q --prompt-file %q\n' "$OUTPUT_CONTRACT" "$OUTPUT_CONTRACT_ROLE" "$ABS_PROMPT_FILE" >&2
         exit 1
       fi
     fi

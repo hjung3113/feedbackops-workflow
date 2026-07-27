@@ -25,7 +25,10 @@ function collectWorkspaceHandles(value) {
 }
 
 function normalizeCreateResult(raw) {
-  const handles = collectWorkspaceHandles(parseJson(raw));
+  const plainTextMatch = /^OK (workspace:[^\s]+)\s*$/.exec(raw);
+  const handles = plainTextMatch
+    ? new Set([plainTextMatch[1]])
+    : collectWorkspaceHandles(parseJson(raw));
   if (handles.size !== 1) throw new Error("cmux create result must contain one unique workspace id/ref");
   return { external_handle: [...handles][0], lifecycle: "launched" };
 }

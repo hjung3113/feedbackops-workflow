@@ -24,6 +24,9 @@ process.exit(artifact.schema && JSON.stringify(artifact.schema) === JSON.stringi
   && artifact.schema.allOf && artifact.schema.allOf[0].oneOf ? 0 : 1);
 NODE
 then ok "implementation contract embeds the complete canonical BLOCKER schema"; else bad "implementation contract embeds the complete canonical BLOCKER schema"; fi
+usage_out="$TMP/usage.out"
+if ! "$CONTRACT" >"$usage_out" 2>&1 && grep -F -q 'valid roles: implementation|reviewer|architect|conductor|release' "$usage_out"; then ok "usage lists valid output-contract roles"; else bad "usage lists valid output-contract roles"; fi
+if ! "$CONTRACT" render --role visual >"$usage_out" 2>&1 && grep -F -q 'invalid output-contract role: visual' "$usage_out"; then ok "unsupported output-contract role is rejected with usage"; else bad "unsupported output-contract role is rejected with usage"; fi
 sed 's#schemas/review.schema.json#schemas/blocker.schema.json#' "$TMP/reviewer.md" > "$TMP/drift.md"
 if ! "$CONTRACT" check --role reviewer --prompt-file "$TMP/drift.md" >/dev/null 2>&1; then ok "contract drift is rejected"; else bad "contract drift is rejected"; fi
 
@@ -80,7 +83,17 @@ exit 0
 EOF
 chmod +x "$RUNTIME"
 printf '%s\n' 'worker instructions' > "$WT/.review/ISSUE-10-PROMPT.md"
-if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 10 --worktree "$WT" --tier trivial --dry-run >/dev/null 2>&1; then bad "Markdown implementation prompt without contract is rejected"; else ok "Markdown implementation prompt without contract is rejected"; fi
+missing_contract_out="$TMP/missing-contract.out"
+AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 10 --worktree "$WT" --tier trivial --dry-run >"$missing_contract_out" 2>&1
+missing_contract_status=$?
+if [ "$missing_contract_status" -ne 0 ] \
+  && grep -F -q "contract for role 'implementation'" "$missing_contract_out" \
+  && grep -F -q "Fix: bash $ROOT/scripts/output-contract.sh render --role implementation >> $WT/.review/ISSUE-10-PROMPT.md" "$missing_contract_out" \
+  && grep -F -q "Then verify: bash $ROOT/scripts/output-contract.sh check --role implementation --prompt-file $WT/.review/ISSUE-10-PROMPT.md" "$missing_contract_out"; then
+  ok "Markdown implementation prompt rejection gives product-home recovery commands"
+else
+  bad "Markdown implementation prompt rejection gives product-home recovery commands"
+fi
 "$CONTRACT" render --role implementation >> "$WT/.review/ISSUE-10-PROMPT.md"
 if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 10 --worktree "$WT" --tier trivial --dry-run >/dev/null 2>&1; then ok "schema-derived implementation contract reaches admission"; else bad "schema-derived implementation contract reaches admission"; fi
 printf '%s\n' 'extensionless instructions' > "$WT/.review/ISSUE-13-PROMPT"
@@ -88,7 +101,17 @@ if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --
 "$CONTRACT" render --role implementation >> "$WT/.review/ISSUE-13-PROMPT"
 if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 13 --worktree "$WT" --prompt-file .review/ISSUE-13-PROMPT --tier trivial --dry-run >/dev/null 2>&1; then ok "extensionless prompt contract reaches admission"; else bad "extensionless prompt contract reaches admission"; fi
 printf '%s\n' 'review instructions' > "$WT/.review/ISSUE-12-REVIEW-PROMPT.md"
-if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 12 --worktree "$WT" --prompt-file "$WT/.review/ISSUE-12-REVIEW-PROMPT.md" --produce-review --model gpt-5.6-sol --effort medium --dry-run >/dev/null 2>&1; then bad "Markdown reviewer prompt without contract is rejected"; else ok "Markdown reviewer prompt without contract is rejected"; fi
+missing_reviewer_contract_out="$TMP/missing-reviewer-contract.out"
+AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 12 --worktree "$WT" --prompt-file "$WT/.review/ISSUE-12-REVIEW-PROMPT.md" --produce-review --model gpt-5.6-sol --effort medium --dry-run >"$missing_reviewer_contract_out" 2>&1
+missing_reviewer_contract_status=$?
+if [ "$missing_reviewer_contract_status" -ne 0 ] \
+  && grep -F -q "contract for role 'reviewer'" "$missing_reviewer_contract_out" \
+  && grep -F -q "Fix: bash $ROOT/scripts/output-contract.sh render --role reviewer >> $WT/.review/ISSUE-12-REVIEW-PROMPT.md" "$missing_reviewer_contract_out" \
+  && grep -F -q "Then verify: bash $ROOT/scripts/output-contract.sh check --role reviewer --prompt-file $WT/.review/ISSUE-12-REVIEW-PROMPT.md" "$missing_reviewer_contract_out"; then
+  ok "Markdown reviewer prompt rejection gives selected-role recovery commands"
+else
+  bad "Markdown reviewer prompt rejection gives selected-role recovery commands"
+fi
 "$CONTRACT" render --role reviewer >> "$WT/.review/ISSUE-12-REVIEW-PROMPT.md"
 if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 12 --worktree "$WT" --prompt-file "$WT/.review/ISSUE-12-REVIEW-PROMPT.md" --produce-review --model gpt-5.6-sol --effort medium --dry-run >/dev/null 2>&1; then ok "schema-derived reviewer contract reaches admission"; else bad "schema-derived reviewer contract reaches admission"; fi
 

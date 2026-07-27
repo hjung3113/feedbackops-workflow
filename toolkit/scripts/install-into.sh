@@ -527,10 +527,11 @@ fi
 cat <<EOF
 
 Next steps:
+  - Product home:             $TARGET_ROOT/.agent-workflow
   - Invoke the project skill: /agent-workflow
   - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
-  - Choose cmux or Orca:      copy $TARGET_ROOT/.agent-workflow/docs/agents/workflow-config.example.json
-  - Dispatch through:         $TARGET_ROOT/.agent-workflow/scripts/agent-workflow.sh dispatch
+  - Configure product home:   copy $TARGET_ROOT/.agent-workflow/docs/agents/workflow-config.example.json $TARGET_ROOT/.agent-workflow/workflow-config.json
+  - From any worktree, invoke $TARGET_ROOT/.agent-workflow/scripts/<command> with --worktree <worktree>
   - Profile:                   $PROFILE
   - Verify with target-verify.sh and a target-owned profile.
   - Copy .env.example from the distributable toolkit package when needed.

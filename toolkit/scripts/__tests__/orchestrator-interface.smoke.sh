@@ -6,11 +6,16 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CLI="$ROOT/scripts/agent-workflow.sh"
 VALIDATOR="$ROOT/scripts/lib/json-schema-subset.cjs"
 SCHEMA="$ROOT/schemas/transport_receipt.schema.json"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+PRODUCT_HOME="$TMP_ROOT/product-home"
+mkdir -p "$PRODUCT_HOME"
+cp -R "$ROOT/scripts" "$PRODUCT_HOME/scripts"
+cp -R "$ROOT/schemas" "$PRODUCT_HOME/schemas"
+cp "$ROOT/model-alloc.json" "$PRODUCT_HOME/model-alloc.json"
+CLI="$PRODUCT_HOME/scripts/agent-workflow.sh"
 FAILURES=0
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
@@ -18,7 +23,7 @@ fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 make_worktree() {
   path="$1"
   issue="$2"
-  mkdir -p "$path/.review" "$path/.agent-workflow"
+mkdir -p "$path/.review"
   git init -q "$path"
   git -C "$path" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
   printf '%s\n' 'worker prompt' > "$path/.review/ISSUE-${issue}-PROMPT.md"
@@ -37,9 +42,9 @@ if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then
   case "${CMUX_LIST_MODE:-live}" in
-    live) printf '%s\n' '{"workspaces":[{"id":"cmux-502","name":"codex-502"}]}' ;;
-    duplicate_name) printf '%s\n' '{"workspaces":[{"id":"cmux-502","name":"same-name"},{"id":"cmux-other","name":"same-name"}]}' ;;
-    removed) printf '%s\n' '{"workspaces":[{"id":"cmux-other","name":"codex-502"}]}' ;;
+    live) printf '%s\n' '{"workspaces":[{"ref":"workspace:11","name":"codex-502"}]}' ;;
+    duplicate_name) printf '%s\n' '{"workspaces":[{"ref":"workspace:11","name":"same-name"},{"ref":"workspace:12","name":"same-name"}]}' ;;
+    removed) printf '%s\n' '{"workspaces":[{"ref":"workspace:12","name":"codex-502"}]}' ;;
     invalid) printf '%s\n' '{"workspaces":' ;;
     fail) exit 2 ;;
   esac
@@ -57,11 +62,14 @@ while [ $# -gt 0 ]; do
 done
 issue="${CMUX_CREATE_ISSUE_OVERRIDE:-${name#codex-}}"
 printf '%s\n' "{\"schema_version\":\"1\",\"artifact_type\":\"codex_run\",\"issue\":$issue,\"attempt\":1,\"started_at\":\"2026-07-21T01:00:00Z\",\"updated_at\":\"2026-07-21T01:00:00Z\",\"status\":\"running\"}" > "$cwd/.review/ISSUE-${issue}-RUN.json"
-case "${CMUX_CREATE_SHAPE:-id}" in
+case "${CMUX_CREATE_SHAPE:-plain}" in
+  plain) printf 'OK workspace:11\n' ;;
   id) node -e 'process.stdout.write(JSON.stringify({workspace:{id:`cmux-${process.argv[1]}`,name:process.argv[2]}})+"\n")' "$issue" "$name" ;;
   ref) node -e 'process.stdout.write(JSON.stringify({result:{ref:`cmux-${process.argv[1]}`}})+"\n")' "$issue" ;;
   name_only) node -e 'process.stdout.write(JSON.stringify({workspace:{name:process.argv[1]}})+"\n")' "$name" ;;
   ambiguous) printf '%s\n' '{"id":"cmux-one","ref":"cmux-two"}' ;;
+  missing) printf '\n' ;;
+  invalid) printf 'created workspace:cmux-%s\n' "$issue" ;;
 esac
 EOF
 cat > "$BIN/orca" <<'EOF'
@@ -112,16 +120,16 @@ export AGENT_WORKFLOW_CODEX_BIN="$BIN/codex"
 
 WT="$TMP_ROOT/choice"
 make_worktree "$WT" 501
-printf '%s\n' '{"orchestrator":"orca"}' > "$WT/.agent-workflow/workflow-config.json"
+printf '%s\n' '{"orchestrator":"orca"}' > "$PRODUCT_HOME/workflow-config.json"
 choice_out="$TMP_ROOT/choice.out"
 AGENT_WORKFLOW_ORCHESTRATOR=orca bash "$CLI" dispatch --orchestrator cmux --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
 if grep -q 'orchestrator=cmux source=cli' "$choice_out"; then pass "CLI selection outranks environment and config"; else fail "CLI selection precedence"; fi
 AGENT_WORKFLOW_ORCHESTRATOR=cmux bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
 if grep -q 'orchestrator=cmux source=environment' "$choice_out"; then pass "environment selection outranks config"; else fail "environment selection precedence"; fi
 env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
-if grep -q 'orchestrator=orca source=config' "$choice_out"; then pass "target-local config supplies explicit selection"; else fail "config selection"; fi
+if grep -q 'orchestrator=orca source=config' "$choice_out"; then pass "product-home config supplies explicit selection"; else fail "config selection"; fi
 
-rm "$WT/.agent-workflow/workflow-config.json"
+rm "$PRODUCT_HOME/workflow-config.json"
 missing_out="$TMP_ROOT/missing.out"
 env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$missing_out" 2>&1
 ec=$?
@@ -255,8 +263,8 @@ if grep -q '"adapter":"cmux"' "$inspect_out" && grep -q '"lifecycle":"live"' "$i
   pass "inspect queries the cmux external workspace handle read-only"
 else fail "cmux external handle inspection"; fi
 cmux_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_handle)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
-if [ "$cmux_handle" = "cmux-502" ]; then
-  pass "cmux receipt uses the create result workspace id rather than the requested name"
+if [ "$cmux_handle" = "workspace:11" ]; then
+  pass "cmux receipt normalizes the plain-text create workspace ref rather than the requested name"
 else fail "cmux receipt unique create identity ($cmux_handle)"; fi
 CMUX_LIST_MODE=duplicate_name PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" > "$inspect_out"
 if grep -q '"lifecycle":"live"' "$inspect_out"; then
@@ -268,7 +276,7 @@ if grep -q '"lifecycle":"stale"' "$inspect_out"; then
 else fail "cmux removed workspace stale identity"; fi
 
 weird_name="$(printf 'same "name"\nnext')"
-weird_launch="$(TRANSPORT_USED="$TMP_ROOT/weird-used" CMUX_ARGV="$TMP_ROOT/weird-argv" CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" launch --name "$weird_name" --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh)"
+weird_launch="$(TRANSPORT_USED="$TMP_ROOT/weird-used" CMUX_ARGV="$TMP_ROOT/weird-argv" CMUX_CREATE_SHAPE=id CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" launch --name "$weird_name" --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh)"
 if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-502")process.exit(1)' "$weird_launch"; then
   pass "cmux launch JSON-encodes quote and newline names without using them as identity"
 else fail "cmux unusual name JSON safety"; fi
@@ -276,6 +284,20 @@ ref_launch="$(TRANSPORT_USED="$TMP_ROOT/ref-used" CMUX_ARGV="$TMP_ROOT/ref-argv"
 if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-502")process.exit(1)' "$ref_launch"; then
   pass "cmux create ref response normalizes to the same unique handle"
 else fail "cmux ref response normalization"; fi
+
+id_launch="$(TRANSPORT_USED="$TMP_ROOT/id-used" CMUX_ARGV="$TMP_ROOT/id-argv" CMUX_CREATE_SHAPE=id CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" launch --name codex-502 --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh)"
+if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-502")process.exit(1)' "$id_launch"; then
+  pass "cmux create id response remains compatible"
+else fail "cmux id response normalization"; fi
+
+for invalid_create_shape in name_only ambiguous missing invalid; do
+  if TRANSPORT_USED="$TMP_ROOT/${invalid_create_shape}-used" CMUX_ARGV="$TMP_ROOT/${invalid_create_shape}-argv" CMUX_CREATE_SHAPE="$invalid_create_shape" CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" \
+    bash "$ROOT/scripts/adapters/cmux.sh" launch --name codex-502 --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh > "$TMP_ROOT/${invalid_create_shape}-create.out" 2>&1; then
+    fail "cmux $invalid_create_shape create result must remain unprovable"
+  else
+    pass "cmux $invalid_create_shape create result remains unprovable"
+  fi
+done
 
 CMUX_UNPROVABLE_WT="$TMP_ROOT/cmux-unprovable"
 make_worktree "$CMUX_UNPROVABLE_WT" 507
