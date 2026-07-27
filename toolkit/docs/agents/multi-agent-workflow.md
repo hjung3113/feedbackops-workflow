@@ -358,7 +358,7 @@ Hardening shipped alongside this decision: `scripts/__tests__/sandbox-network-de
 
 ## Smoke Suite Diagnostics
 
-`scripts/__tests__/run-all.sh` is the offline Bash 3.2 suite runner. Its failure output is the operator's primary diagnostic, so:
+`scripts/__tests__/run-all.sh` is the offline Bash 3.2 suite runner for the source checkout. It is a maintainer verification asset and is not installed into a target PRODUCT_HOME. Its failure output is the operator's primary diagnostic, so:
 
 - **A failing smoke prints its diagnostic**, framed by `--- begin <name> diagnostic ---` / `--- end <name> diagnostic ---`, so the inner assertion reaches the CI log instead of only a name and an exit code. The emitted capture is **retained** (not deleted on exit) and its path is printed as `diagnostic retained: <path>`, with the run's directory repeated on stderr as `diagnostics retained under: <dir>`. A green run still cleans up and keeps its existing `ok - <name>` / `--- N/N passed` output unchanged.
 - **Redaction is explicit, not inferred.** When a smoke can print credentials, invoke the runner with `--redact-values-file <path>`. Each non-empty line in that private file is one literal value to replace with `[REDACTED]` in both the CI diagnostic block and the retained capture. The runner uses private transient storage, removes the raw failing capture after producing the sanitized one, and retains only the sanitized file. It does not inspect environment names or claim to identify arbitrary secrets; the caller owns a complete values file for the invoked suite. Do not put secret values directly in command-line arguments.

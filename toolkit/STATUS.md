@@ -15,6 +15,9 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 - Installation has explicit `feedbackops|generic` profiles. FeedbackOps remains
   a named compatibility path; generic installed assets must not inherit its
   verification, tracker, labels, domain, layout, or maintainer assumptions.
+- The source-only smoke suite is excluded from every installed PRODUCT_HOME;
+  an installed target uses its workflow commands and target-owned verification,
+  while maintainers run smoke from the source checkout.
 - Runtime (`codex|claude|opencode`), role (including conductor), and transport
   (`cmux|orca`) are independent admitted axes. Capability probe, observed
   runtime version, RUN/receipt provenance, and no-fallback failures are part

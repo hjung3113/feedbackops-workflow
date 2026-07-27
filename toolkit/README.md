@@ -71,6 +71,8 @@ NODE_OPTIONS= bash scripts/__tests__/run-all.sh
 scripts/install-into.sh ../my-project
 ```
 
+`scripts/__tests__/`는 source checkout에서만 실행하는 maintainer 검증 자산입니다. 설치된 PRODUCT_HOME에는 복사되지 않으며, 타겟에서는 workflow 명령과 target-owned verification만 실행합니다.
+
 설치 후 타겟 구조는 다음과 같습니다.
 
 ```text
@@ -284,7 +286,7 @@ Release Captain merge decision
 - [실전 trial 기록](docs/agents/workflow-trial-log.md) / [현재 상태와 roadmap](STATUS.md)
 - [프로젝트용 agent-workflow skill](.claude/skills/agent-workflow/SKILL.md)
 
-전체 스크립트는 `ls scripts/`로, smoke inventory는 `bash scripts/__tests__/run-all.sh --list`로 확인합니다. `--list`는 read-only 조회이므로 임시 저장소를 할당하지 않고 답합니다. smoke가 실패하면 runner가 해당 smoke의 진단을 `--- begin <name> diagnostic ---` 블록으로 출력하고 보존된 캡처 경로를 `diagnostic retained: <path>`로 알려줍니다. 자격 증명을 출력할 수 있는 suite는 `--redact-values-file <path>`를 넘겨야 하며, 파일의 비어 있지 않은 각 줄을 양쪽 진단에서 문자 그대로 `[REDACTED]`로 바꿉니다. runner가 임의의 비밀을 추론하지 않으므로 값 파일의 완전성은 호출자 책임이고, raw 실패 캡처는 sanitized 사본 생성 뒤 보존하지 않습니다. runner 자체의 계약 테스트는 live inventory에 들어가지 않도록 `*.smoke.sh`가 아닌 `scripts/__tests__/run-all-contract.test.sh`이며 직접 실행합니다. 자세한 규칙은 [운영 플레이북](docs/agents/multi-agent-workflow.md)의 Smoke Suite Diagnostics를 따릅니다. 이 source repository의 release gate는 product containment, source/portable-install Markdown link, installation non-leakage, CI routing을 별도로 소유하며 타겟에 설치되지 않습니다.
+전체 스크립트는 `ls scripts/`로, source checkout의 smoke inventory는 `bash scripts/__tests__/run-all.sh --list`로 확인합니다. `scripts/__tests__/`는 설치 대상에 포함되지 않습니다. `--list`는 read-only 조회이므로 임시 저장소를 할당하지 않고 답합니다. smoke가 실패하면 runner가 해당 smoke의 진단을 `--- begin <name> diagnostic ---` 블록으로 출력하고 보존된 캡처 경로를 `diagnostic retained: <path>`로 알려줍니다. 자격 증명을 출력할 수 있는 suite는 `--redact-values-file <path>`를 넘겨야 하며, 파일의 비어 있지 않은 각 줄을 양쪽 진단에서 문자 그대로 `[REDACTED]`로 바꿉니다. runner가 임의의 비밀을 추론하지 않으므로 값 파일의 완전성은 호출자 책임이고, raw 실패 캡처는 sanitized 사본 생성 뒤 보존하지 않습니다. runner 자체의 계약 테스트는 live inventory에 들어가지 않도록 `*.smoke.sh`가 아닌 `scripts/__tests__/run-all-contract.test.sh`이며 직접 실행합니다. 자세한 규칙은 [운영 플레이북](docs/agents/multi-agent-workflow.md)의 Smoke Suite Diagnostics를 따릅니다. 이 source repository의 release gate는 product containment, source/portable-install Markdown link, installation non-leakage, CI routing을 별도로 소유하며 타겟에 설치되지 않습니다.
 
 ## 기여
 
