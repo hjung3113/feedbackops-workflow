@@ -343,6 +343,10 @@ if ! cp "$MODEL_ALLOC_SRC" "$STAGE_MODEL_ALLOC"; then
   echo "install-into: could not stage default model allocation config; target installation was not changed." >&2
   exit 1
 fi
+# Smoke suites exercise the source product layout and may create temporary
+# installations.  They are maintainer verification assets, not target runtime
+# commands, so never copy them into an installed PRODUCT_HOME.
+rm -rf "$STAGE_SCRIPTS/__tests__"
 if [[ "$PROFILE" == "generic" ]]; then
   # Explicit FeedbackOps compatibility adapters/examples never ship in generic mode.
   rm -f "$STAGE_SCRIPTS/verify.sh" "$STAGE_SCRIPTS/prepare-verify-db.sh" \
@@ -350,7 +354,7 @@ if [[ "$PROFILE" == "generic" ]]; then
     "$STAGE_SCRIPTS/rebase-inflight.sh" "$STAGE_SCRIPTS/uds-pg-relay.mjs" \
     "$STAGE_SCRIPTS/lib/verify-result.cjs" "$STAGE_SCRIPTS/install-into.sh" \
     "$STAGE_SCHEMAS/profiles/feedbackops.example.json"
-  rm -rf "$STAGE_SCRIPTS/__tests__" "$STAGE_SCRIPTS/install-profiles" \
+  rm -rf "$STAGE_SCRIPTS/install-profiles" \
     "$STAGE_SCHEMAS/fixtures"
 fi
 printf '{"schema_version":"1","profile":"%s"}\n' "$PROFILE" > "$STAGE_PROFILE"

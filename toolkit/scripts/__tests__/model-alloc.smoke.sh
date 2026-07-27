@@ -4,6 +4,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ALLOC="$SCRIPT_DIR/../model-alloc.sh"
+DEFAULT_CONFIG="$SCRIPT_DIR/../../schemas/fixtures/model_alloc.valid.json"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 FAILURES=0
@@ -30,9 +31,9 @@ NODE
   then pass "$name"; else fail "$name"; fi
 }
 
-assert_json "missing-config-uses-default-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"gpt-5.6-sol","review_effort":"medium"}' --role implementation
+assert_json "default-fixture-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"gpt-5.6-sol","review_effort":"medium"}' --role implementation --config "$DEFAULT_CONFIG"
 
-"$ALLOC" --role implementation --runner claude >/dev/null 2>"$TMP_DIR/runtime-mismatch.err"
+"$ALLOC" --role implementation --config "$DEFAULT_CONFIG" --runner claude >/dev/null 2>"$TMP_DIR/runtime-mismatch.err"
 if [ "$?" -eq 2 ] && grep -q 'unavailable via claude' "$TMP_DIR/runtime-mismatch.err"; then
   pass "allocation derives availability from selected runtime"
 else
@@ -41,7 +42,7 @@ fi
 
 # Existing schema-v1 target configs predate available_via.  Known provider
 # names migrate deterministically; unknown names still fail closed.
-node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/legacy-v1.json" <<'NODE'
+node - "$DEFAULT_CONFIG" "$TMP_DIR/legacy-v1.json" <<'NODE'
 const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
 for (const capability of Object.values(v.capabilities)) delete capability.available_via;
 fs.writeFileSync(process.argv[3], JSON.stringify(v));
@@ -53,7 +54,7 @@ v.roles.implementation={model:"unknown-model",effort:"low"}; v.capabilities["unk
 NODE
 if "$ALLOC" --role implementation --config "$TMP_DIR/legacy-v1.json" --runner codex >/dev/null 2>&1; then fail "unknown legacy provider fails closed"; else pass "unknown legacy provider fails closed"; fi
 
-node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/schema-invalid.json" <<'NODE'
+node - "$DEFAULT_CONFIG" "$TMP_DIR/schema-invalid.json" <<'NODE'
 const fs = require("fs");
 const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 value.capabilities["gpt-5.6-terra"].unexpected = true;
@@ -80,19 +81,19 @@ if [ "$?" -eq 0 ]; then pass "model allocation schema accepts valid fixture and 
 cat > "$TMP_DIR/blocker.json" <<'EOF'
 {"changed_lines":120,"file_count":3,"review_round":2,"consecutive_finding_rounds":[1,2],"blocker":true,"touch_set":["src/a.ts"]}
 EOF
-assert_json "blocker-promotes-implementation" '{"impl_model":"gpt-5.6-terra","impl_effort":"medium"}' --role implementation --evidence "$TMP_DIR/blocker.json"
+assert_json "blocker-promotes-implementation" '{"impl_model":"gpt-5.6-terra","impl_effort":"medium"}' --role implementation --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/blocker.json"
 
 cat > "$TMP_DIR/rereview.json" <<'EOF'
 {"changed_lines":120,"file_count":3,"review_round":1,"consecutive_finding_rounds":[1],"blocker":false,"touch_set":["src/a.ts"]}
 EOF
-assert_json "rereview-demotes-review-effort" '{"review_model":"gpt-5.6-sol","review_effort":"low"}' --role reviewer --evidence "$TMP_DIR/rereview.json"
+assert_json "rereview-demotes-review-effort" '{"review_model":"gpt-5.6-sol","review_effort":"low"}' --role reviewer --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/rereview.json"
 
 cat > "$TMP_DIR/contract.json" <<'EOF'
 {"changed_lines":20,"file_count":1,"review_round":0,"consecutive_finding_rounds":[],"blocker":false,"touch_set":["packages/shared/index.ts"]}
 EOF
-assert_json "contract-selects-sol-gate" '{"impl_model":"gpt-5.6-terra","impl_effort":"medium","contract_model":"gpt-5.6-sol","contract_effort":"medium"}' --role implementation --evidence "$TMP_DIR/contract.json"
+assert_json "contract-selects-sol-gate" '{"impl_model":"gpt-5.6-terra","impl_effort":"medium","contract_model":"gpt-5.6-sol","contract_effort":"medium"}' --role implementation --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/contract.json"
 
-node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/final-unavailable.json" <<'NODE'
+node - "$DEFAULT_CONFIG" "$TMP_DIR/final-unavailable.json" <<'NODE'
 const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
 v.capabilities["gpt-5.6-luna"].available_via=["claude"]; fs.writeFileSync(process.argv[3],JSON.stringify(v));
 NODE
@@ -104,9 +105,9 @@ if "$ALLOC" --role implementation --config "$TMP_DIR/final-unavailable.json" --r
 cat > "$TMP_DIR/large-blocker.json" <<'EOF'
 {"changed_lines":401,"file_count":3,"review_round":2,"consecutive_finding_rounds":[1,2],"blocker":true,"touch_set":["src/a.ts"]}
 EOF
-assert_json "large-touch-high-is-not-demoted-by-findings" '{"impl_model":"gpt-5.6-terra","impl_effort":"high"}' --role implementation --evidence "$TMP_DIR/large-blocker.json"
+assert_json "large-touch-high-is-not-demoted-by-findings" '{"impl_model":"gpt-5.6-terra","impl_effort":"high"}' --role implementation --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/large-blocker.json"
 
-node - "$SCRIPT_DIR/../../model-alloc.json" "$TMP_DIR/review-lower.json" <<'NODE'
+node - "$DEFAULT_CONFIG" "$TMP_DIR/review-lower.json" <<'NODE'
 const fs = require("fs");
 const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 value.roles.reviewer = { model: "gpt-5.6-luna", effort: "medium" };
@@ -123,7 +124,7 @@ if grep -q 'warning: project explicitly relaxed review capability preference' "$
 cat > "$TMP_DIR/nonconsecutive.json" <<'EOF'
 {"changed_lines":120,"file_count":3,"review_round":3,"consecutive_finding_rounds":[1,3],"blocker":false,"touch_set":["src/a.ts"]}
 EOF
-"$ALLOC" --role implementation --evidence "$TMP_DIR/nonconsecutive.json" >/dev/null 2>&1
+"$ALLOC" --role implementation --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/nonconsecutive.json" >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then pass "findings must be distinct consecutive rounds"; else fail "findings must be distinct consecutive rounds"; fi
 
 printf '%s\n' '{not json' > "$TMP_DIR/bad.json"
