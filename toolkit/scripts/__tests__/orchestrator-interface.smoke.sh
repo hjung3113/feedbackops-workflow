@@ -6,11 +6,16 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CLI="$ROOT/scripts/agent-workflow.sh"
 VALIDATOR="$ROOT/scripts/lib/json-schema-subset.cjs"
 SCHEMA="$ROOT/schemas/transport_receipt.schema.json"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+PRODUCT_HOME="$TMP_ROOT/product-home"
+mkdir -p "$PRODUCT_HOME"
+cp -R "$ROOT/scripts" "$PRODUCT_HOME/scripts"
+cp -R "$ROOT/schemas" "$PRODUCT_HOME/schemas"
+cp "$ROOT/model-alloc.json" "$PRODUCT_HOME/model-alloc.json"
+CLI="$PRODUCT_HOME/scripts/agent-workflow.sh"
 FAILURES=0
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
@@ -18,7 +23,7 @@ fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 make_worktree() {
   path="$1"
   issue="$2"
-  mkdir -p "$path/.review" "$path/.agent-workflow"
+mkdir -p "$path/.review"
   git init -q "$path"
   git -C "$path" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
   printf '%s\n' 'worker prompt' > "$path/.review/ISSUE-${issue}-PROMPT.md"
@@ -115,16 +120,16 @@ export AGENT_WORKFLOW_CODEX_BIN="$BIN/codex"
 
 WT="$TMP_ROOT/choice"
 make_worktree "$WT" 501
-printf '%s\n' '{"orchestrator":"orca"}' > "$WT/.agent-workflow/workflow-config.json"
+printf '%s\n' '{"orchestrator":"orca"}' > "$PRODUCT_HOME/workflow-config.json"
 choice_out="$TMP_ROOT/choice.out"
 AGENT_WORKFLOW_ORCHESTRATOR=orca bash "$CLI" dispatch --orchestrator cmux --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
 if grep -q 'orchestrator=cmux source=cli' "$choice_out"; then pass "CLI selection outranks environment and config"; else fail "CLI selection precedence"; fi
 AGENT_WORKFLOW_ORCHESTRATOR=cmux bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
 if grep -q 'orchestrator=cmux source=environment' "$choice_out"; then pass "environment selection outranks config"; else fail "environment selection precedence"; fi
 env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
-if grep -q 'orchestrator=orca source=config' "$choice_out"; then pass "target-local config supplies explicit selection"; else fail "config selection"; fi
+if grep -q 'orchestrator=orca source=config' "$choice_out"; then pass "product-home config supplies explicit selection"; else fail "config selection"; fi
 
-rm "$WT/.agent-workflow/workflow-config.json"
+rm "$PRODUCT_HOME/workflow-config.json"
 missing_out="$TMP_ROOT/missing.out"
 env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$missing_out" 2>&1
 ec=$?

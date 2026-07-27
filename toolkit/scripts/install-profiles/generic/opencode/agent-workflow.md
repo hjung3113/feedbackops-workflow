@@ -16,8 +16,11 @@ permission:
   task: deny
 ---
 
-Read the target repository instructions and
-`.agent-workflow/docs/agents/multi-agent-workflow.md` completely. That installed
+Resolve PRODUCT_HOME as the installed checkout's absolute `.agent-workflow`
+directory, then read the target repository instructions and
+`$PRODUCT_HOME/docs/agents/multi-agent-workflow.md` completely. A fresh linked
+worktree has no ignored PRODUCT_HOME, so invoke only `$PRODUCT_HOME/scripts/*`
+with that worktree supplied through `--worktree`. That installed
 playbook is the single policy authority. Operate only through the installed
 public interface, keep runtime, role, transport, and target profile explicit,
 and require fresh live-HEAD-bound canonical evidence before completion.

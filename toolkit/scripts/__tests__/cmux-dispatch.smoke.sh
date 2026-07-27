@@ -14,6 +14,12 @@ WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 ROUTE="$SCRIPT_DIR/../route.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
+PRODUCT_HOME="$TMP_ROOT/product-home"
+mkdir -p "$PRODUCT_HOME"
+cp -R "$ROOT/scripts" "$PRODUCT_HOME/scripts"
+cp -R "$ROOT/schemas" "$PRODUCT_HOME/schemas"
+cp "$ROOT/model-alloc.json" "$PRODUCT_HOME/model-alloc.json"
+PRODUCT_DISPATCH="$PRODUCT_HOME/scripts/cmux-dispatch.sh"
 # Runtime admission capability-probes the executable. Use a deterministic
 # Codex-shaped fake instead of /usr/bin/true, which correctly lacks `exec`.
 if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
@@ -152,19 +158,20 @@ if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-terra --effort low' "$default_
 else
   fail "write dispatch resolves a model and effort without --allocate (ec=$ec: $(cat "$default_tuple_out"))"
 fi
-mkdir -p "$WT/.agent-workflow"
-cp "$ROOT/model-alloc.json" "$WT/.agent-workflow/model-alloc.json"
-node - "$WT/.agent-workflow/model-alloc.json" <<'NODE'
+node - "$PRODUCT_HOME/model-alloc.json" <<'NODE'
 const fs=require("fs"); const file=process.argv[2]; const value=JSON.parse(fs.readFileSync(file,"utf8")); value.roles.implementation.model="gpt-5.6-luna"; value.roles.implementation.effort="high"; fs.writeFileSync(file,JSON.stringify(value));
 NODE
 configured_tuple_out="$TMP_ROOT/configured-tuple-dry-run.out"
-bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$configured_tuple_out" 2>&1
+bash "$PRODUCT_DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$configured_tuple_out" 2>&1
 ec=$?
 if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-luna --effort high' "$configured_tuple_out"; then
-  pass "omitted-model dispatch honors the worktree model allocation tuple"
+  pass "omitted-model dispatch honors the PRODUCT_HOME model allocation tuple"
 else
-  fail "omitted-model dispatch honors the worktree model allocation tuple (ec=$ec: $(cat "$configured_tuple_out"))"
+  fail "omitted-model dispatch honors the PRODUCT_HOME model allocation tuple (ec=$ec: $(cat "$configured_tuple_out"))"
 fi
+# Keep later routing fixtures on the shipped allocation while this assertion
+# proves that a worktree cannot override PRODUCT_HOME configuration.
+cp "$ROOT/model-alloc.json" "$PRODUCT_HOME/model-alloc.json"
 bad_alloc_out="$TMP_ROOT/allocator-review.stderr"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --allocate --allocator-role reviewer --dry-run >/dev/null 2>"$bad_alloc_out"
 ec=$?

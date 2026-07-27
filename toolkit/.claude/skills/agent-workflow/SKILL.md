@@ -21,14 +21,15 @@ Use this skill as the **router and completion gate** for a coding run. Keep deta
 ## Resolve target and toolkit
 
 1. Resolve `TARGET` from `--target`, otherwise the current Git repository root.
-2. Resolve `WF` in this order:
+2. Resolve `WF` (PRODUCT_HOME) in this order:
    - `$AGENT_WORKFLOW_HOME`, when explicitly set;
-   - `$TARGET/.agent-workflow`, when installed into the target;
+   - an explicitly supplied installed checkout's `.agent-workflow` directory;
+   - `$TARGET/.agent-workflow`, only when `TARGET` itself is the installed checkout (not a fresh linked worktree);
    - the toolkit product root (`../../..` from this skill) when working in the toolkit source tree.
 3. Require `$WF/scripts/codex-safe.sh` and `$WF/docs/agents/multi-agent-workflow.md`. If either is missing, stop and run the toolkit's `scripts/install-into.sh <target>` or ask for the correct home.
 4. Resolve both paths physically. `$TARGET/.agent-workflow` is a normal target installation. Otherwise, if `git -C "$WF" rev-parse --show-toplevel` resolves to `TARGET`, stop unless the user explicitly passed `--self-test`. The source product belongs to that repository but is not its default development workflow. `--self-test` is narrow authorization for intentional dogfooding; it does not weaken any other gate.
 
-Never assume a machine-specific absolute path. `TARGET` is the repository being changed; `WF` is the workflow implementation.
+Resolve `WF` physically and retain its absolute path for the run. `TARGET` is the repository being changed; `WF` is the workflow implementation; a fresh linked worktree receives only `--worktree` and must never be expected to contain ignored PRODUCT_HOME files.
 
 ## Load authority before dispatch
 

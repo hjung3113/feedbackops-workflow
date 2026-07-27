@@ -4,6 +4,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 CORE="$SCRIPT_DIR/dispatch-core.sh"
 SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
@@ -51,7 +52,7 @@ capabilities() {
 }
 
 resolve_config() {
-  config="$1/.agent-workflow/workflow-config.json"
+  config="$1/workflow-config.json"
   [ -f "$config" ] || return 1
   node - "$config" <<'NODE'
 const fs = require("fs");
@@ -109,7 +110,7 @@ case "$COMMAND" in
     [ -d "$WORKTREE" ] || { echo "ERROR: worktree does not exist: $WORKTREE" >&2; exit 2; }
     ABS_WORKTREE="$(cd "$WORKTREE" && pwd -P)"
     CONFIG_FIELDS=""
-    CONFIG_FIELDS="$(resolve_config "$ABS_WORKTREE")"
+    CONFIG_FIELDS="$(resolve_config "$PRODUCT_HOME")"
     config_status=$?
     if [ "$config_status" -eq 2 ]; then
       echo "ERROR: invalid workflow config: only string orchestrator, runtime, and role keys are allowed" >&2
@@ -141,7 +142,7 @@ case "$COMMAND" in
       SOURCE="config"
     fi
     if [ -z "$CHOICE" ]; then
-      echo "ERROR: orchestrator_not_configured: choose --orchestrator cmux|orca, set AGENT_WORKFLOW_ORCHESTRATOR, or create .agent-workflow/workflow-config.json" >&2
+      echo "ERROR: orchestrator_not_configured: choose --orchestrator cmux|orca, set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
       exit 2
     fi
     case "$CHOICE" in

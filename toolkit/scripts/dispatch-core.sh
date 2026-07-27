@@ -53,6 +53,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 WATCHDOG="$SCRIPT_DIR/agent-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
 PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
@@ -461,7 +462,7 @@ fi
 if [ "$ALLOCATE" -eq 1 ]; then
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
+  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
   if [ -f "$ALLOC_CONFIG" ]; then
     if [ -n "$ALLOC_EVIDENCE" ]; then
       ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
@@ -491,7 +492,7 @@ fi
 if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$ABS_WORKTREE/.agent-workflow/model-alloc.json"
+  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
   if [ -f "$ALLOC_CONFIG" ]; then
     DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
   else
