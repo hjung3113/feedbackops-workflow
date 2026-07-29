@@ -62,6 +62,8 @@ Before each Standard/Full write launch and every write redispatch, author the wo
 2. **Reverse questions:** list what remains unknown, then ask the user once in a batch of at most four questions, each with a CONDUCTOR recommendation. Record `skipped: no open questions` when there are none. Never delegate these questions to CODEX.
 3. **Compress:** first record every prohibition in canonical ROUND-STATE `contract.prohibitions[]`, then turn the dump and answers into `<worktree>/.review/ISSUE-<N>-PROMPT.md`, deleting narrative and alternatives while preserving constraints, paths, those prohibitions, and completion criteria. Natural-language regex extraction is never prohibition authority. The project-owned `model-alloc.json` `prompt_authoring.target_tokens` is guidance and telemetry only for worker prompts; re-review capsules enforce it as their whole-Markdown cap.
 
+After failed VERIFY or REVIEW evidence has been preserved and before an implementation redispatch, collect the applicable evidence **on the host**: failing test command/exit/assertion output; VERIFIER `db_target`, `clean_state`, and database diagnostic; runtime reproduction command/exit plus service/process log or response; VISUAL-REVIEWER screenshot/reference plus failed interaction step/result; or immutable REVIEW finding/checklist text with its file/line or AC citation. Include that collected evidence **verbatim** in the next worker prompt. Do not replace it with a CONDUCTOR summary or ask the worker to reproduce it: database, runtime, and visual diagnosis remain host-only because the worker sandbox cannot self-verify them.
+
 ROUND-STATE is the sole authority for AC wording. The final prompt contains exactly one delimited block:
 
 ````text
