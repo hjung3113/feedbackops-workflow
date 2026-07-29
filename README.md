@@ -1,8 +1,6 @@
 # feedbackops-workflow
 
-An opt-in, reusable multi-agent development workflow toolkit. It gives a team a small set of explicit contracts for dispatch, review, verification, and evidence without turning the workflow into a hidden control plane.
-
-The workflow is informed by the engineering principles in [Matt Pocock's Skills for Real Engineers](https://github.com/mattpocock/skills): keep practices small, adaptable, and composable; retain human control of the process; and use feedback loops to make changes trustworthy. This repository applies those ideas to a distributable workflow product; it is not a copy or runtime dependency of that skills repository.
+An opt-in, reusable multi-agent development workflow toolkit. It gives a team explicit contracts for dispatch, review, verification, and evidence without turning the workflow into a hidden control plane.
 
 ## English
 
@@ -12,13 +10,6 @@ The workflow is informed by the engineering principles in [Matt Pocock's Skills 
 - Typed roles and canonical artifacts for controlled work: prompts, RUN/BLOCKER state, REVIEW, VERIFY, and non-authoritative transport receipts.
 - A clear authority boundary: transport lifecycle is diagnostic only; fresh REVIEW and VERIFY evidence at the live commit determine completion.
 - Portable installation for target repositories, while keeping target runtime state in the target's `.review/` directory.
-
-### Operating principles
-
-1. **Human control stays explicit.** A person chooses the task, scope, runtime, role, transport, and publication actions. The toolkit does not make those decisions silently.
-2. **Small contracts compose.** Capability probing, admission, dispatch, review, verification, and recovery have narrow responsibilities instead of one opaque lifecycle controller.
-3. **Feedback is evidence.** A failed check should yield concrete evidence for the next attempt; a passing terminal or receipt never substitutes for independent review and verification.
-4. **Development tooling is not product payload.** Matt Pocock skills help maintain this repository, but the only distributable product root is [`toolkit/`](toolkit/).
 
 ### Start here
 
@@ -53,16 +44,7 @@ The release contract checks product containment, valid source and portable-insta
 
 ### 이 도구가 제공하는 것
 
-`feedbackops-workflow`는 선택적으로 적용할 수 있는 재사용형 멀티 에이전트 개발 워크플로 도구입니다. dispatch, 리뷰, 검증, 증거 수집에 필요한 계약을 작고 명시적으로 제공하며, 보이지 않는 제어 평면으로 작업 과정을 대신 결정하지 않습니다.
-
-[Matt Pocock의 Skills for Real Engineers](https://github.com/mattpocock/skills)가 제시하는 원칙—작고 조정 가능하며 조합 가능한 실천, 사람이 유지하는 프로세스 통제권, 피드백 루프를 통한 신뢰 가능한 변경—을 참고했습니다. 다만 이 저장소는 그 스킬 저장소를 복사하거나 런타임 의존성으로 사용하지 않습니다. 여기서는 그 원칙을 배포 가능한 워크플로 제품에 맞게 적용합니다.
-
-### 운영 원칙
-
-1. **사람의 통제권을 명시합니다.** 작업·범위·런타임·역할·transport·배포 여부는 사람이 선택합니다. 도구가 이를 묵시적으로 결정하지 않습니다.
-2. **작은 계약을 조합합니다.** capability probe, admission, dispatch, review, verify, recovery는 하나의 불투명한 라이프사이클 컨트롤러가 아니라 각각 좁은 책임을 가집니다.
-3. **피드백은 증거여야 합니다.** 실패한 검사는 다음 시도에 필요한 구체적 증거를 남겨야 합니다. terminal 또는 transport receipt가 성공했다는 사실은 독립 REVIEW·VERIFY를 대체하지 못합니다.
-4. **개발 도구와 제품을 분리합니다.** Matt Pocock 스킬은 이 저장소를 유지보수하기 위한 개발 환경입니다. 배포 가능한 제품 루트는 [`toolkit/`](toolkit/) 하나뿐입니다.
+`feedbackops-workflow`는 선택적으로 적용할 수 있는 재사용형 멀티 에이전트 개발 워크플로 도구입니다. dispatch, 리뷰, 검증, 증거 수집에 필요한 명시적 계약을 제공하며, 보이지 않는 제어 평면으로 작업 과정을 대신 결정하지 않습니다.
 
 ### 어디서 시작할까요?
 
