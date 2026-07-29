@@ -42,21 +42,20 @@ normalize_handle_json() {
   expected="${3:-}"
   node - "$mode" "$json" "$expected" <<'NODE'
 const [mode, json, expected] = process.argv.slice(2);
-const fields = ["terminal_id", "terminalId", "handle", "id"];
-const candidates = (value) => value && typeof value === "object" && !Array.isArray(value)
-  ? fields.map((field) => value[field]).filter((item) => typeof item === "string" && item.length)
-  : [];
 try {
   const value = JSON.parse(json);
   if (mode === "launch") {
-    const terminal = value.terminal && typeof value.terminal === "object" ? value.terminal : {};
-    const unique = [...new Set(candidates(value).concat(candidates(terminal)))];
-    if (unique.length !== 1) process.exit(2);
-    process.stdout.write(JSON.stringify({ external_handle: unique[0], lifecycle: "launched" }) + "\n");
+    const terminal = value && value.result && value.result.terminal;
+    if (!terminal || typeof terminal !== "object" || Array.isArray(terminal)
+      || typeof terminal.handle !== "string" || !terminal.handle.length) process.exit(2);
+    process.stdout.write(JSON.stringify({ external_handle: terminal.handle, lifecycle: "launched" }) + "\n");
   } else if (mode === "inspect") {
     const terminals = value && value.result && Array.isArray(value.result.terminals) ? value.result.terminals : null;
     if (!terminals) throw new Error("missing terminals");
-    const seen = new Set(terminals.flatMap(candidates));
+    const seen = new Set(terminals
+      .filter((terminal) => terminal && typeof terminal === "object" && !Array.isArray(terminal))
+      .map((terminal) => terminal.handle)
+      .filter((handle) => typeof handle === "string" && handle.length));
     process.stdout.write(JSON.stringify(seen.has(expected)
       ? { lifecycle: "live", reason: "external terminal handle is present" }
       : { lifecycle: "stale", reason: "external terminal handle is absent" }) + "\n");
