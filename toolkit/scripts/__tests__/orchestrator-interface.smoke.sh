@@ -85,9 +85,9 @@ fi
 if [ "${1:-}" = "--version" ]; then echo 'orca 1.0'; exit 0; fi
 if [ "${1:-}" = "terminal" ] && [ "${2:-}" = "list" ]; then
   case "${ORCA_LIST_MODE:-live}" in
-    live) printf '%s\n' "{\"result\":{\"terminals\":[{\"${ORCA_HANDLE_FIELD:-handle}\":\"orca-503\"}]}}" ;;
+    live) printf '%s\n' '{"result":{"terminals":[{"handle":"term-503"}]}}' ;;
     missing) printf '%s\n' '{"result":{"terminals":[]}}' ;;
-    unknown) printf '%s\n' '{"result":{"terminals":[{"unknown":"orca-503"}]}}' ;;
+    unknown) printf '%s\n' '{"result":{"terminals":[{"id":"request-503"}]}}' ;;
     invalid) printf '%s\n' '{"result":{}}' ;;
     fail) exit 2 ;;
   esac
@@ -105,7 +105,11 @@ while [ $# -gt 0 ]; do
 done
 issue="${title#codex-}"
 printf '%s\n' "{\"schema_version\":\"1\",\"artifact_type\":\"codex_run\",\"issue\":$issue,\"attempt\":1,\"started_at\":\"2026-07-21T01:00:01Z\",\"updated_at\":\"2026-07-21T01:00:01Z\",\"status\":\"running\"}" > "$worktree/.review/ISSUE-${issue}-RUN.json"
-printf '%s\n' "{\"${ORCA_HANDLE_FIELD:-terminal_id}\":\"orca-$issue\"}"
+case "${ORCA_CREATE_MODE:-actual}" in
+  actual) printf '%s\n' "{\"id\":\"request-$issue\",\"result\":{\"terminal\":{\"handle\":\"term-$issue\"}}}" ;;
+  missing) printf '%s\n' "{\"id\":\"request-$issue\",\"result\":{\"terminal\":{}}}" ;;
+  ambiguous) printf '%s\n' "{\"id\":\"request-$issue\",\"result\":{\"terminal\":[{\"handle\":\"term-$issue\"},{\"handle\":\"term-other\"}]}}" ;;
+esac
 EOF
 chmod +x "$BIN/cmux" "$BIN/orca"
 cat > "$BIN/codex" <<'EOF'
@@ -312,20 +316,32 @@ PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRAN
 if grep -q '"lifecycle":"live"' "$inspect_out" && grep -q '"authoritative":false' "$inspect_out" && grep -q 'canonical REVIEW and VERIFY' "$inspect_out"; then
   pass "inspect refuses to equate transport lifecycle with completion"
 else fail "inspect authority boundary"; fi
-for handle_field in terminal_id terminalId handle id; do
-  fixture_launch="$(TRANSPORT_USED="$TMP_ROOT/fixture-used" ORCA_ARGV="$TMP_ROOT/fixture-argv" ORCA_HANDLE_FIELD="$handle_field" PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/orca.sh" launch --name codex-503 --worktree "$ORCA_WT" --runner-relative .review/ISSUE-503-launch.fixture/launch.sh)"
-  fixture_handle="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).external_handle || "")' "$fixture_launch")"
-  fixture_inspect="$(ORCA_HANDLE_FIELD="$handle_field" PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/orca.sh" inspect --worktree "$ORCA_WT" --external-handle "$fixture_handle")"
-  if [ "$fixture_handle" = "orca-503" ] && printf '%s\n' "$fixture_inspect" | grep -q '"lifecycle":"live"'; then
-    pass "Orca $handle_field responses normalize identically for launch and inspect"
-  else fail "Orca $handle_field launch/inspect handle normalization"; fi
+orca_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_handle)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
+if [ "$orca_handle" = "term-503" ]; then
+  pass "Orca receipt uses nested terminal handle rather than create request id"
+else fail "Orca nested terminal handle normalization ($orca_handle)"; fi
+for invalid_create_shape in missing ambiguous; do
+  if TRANSPORT_USED="$TMP_ROOT/fixture-used" ORCA_ARGV="$TMP_ROOT/fixture-argv" ORCA_CREATE_MODE="$invalid_create_shape" PATH="$BIN:$PATH" \
+    bash "$ROOT/scripts/adapters/orca.sh" launch --name codex-503 --worktree "$ORCA_WT" --runner-relative .review/ISSUE-503-launch.fixture/launch.sh > "$TMP_ROOT/orca-${invalid_create_shape}.out" 2>&1; then
+    fail "Orca $invalid_create_shape create result must remain unprovable"
+  else
+    pass "Orca $invalid_create_shape create result remains unprovable"
+  fi
 done
+ORCA_UNPROVABLE_WT="$TMP_ROOT/orca-unprovable"
+make_worktree "$ORCA_UNPROVABLE_WT" 508
+ORCA_CREATE_MODE=missing AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+bash "$CLI" dispatch --orchestrator orca --issue 508 --worktree "$ORCA_UNPROVABLE_WT" --tier trivial --poll-timeout 1 > "$TMP_ROOT/orca-unprovable.out" 2>&1
+orca_unprovable_ec=$?
+if [ "$orca_unprovable_ec" -eq 2 ] && [ ! -e "$ORCA_UNPROVABLE_WT/.review/ISSUE-508-TRANSPORT.json" ]; then
+  pass "Orca launch without a provable terminal handle fails before receipt publication"
+else fail "Orca unprovable terminal handle (ec=$orca_unprovable_ec)"; fi
 ORCA_LIST_MODE=missing PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
 if grep -q '"lifecycle":"stale"' "$inspect_out" && grep -q 'external terminal handle is absent' "$inspect_out"; then
   pass "inspect normalizes a missing external handle as stale"
 else fail "missing external handle normalization"; fi
 ORCA_LIST_MODE=unknown PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
-if grep -q '"lifecycle":"stale"' "$inspect_out"; then pass "inspect ignores unknown handle fields as stale"; else fail "unknown handle field normalization"; fi
+if grep -q '"lifecycle":"stale"' "$inspect_out"; then pass "inspect ignores request ids as terminal handles"; else fail "request id inspection rejection"; fi
 ORCA_LIST_MODE=invalid PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
 if grep -q '"lifecycle":"handle_unverifiable"' "$inspect_out"; then pass "inspect rejects a missing terminal collection as unverifiable"; else fail "missing terminal collection normalization"; fi
 ORCA_LIST_MODE=fail PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
