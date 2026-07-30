@@ -29,6 +29,10 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 - `agent-watchdog.sh` is the shared retry/liveness authority and publishes
   runtime/role/version-bound `agent_run` markers; watchdog attempts are not
   redispatch ordinals. `codex-watchdog.sh`/`codex_run` remain legacy-compatible.
+- Non-Codex REVIEWER stdout accepts a prose-wrapped final fenced JSON object
+  only through host transcription, then retains the existing schema/producer/
+  issue/live-HEAD publication gate. Refusals retain raw output as
+  non-authoritative diagnostics and record a typed RUN refusal reason.
 - OpenCode config is injected as `OPENCODE_CONFIG_CONTENT` and must define the
   deny-first named primary `agent-workflow`; invocation pins `--agent
   agent-workflow` to reject built-in/default-agent fallback.

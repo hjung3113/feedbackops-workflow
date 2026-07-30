@@ -11,17 +11,32 @@ FIRST_PROGRESS_TIMEOUT="${AGENT_WATCHDOG_FIRST_PROGRESS_TIMEOUT:-240}"; STALL_TI
 usage() { echo "usage: agent-watchdog.sh --issue N --runtime codex|claude|opencode --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --prompt-file F --cwd DIR [--model M] [--effort E] [--opencode-permission-file F] [--produce-review|--conductor-control] [--max-retries N]" >&2; }
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 write_marker() {
-  status="$1"; attempt="$2"; pid="$3"; exit_code="$4"; marker="$CWD/.review/ISSUE-${ISSUE_N}-RUN.json"
+  status="$1"; attempt="$2"; pid="$3"; exit_code="$4"; refusal_reason="${5:-}"; marker="$CWD/.review/ISSUE-${ISSUE_N}-RUN.json"
   mkdir -p "$CWD/.review" || return 1
-  AGENT_MARKER="$marker" AGENT_ISSUE="$ISSUE_N" AGENT_ATTEMPT="$attempt" AGENT_RUNTIME="$RUNTIME" AGENT_ROLE="$ROLE" AGENT_VERSION="$RUNTIME_VERSION" AGENT_STATUS="$status" AGENT_PID="$pid" AGENT_EXIT="$exit_code" AGENT_TIME="$(iso_now)" node -e '
-const fs=require("fs"); const o={schema_version:"1",artifact_type:"agent_run",issue:Number(process.env.AGENT_ISSUE),attempt:Number(process.env.AGENT_ATTEMPT),runtime:process.env.AGENT_RUNTIME,role:process.env.AGENT_ROLE,runtime_version:process.env.AGENT_VERSION,started_at:process.env.AGENT_TIME,updated_at:process.env.AGENT_TIME,status:process.env.AGENT_STATUS}; if(process.env.AGENT_PID)o.pid=Number(process.env.AGENT_PID); if(process.env.AGENT_EXIT)o.exit_code=Number(process.env.AGENT_EXIT); fs.writeFileSync(process.env.AGENT_MARKER,JSON.stringify(o,null,2)+"\n");'
+  AGENT_MARKER="$marker" AGENT_ISSUE="$ISSUE_N" AGENT_ATTEMPT="$attempt" AGENT_RUNTIME="$RUNTIME" AGENT_ROLE="$ROLE" AGENT_VERSION="$RUNTIME_VERSION" AGENT_STATUS="$status" AGENT_PID="$pid" AGENT_EXIT="$exit_code" AGENT_REFUSAL_REASON="$refusal_reason" AGENT_TIME="$(iso_now)" node -e '
+const fs=require("fs"); const o={schema_version:"1",artifact_type:"agent_run",issue:Number(process.env.AGENT_ISSUE),attempt:Number(process.env.AGENT_ATTEMPT),runtime:process.env.AGENT_RUNTIME,role:process.env.AGENT_ROLE,runtime_version:process.env.AGENT_VERSION,started_at:process.env.AGENT_TIME,updated_at:process.env.AGENT_TIME,status:process.env.AGENT_STATUS}; if(process.env.AGENT_PID)o.pid=Number(process.env.AGENT_PID); if(process.env.AGENT_EXIT)o.exit_code=Number(process.env.AGENT_EXIT); if(process.env.AGENT_REFUSAL_REASON)o.refusal_reason=process.env.AGENT_REFUSAL_REASON; fs.writeFileSync(process.env.AGENT_MARKER,JSON.stringify(o,null,2)+"\n");'
 }
 progressed() { find "$CWD" -path '*/node_modules' -prune -o -path '*/.git' -prune -o -path '*/.review' -prune -o -newer "$STAMP" -print -quit | grep -q .; }
 kill_tree() { pkill -TERM -P "$1" 2>/dev/null || true; kill -TERM "$1" 2>/dev/null || true; sleep 1; pkill -KILL -P "$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true; }
 validate_review() {
   node - "$1" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" <<'NODE'
-const fs=require("fs"); try { const a=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), s=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); delete s.if; delete s.then; const {validate}=require(process.argv[4]); const fail=a.status==="fail"&&(!Array.isArray(a.findings)||a.findings.length<1||typeof a.patch_instructions!=="string"); if(validate(s,a).length||fail||String(a.issue.number)!==process.argv[5]||a.reviewed_head_sha!==process.argv[7])process.exit(2); } catch (_) { process.exit(2); }
+const fs=require("fs"); try { const a=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), s=JSON.parse(fs.readFileSync(process.argv[3],"utf8")); delete s.if; delete s.then; const {validate}=require(process.argv[4]); const fail=a.status==="fail"&&(!Array.isArray(a.findings)||a.findings.length<1||typeof a.patch_instructions!=="string"); if(validate(s,a).length||fail)throw "schema_invalid"; if(String(a.issue.number)!==process.argv[5])throw "issue_mismatch"; if(a.reviewed_head_sha!==process.argv[7])throw "head_mismatch"; } catch (reason) { process.stdout.write(typeof reason==="string" ? reason : "schema_invalid"); process.exit(2); }
 NODE
+}
+transcribe_review() {
+  node - "$1" "$2" <<'NODE'
+const fs=require("fs");
+const source=fs.readFileSync(process.argv[2],"utf8");
+try { JSON.parse(source); fs.writeFileSync(process.argv[3],source); process.exit(0); } catch (_) {}
+const matches=[...source.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n?```/gi)];
+if(!matches.length)process.exit(2);
+for(let i=matches.length-1;i>=0;i--) { const candidate=matches[i][1]; try { JSON.parse(candidate); fs.writeFileSync(process.argv[3],candidate); process.exit(0); } catch (_) {} }
+process.exit(2);
+NODE
+}
+preserve_review_output() {
+  mkdir -p "$CWD/.review" || return 1
+  cp "$OUTPUT" "$CWD/.review/ISSUE-${ISSUE_N}-review-attempt${attempt}-output.log"
 }
 blocker_signature() {
   file="$1"; [ -f "$file" ] || { printf '%s\n' absent; return; }
@@ -58,7 +73,7 @@ BLOCKER_BEFORE_SIG="$(blocker_signature "$BLOCKER_PATH")"
 case "$MAX_RETRIES" in ''|*[!0-9]*) echo '--max-retries must be a non-negative integer' >&2; exit 2;; esac
 CAPABILITIES="$($RUNTIME_EXEC capabilities --runtime "$RUNTIME")" || { echo "$CAPABILITIES" >&2; exit 3; }
 RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).version||"")}catch(_){process.exit(2)}})')" || { echo 'runtime capability output lacks version' >&2; exit 3; }
-STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR"' EXIT
+STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT"' EXIT
 set -- --runtime "$RUNTIME" --role "$ROLE" --mode "$MODE" --cwd "$CWD" --prompt-file "$PROMPT_FILE" --issue "$ISSUE_N"; [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; [ -n "$PERMISSION_FILE" ] && set -- "$@" --opencode-permission-file "$PERMISSION_FILE"; [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
 attempt=0
 while [ "$attempt" -le "$MAX_RETRIES" ]; do
@@ -73,7 +88,10 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     # Review runners own canonical-output validation. A non-zero review exit is
     # therefore a terminal refusal, not a transport failure worth retrying.
     # This also preserves any previously published canonical review.
-    if [ "$PRODUCE_REVIEW" -eq 1 ]; then write_marker refused "$attempt" "$pid" "$ec" || true; exit 4; fi
+    if [ "$PRODUCE_REVIEW" -eq 1 ]; then
+      if [ "$RUNTIME" = codex ]; then write_marker refused "$attempt" "$pid" "$ec" || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" "$ec" runtime_exit_nonzero || true; fi
+      exit 4
+    fi
     if failure_is_refused "$attempt_stderr"; then write_marker refused "$attempt" "$pid" "$ec" || true; exit 4; fi
     if probe_runtime >/dev/null 2>&1; then :; else sleep "$PROBE_GAP"; if ! probe_runtime >/dev/null 2>&1; then write_marker refused "$attempt" "$pid" "$ec" || true; exit 4; fi; fi
     continue
@@ -87,15 +105,25 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     fi
   fi
   if [ "$PRODUCE_REVIEW" -eq 1 ]; then
-  if [ "$RUNTIME" = codex ]; then REVIEW_SOURCE="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"; else REVIEW_SOURCE="$OUTPUT"; fi
-  if ! validate_review "$REVIEW_SOURCE"; then
+  if [ "$RUNTIME" = codex ]; then
+    REVIEW_SOURCE="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"
+  elif transcribe_review "$OUTPUT" "$REVIEW_TRANSCRIPT"; then
+    REVIEW_SOURCE="$REVIEW_TRANSCRIPT"
+  else
+    preserve_review_output || true
+    echo 'ERROR: REVIEW output has no parseable canonical JSON object' >&2
+    write_marker refused "$attempt" "$pid" 1 unparseable_output || true
+    exit 1
+  fi
+  REVIEW_REFUSAL_REASON="$(validate_review "$REVIEW_SOURCE")"; review_validation_ec=$?
+  if [ "$review_validation_ec" -ne 0 ]; then
     echo 'ERROR: REVIEW output is not canonical for this issue and live HEAD' >&2
-    write_marker refused "$attempt" "$pid" 1 || true
+    if [ "$RUNTIME" = codex ]; then write_marker refused "$attempt" "$pid" 1 || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" 1 "${REVIEW_REFUSAL_REASON:-schema_invalid}" || true; fi
     exit 1
   fi
   if ! node "$SCRIPT_DIR/lib/review-publish.cjs" "$REVIEW_SOURCE" "$CWD/.review" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" >/dev/null 2>&1; then
     echo 'ERROR: REVIEW publication lost its pinned HEAD or conflicted with immutable evidence' >&2
-    write_marker refused "$attempt" "$pid" 1 || true
+    if [ "$RUNTIME" = codex ]; then write_marker refused "$attempt" "$pid" 1 || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" 1 publication_failed || true; fi
     exit 1
   fi
   if [ "$RUNTIME" != codex ]; then OUTPUT=""; fi

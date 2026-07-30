@@ -169,10 +169,11 @@ run_review invalid >"$invalid_out" 2>&1
 invalid_ec=$?
 canonical_after="$(shasum -a 256 "$canonical" | awk '{print $1}')"
 invalid_status="$(node -e 'const a=require(process.argv[1]); process.stdout.write(a.status)' "$WT/.review/ISSUE-370-RUN.json")"
-if [ "$invalid_ec" -eq 0 ] && [ "$invalid_status" = "refused" ] && [ "$canonical_before" = "$canonical_after" ] && [ "$(temp_count)" -eq 0 ]; then
-  pass "invalid REVIEW output preserves the prior canonical artifact and removes temp output"
+invalid_reason="$(node -e 'const a=require(process.argv[1]); process.stdout.write(Object.prototype.hasOwnProperty.call(a,"refusal_reason")?"present":"absent")' "$WT/.review/ISSUE-370-RUN.json")"
+if [ "$invalid_ec" -eq 0 ] && [ "$invalid_status" = "refused" ] && [ "$invalid_reason" = "absent" ] && [ "$canonical_before" = "$canonical_after" ] && [ "$(temp_count)" -eq 0 ]; then
+  pass "Codex invalid REVIEW preserves prior evidence without typed refusal diagnostics"
 else
-  fail "invalid REVIEW handling was not atomic (dispatch=$invalid_ec run=$invalid_status)"
+  fail "Codex invalid REVIEW handling changed (dispatch=$invalid_ec run=$invalid_status reason=$invalid_reason)"
 fi
 
 for rejected_mode in wrong_issue stale_head fail_missing_fields; do
