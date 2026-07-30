@@ -156,7 +156,7 @@ printf '%s\n' '{"orchestrator":"orca","runtime":"opencode","role":"implementatio
 
 같은 issue를 다시 dispatch할 때 기존 RUN/BLOCKER는 cross-platform nanosecond mtime과 `started_at` 결합 서명으로 구분합니다. 현재 launch에서 서명이 바뀌지 않은 stale artifact는 liveness로 인정하지 않고 timeout 처리합니다.
 
-새 runtime 공통 경로는 `agent-watchdog.sh`입니다. 각 시도는 `artifact_type:"agent_run"`과 runtime/role/version을 가진 RUN을 갱신하고, non-zero stderr를 `ISSUE-N-agent-attempt<K>-stderr.log`로 보존합니다. `attempt`는 watchdog 내부 시도 횟수이지 redispatch admission ordinal이나 실패 round가 아닙니다. `codex-watchdog.sh`와 `codex_run`은 기존 직접 호출/과거 산출물을 읽기 위한 호환 경로일 뿐 새 multi-runtime authority가 아닙니다.
+새 runtime 공통 경로는 `agent-watchdog.sh`입니다. 각 시도는 `artifact_type:"agent_run"`과 runtime/role/version을 가진 RUN을 갱신하고, non-zero stderr를 `ISSUE-N-agent-attempt<K>-stderr.log`로 보존합니다. Non-Codex REVIEWER가 거부되면 raw stdout도 non-authoritative `ISSUE-N-review-attempt<K>-output.log`로 보존하고 RUN의 `refusal_reason`으로 `unparseable_output` 등을 구분합니다. `attempt`는 watchdog 내부 시도 횟수이지 redispatch admission ordinal이나 실패 round가 아닙니다. `codex-watchdog.sh`와 `codex_run`은 기존 직접 호출/과거 산출물을 읽기 위한 호환 경로일 뿐 새 multi-runtime authority가 아닙니다.
 
 Conductor가 canonical ROUND-STATE를 갱신해야 할 때는 `--runtime <runtime> --role conductor --read-only --conductor-control`을 사용합니다. Runtime은 product-code write 권한 없이 proposal 하나만 출력하고, host publisher가 issue, live HEAD, worktree, base, schema, exact path, monotonic revision을 검증한 뒤 해당 ROUND-STATE만 원자 게시합니다. 검증 실패 시 아무 control artifact도 게시하지 않습니다.
 
@@ -214,7 +214,7 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
 
 기존 `verify.sh`는 FeedbackOps 호환 어댑터입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다. Generic target은 PostgreSQL, backend, Vitest, Node 가정을 상속하지 않습니다.
 
-REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review`로 실행합니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, host-side가 JSON schema, producer, issue, live HEAD를 검증한 뒤 Git linked-worktree HEAD/ref lock 아래 canonical `.review/ISSUE-123-REVIEW.json`과 immutable snapshot을 원자 게시합니다. lock은 concurrent commit이 publication 사이에 끼어드는 것을 막고 실패 시 안전하게 해제됩니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
+REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review`로 실행합니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, non-Codex stdout의 prose-wrapped fenced JSON은 마지막 parseable block만 transcription 후보가 됩니다. Host-side는 그 뒤에도 JSON schema, producer, issue, live HEAD를 검증한 뒤 Git linked-worktree HEAD/ref lock 아래 canonical `.review/ISSUE-123-REVIEW.json`과 immutable snapshot을 원자 게시합니다. lock은 concurrent commit이 publication 사이에 끼어드는 것을 막고 실패 시 안전하게 해제됩니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
 
 ## Mental model
 
