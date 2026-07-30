@@ -82,7 +82,20 @@ if [ "${1:-}" = "terminal" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--help" ]
   printf '%s\n' 'Usage: orca terminal list --worktree PATH --json'
   exit 0
 fi
-if [ "${1:-}" = "--version" ]; then echo 'orca 1.0'; exit 0; fi
+if [ "${1:-}" = "--version" ]; then echo 'orca'; exit 0; fi
+if [ "${1:-}" = "status" ] && [ "${2:-}" = "--json" ]; then
+  case "${ORCA_STATUS_MODE:-real}" in
+    real) printf '%s\n' '{"result":{"runtime":{"appVersion":"1.4.161"}}}' ;;
+    missing) printf '%s\n' '{"result":{"runtime":{}}}' ;;
+    non_string) printf '%s\n' '{"result":{"runtime":{"appVersion":104161}}}' ;;
+    literal) printf '%s\n' '{"result":{"runtime":{"appVersion":"orca"}}}' ;;
+    multiline) printf '%s\n' '{"result":{"runtime":{"appVersion":"1.4.161\\nUsage: orca"}}}' ;;
+    usage) printf '%s\n' '{"result":{"runtime":{"appVersion":"Usage: orca status --json"}}}' ;;
+    invalid) printf '%s\n' 'not JSON' ;;
+    fail) exit 2 ;;
+  esac
+  exit 0
+fi
 if [ "${1:-}" = "terminal" ] && [ "${2:-}" = "list" ]; then
   case "${ORCA_LIST_MODE:-live}" in
     live) printf '%s\n' '{"result":{"terminals":[{"handle":"term-503"}]}}' ;;
@@ -231,6 +244,18 @@ if [ "$cmux_ec" -eq 0 ] && [ "$orca_ec" -eq 0 ] \
   && grep -E '^bash \.review/ISSUE-503-launch\..*/launch\.sh$' "$TMP_ROOT/orca-argv" >/dev/null; then
   pass "cmux and Orca share exact cwd, runner, admission, and freshness behavior"
 else fail "adapter parity (cmux=$cmux_ec orca=$orca_ec)"; fi
+
+orca_version="$(node -e 'process.stdout.write(require(process.argv[1]).adapter_version)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
+if [ "$orca_version" = "1.4.161" ] && [ "$orca_version" != "orca" ]; then
+  pass "Orca receipt records runtime appVersion instead of executable-name output"
+else fail "Orca receipt adapter version ($orca_version)"; fi
+
+for bad_status_mode in missing non_string literal multiline usage invalid fail; do
+  bad_capabilities="$(ORCA_STATUS_MODE="$bad_status_mode" PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/orca.sh" capabilities --worktree "$ORCA_WT")"
+  if node -e 'const v=JSON.parse(process.argv[1]); if(!v.available || v.version!=="unknown")process.exit(1)' "$bad_capabilities"; then
+    pass "Orca $bad_status_mode status version fails closed to unknown"
+  else fail "Orca $bad_status_mode status version ($bad_capabilities)"; fi
+done
 
 cmux_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
 orca_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"

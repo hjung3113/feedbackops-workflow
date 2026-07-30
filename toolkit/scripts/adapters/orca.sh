@@ -25,7 +25,19 @@ capability_json() {
       return
     fi
   done
-  version="$(orca --version 2>/dev/null | head -1)"
+  status_json="$(orca status --json 2>/dev/null)"
+  version="$(node - "$status_json" <<'NODE'
+try {
+  const value = JSON.parse(process.argv[2]);
+  const version = value && value.result && value.result.runtime && value.result.runtime.appVersion;
+  if (typeof version !== "string" || version !== version.trim()
+    || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) process.exit(1);
+  process.stdout.write(version);
+} catch (error) {
+  process.exit(1);
+}
+NODE
+  )"
   [ -n "$version" ] || version="unknown"
   node - "$version" <<'NODE'
 process.stdout.write(JSON.stringify({
