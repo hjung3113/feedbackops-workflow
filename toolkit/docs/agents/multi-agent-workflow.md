@@ -353,6 +353,7 @@ RUN/BLOCKER files are issue-scoped and can be overwritten by read-heavy, REVIEWE
 
 1. Capture the dispatch command exit code directly; do not pipe the command through `tail`, `tee`, or another consumer unless the shell explicitly preserves the dispatch status. A rejected launch may write no new RUN artifact at all.
 2. Accept RUN/BLOCKER only when its `mtime + started_at` identity is fresh relative to the current dispatch. Prefer `cmux-dispatch.sh`'s built-in poll instead of recreating this check.
+   Under the Orca transport, poll `RUN.json`; `orca terminal wait --for exit` does not signal because the runner shares a persistent shell.
 3. `status:"exited"` means process termination, not task completion. The current watchdog writes `exited` only after exit code 0 and immediately returns; an ordinary non-zero retry rewrites `running` for the next attempt, while a stall retry may move from `killed_stall` back to `running`. The historical claim that a failed attempt necessarily flips `exited -> running` is not this implementation's contract.
 4. If RUN identity or retry timing is ambiguous, confirm that the recorded process is absent before treating an ambiguous retry as terminal. A live process plus advancing worktree or heartbeat mtime is liveness; RUN alone is not completion.
 5. Missing artifacts alone do not prove that a dispatch is dead. Combine the dispatch exit code, process presence, and filesystem or heartbeat progress; a pre-RUN validation failure, slow first progress, and a dead child otherwise look alike to a file-only poller.
