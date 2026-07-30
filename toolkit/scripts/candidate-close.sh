@@ -11,7 +11,7 @@ exec node "$SCRIPT_DIR/lib/candidate-close.cjs" "$@" \
   --schema "$SCRIPT_DIR/../schemas/candidate_closure.schema.json" \
   --review-schema "$SCRIPT_DIR/../schemas/review.schema.json" \
   --verify-schema "$SCRIPT_DIR/../schemas/verify.schema.json" \
-  --verify-result "$SCRIPT_DIR/lib/verify-result.cjs" \
+  --verify-result "$SCRIPT_DIR/lib/verify-artifact.cjs" \
   --pr-schema "$SCRIPT_DIR/../schemas/pr_draft.schema.json" \
   --completion-schema "$SCRIPT_DIR/../schemas/completion_evidence.schema.json" \
   --seat-schema "$SCRIPT_DIR/../schemas/seat_outcome.schema.json" \

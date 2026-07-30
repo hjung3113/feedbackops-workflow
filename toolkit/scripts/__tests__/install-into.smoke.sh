@@ -130,6 +130,7 @@ assert_generic_profile() {
   target="$1"
   assert_true "generic install records generic profile" grep -F -q '"profile":"generic"' "$target/.agent-workflow/install-profile.json"
   assert_true "generic install retains target-neutral verifier" test -x "$target/.agent-workflow/scripts/target-verify.sh"
+  assert_true "generic install includes VERIFY semantic validator" test -e "$target/.agent-workflow/scripts/lib/verify-artifact.cjs"
   assert_true "generic install excludes FeedbackOps verifier" test ! -e "$target/.agent-workflow/scripts/verify.sh"
   assert_true "generic install excludes FeedbackOps DB adapter" test ! -e "$target/.agent-workflow/scripts/prepare-verify-db.sh"
   assert_true "generic install excludes FeedbackOps worktree adapter" test ! -e "$target/.agent-workflow/scripts/prepare-worktree.sh"
@@ -373,6 +374,27 @@ mkdir -p "$generic"
 assert_exit "generic install succeeds" PASS bash "$INSTALL" "$generic" --profile generic
 assert_portable_layout "generic install" "$generic"
 assert_generic_profile "$generic"
+git -C "$generic" init -q
+git -C "$generic" config user.email smoke@example.test
+git -C "$generic" config user.name smoke
+printf '%s\n' seed > "$generic/README.md"
+git -C "$generic" add README.md
+git -C "$generic" commit -qm seed
+mkdir -p "$generic/bin"
+cat > "$generic/bin/generic-pass" <<'EOF'
+#!/usr/bin/env bash
+echo "1 tests"
+EOF
+chmod +x "$generic/bin/generic-pass"
+cat > "$generic/generic-profile.json" <<'EOF'
+{"schema_version":"1","id":"installed-generic","runtime":{"executables":["generic-pass"]},"setup":[],"verification":{"groups":[{"id":"test","required":true,"commands":[{"argv":["generic-pass"]}],"test_count":{"pattern":"([0-9]+) tests","group":1}}]}}
+EOF
+if (cd "$generic" && PATH="$generic/bin:$PATH" bash .agent-workflow/scripts/target-verify.sh generic-profile.json 76) >/dev/null 2>&1 \
+  && node "$generic/.agent-workflow/scripts/lib/verify-artifact.cjs" validate-artifact "$generic/.review/ISSUE-76-VERIFY.json" "$generic/.agent-workflow/schemas/verify.schema.json" "$generic/.agent-workflow/scripts/lib/json-schema-subset.cjs" >/dev/null 2>&1; then
+  ok "generic install executes target verifier and publishes semantic PASS evidence"
+else
+  not_ok "generic install executes target verifier and publishes semantic PASS evidence"
+fi
 assert_true "generic install excludes root instructions" test ! -e "$generic/AGENTS.md"
 assert_true "generic install excludes maintainer docs" test ! -e "$generic/docs"
 assert_exit_output "generic upgrade refuses FeedbackOps profile substitution" 2 "refusing to change an existing generic installation" bash "$INSTALL" "$generic" --upgrade

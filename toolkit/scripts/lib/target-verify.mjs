@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const { validate } = require("./json-schema-subset.cjs");
-const { validArtifact } = require("./verify-result.cjs");
+const { validArtifact } = require("./verify-artifact.cjs");
 
 const [profileArg, issueArg] = process.argv.slice(2);
 const fail = (message, code = 2) => { console.error(`target-verify: ${message}`); process.exit(code); };

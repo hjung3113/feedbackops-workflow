@@ -37,7 +37,7 @@ NODE
 done
 
 for fixture in verify.generic_exit_nonzero.invalid.json verify.generic_zero_count.invalid.json; do
-  if node - "$ROOT/scripts/lib/verify-result.cjs" "$ROOT/schemas/fixtures/$fixture" <<'NODE'
+  if node - "$ROOT/scripts/lib/verify-artifact.cjs" "$ROOT/schemas/fixtures/$fixture" <<'NODE'
 const {validArtifact}=require(process.argv[2]); const artifact=require(process.argv[3]);
 process.exit(validArtifact(artifact)?1:0);
 NODE

@@ -363,7 +363,7 @@ function collect() {
       execFileSync(
         process.execPath,
         [
-          path.join(product, "scripts/lib/verify-result.cjs"),
+          path.join(product, "scripts/lib/verify-artifact.cjs"),
           "validate-artifact",
           verifyS.absolute,
           path.join(product, "schemas/verify.schema.json"),
