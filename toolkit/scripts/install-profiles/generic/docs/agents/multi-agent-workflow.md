@@ -31,6 +31,16 @@ Use the target's own instructions for setup, worktrees, tests, review scope,
 and release authority. RUN files and agent prose are not completion evidence;
 only fresh HEAD-bound REVIEW and VERIFY artifacts are authoritative.
 
+Before review, run `"$PRODUCT_HOME/scripts/completion-check.sh" --round-state
+<state> --manifest-revision <revision>`. It executes the target-owned
+`contract.test_discovery_command` in the declared worktree and searches raw
+stdout for acceptance IDs. With no `contract.test_count`, each non-empty stdout
+line is one test; the optional `{ "pattern": "...", "group": 1 }` extractor
+instead reads one positive decimal count from the first multiline regex match.
+The extractor never changes AC-ID matching. Invalid extraction fails closed;
+a failed command remains `test_discovery_failed` and includes its exit code and
+bounded UTF-8-safe combined stdout/stderr diagnostics.
+
 New launches use the runtime-neutral `agent-watchdog.sh`, publish
 runtime/role/version-bound `agent_run` liveness, and write schema-v2 transport
 receipts. `codex-watchdog.sh`, `codex_run`, and receipt v1 are legacy-readable

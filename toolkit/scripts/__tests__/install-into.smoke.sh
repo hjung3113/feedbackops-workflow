@@ -151,6 +151,9 @@ assert_generic_profile() {
 prepare_gate_fixture() {
   target="$1"
   fixture="$target/.agent-workflow/schemas/fixtures/round_state.valid.json"
+  if [ ! -r "$fixture" ]; then
+    fixture="$PRODUCT_ROOT/schemas/fixtures/round_state.valid.json"
+  fi
   GATE_STATE="$target/.review/ISSUE-188-ROUND-STATE.json"
   GATE_BLOCKER_STATE="$target/.review/ISSUE-188-BLOCKER-ROUND-STATE.json"
   GATE_SUPERSEDED_BLOCKER_STATE="$target/.review/ISSUE-188-SUPERSEDED-BLOCKER-ROUND-STATE.json"
@@ -172,7 +175,7 @@ prepare_gate_fixture() {
   node -e '
     const fs=require("fs"); const [file,root,base,head]=process.argv.slice(1); const v=JSON.parse(fs.readFileSync(file,"utf8"));
     v.revision=3; v.base_branch="main"; v.base_sha=base; v.head_sha=head; v.worktree_path=root;
-    v.contract.touch_allowlist=["allowed/**"]; v.contract.test_discovery_command="printf '\''AC-1\\n'\''";
+    v.contract.touch_allowlist=["allowed/**"]; v.contract.test_discovery_command="printf '\''AC-1\\n'\''"; delete v.contract.test_count;
     delete v.contract.chunk_boundary; v.acceptance.criteria=[{id:"AC-1",statement:"the installed gate discovers AC-1"}]; v.acceptance.expected_test_count=1;
     v.decisions=[]; delete v.round_control; v.commit_scope.commits=[]; fs.writeFileSync(file,JSON.stringify(v));
   ' "$GATE_STATE" "$target" "$base_sha" "$head_sha"
@@ -239,6 +242,13 @@ NODE
   fi
   assert_exit "$label executes ac-check" PASS bash "$scripts/ac-check.sh" --round-state "$GATE_STATE" --manifest-revision 3 --tests "$GATE_TESTS"
   assert_exit "$label executes completion-check" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
+  node -e '
+    const fs=require("fs"); const file=process.argv[1]; const v=JSON.parse(fs.readFileSync(file,"utf8"));
+    v.contract.test_discovery_command="printf '\''TAP version 13\\n# AC-1\\n# tests 3\\n'\''";
+    v.contract.test_count={pattern:"(?:ℹ |# )?tests ([0-9]+)",group:1}; v.acceptance.expected_test_count=3;
+    fs.writeFileSync(file,JSON.stringify(v));
+  ' "$GATE_STATE"
+  assert_exit "$label installed completion-check extracts native test count" PASS bash "$scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label executes redispatch-check" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
   assert_exit "$label accepts dispatch-contract BLOCKER redispatch evidence" PASS bash "$scripts/redispatch-check.sh" --round-state "$GATE_BLOCKER_STATE" --manifest-revision 3
   assert_exit_output "$label rejects superseded BLOCKER redispatch evidence" 2 "superseded_evidence_artifact" bash "$scripts/redispatch-check.sh" --round-state "$GATE_SUPERSEDED_BLOCKER_STATE" --manifest-revision 3
@@ -604,6 +614,16 @@ assert_no_maintainer_leakage "$export_target"
 prepare_gate_fixture "$fresh"
 assert_installed_gates "portable install" "$fresh"
 assert_installed_real_dispatch "portable install" "$fresh"
+
+prepare_gate_fixture "$generic"
+assert_exit "generic portable install completion-check preserves legacy fallback" PASS bash "$generic/.agent-workflow/scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
+node -e '
+  const fs=require("fs"); const file=process.argv[1]; const v=JSON.parse(fs.readFileSync(file,"utf8"));
+  v.contract.test_discovery_command="printf '\''TAP version 13\\n# AC-1\\n# tests 3\\n'\''";
+  v.contract.test_count={pattern:"(?:ℹ |# )?tests ([0-9]+)",group:1}; v.acceptance.expected_test_count=3;
+  fs.writeFileSync(file,JSON.stringify(v));
+' "$GATE_STATE"
+assert_exit "generic portable install completion-check extracts native test count" PASS bash "$generic/.agent-workflow/scripts/completion-check.sh" --round-state "$GATE_STATE" --manifest-revision 3
 
 assert_true "README documents copy-only install" grep -F -q 'self-contained' "$PRODUCT_ROOT/README.md"
 assert_true "README documents explicit upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/README.md"

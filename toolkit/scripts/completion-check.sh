@@ -82,6 +82,29 @@ function error(code, message) {
   process.stdout.write(JSON.stringify({ status: "error", mismatches: [{ code }], error: message }) + "\n");
   process.exit(2);
 }
+const DISCOVERY_DIAGNOSTIC_LIMIT = 4096;
+function utf8Prefix(buffer, limit) {
+  if (buffer.length <= limit) return buffer;
+  let end = limit;
+  while (end > 0 && (buffer[end - 1] & 0xc0) === 0x80) end -= 1;
+  const lead = buffer[end - 1];
+  const width = lead < 0x80 ? 1 : (lead & 0xe0) === 0xc0 ? 2 : (lead & 0xf0) === 0xe0 ? 3 : (lead & 0xf8) === 0xf0 ? 4 : 1;
+  return end - 1 + width > limit ? buffer.subarray(0, end - 1) : buffer.subarray(0, limit);
+}
+function discoveryFailure(errorValue) {
+  const stdout = Buffer.isBuffer(errorValue.stdout) ? errorValue.stdout : Buffer.from(errorValue.stdout || "", "utf8");
+  const stderr = Buffer.isBuffer(errorValue.stderr) ? errorValue.stderr : Buffer.from(errorValue.stderr || "", "utf8");
+  const output = Buffer.concat([stdout, stderr]);
+  process.stdout.write(JSON.stringify({
+    status: "error",
+    mismatches: [{ code: "test_discovery_failed" }],
+    error: "target-native test discovery failed",
+    exit_code: Number.isInteger(errorValue.status) ? errorValue.status : 1,
+    output: utf8Prefix(output, DISCOVERY_DIAGNOSTIC_LIMIT).toString("utf8"),
+    output_truncated: output.length > DISCOVERY_DIAGNOSTIC_LIMIT
+  }) + "\n");
+  process.exit(2);
+}
 function globMatches(pattern, value) {
   let source = "^";
   for (let i = 0; i < pattern.length; i += 1) {
@@ -154,10 +177,10 @@ try {
 let tests;
 try {
   tests = execFileSync("/bin/sh", ["-c", state.contract.test_discovery_command], {
-    cwd: state.worktree_path,
-    encoding: "utf8"
+    cwd: state.worktree_path
   });
-} catch (e) { error("test_discovery_failed", "target-native test discovery failed: " + e.message); }
+} catch (e) { discoveryFailure(e); }
+tests = tests.toString("utf8");
 
 const boundary = state.contract.chunk_boundary;
 let typecheck = null;
@@ -222,7 +245,25 @@ for (const path of changedPaths) {
     mismatches.push({ code: "new_path_not_explicitly_allowed", path });
   }
 }
-const discoveredTestCount = tests.split(/\r?\n/).filter((line) => line.length > 0).length;
+let discoveredTestCount;
+if (state.contract.test_count) {
+  let match;
+  try {
+    match = new RegExp(state.contract.test_count.pattern, "m").exec(tests);
+  } catch (_) {
+    error("test_count_extractor_invalid_regex", "test_count pattern is not a valid regular expression");
+  }
+  if (!match) error("test_count_extractor_no_match", "test_count pattern did not match discovery output");
+  const captured = match[state.contract.test_count.group];
+  if (captured === undefined) error("test_count_extractor_missing_capture", "test_count group was not captured");
+  if (!/^[0-9]+$/.test(captured) || !Number.isSafeInteger(Number(captured))) {
+    error("test_count_extractor_non_integer", "test_count capture is not a decimal integer");
+  }
+  discoveredTestCount = Number(captured);
+  if (discoveredTestCount <= 0) error("test_count_extractor_non_positive", "test_count capture must be positive");
+} else {
+  discoveredTestCount = tests.split(/\r?\n/).filter((line) => line.length > 0).length;
+}
 if (discoveredTestCount !== state.acceptance.expected_test_count) {
   mismatches.push({ code: "unexpected_discovered_test_count", expected: state.acceptance.expected_test_count, actual: discoveredTestCount });
 }
