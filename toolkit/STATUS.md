@@ -23,6 +23,10 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
   runtime version, RUN/receipt provenance, and no-fallback failures are part
   of the contract; only fresh canonical REVIEW and VERIFY evidence at live HEAD
   retains completion authority.
+- Reviewer allocation can be explicitly requested per runtime: the shipped
+  Claude entry uses `sonnet`, while OpenCode remains target-provider-configured
+  and refuses before admission when no `reviewer_by_runtime.opencode` tuple is
+  supplied.
 - OpenCode is deny-first: a permission JSON denies `*`, write explicitly allows
   edit, and read does not. Missing/invalid configuration is admission failure,
   not permission to substitute another runtime.

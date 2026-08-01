@@ -229,9 +229,13 @@ if [ "$ALLOCATE" -eq 1 ] && { [ -n "$MODEL" ] || [ -n "$EFFORT" ]; }; then
   echo "ERROR: --allocate cannot be combined with --model or --effort" >&2
   exit 2
 fi
-if [ "$ALLOCATE" -eq 1 ] && [ "$ALLOCATOR_ROLE" != "implementation" ]; then
-  echo "ERROR: v1 auto-dispatch supports only the Codex implementation allocator role" >&2
-  exit 2
+if [ "$ALLOCATE" -eq 1 ]; then
+  case "$ALLOCATOR_ROLE:$ROLE:$PRODUCE_REVIEW" in
+    implementation:implementation:0|reviewer:reviewer:1) ;;
+    implementation:*) echo "ERROR: --allocator-role implementation requires a write-capable implementation dispatch" >&2; exit 2 ;;
+    reviewer:*) echo "ERROR: --allocator-role reviewer requires --role reviewer --produce-review" >&2; exit 2 ;;
+    *) echo "ERROR: --allocator-role must be implementation or reviewer" >&2; exit 2 ;;
+  esac
 fi
 if [ "$ALLOCATE" -eq 0 ] && { [ -n "$ALLOCATOR_ROLE" ] || [ -n "$ALLOC_EVIDENCE" ]; }; then
   echo "ERROR: --allocator-role and --alloc-evidence require --allocate" >&2
@@ -245,8 +249,8 @@ if [ "$CONDUCTOR_CONTROL" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
   echo "ERROR: --conductor-control and --produce-review are mutually exclusive" >&2
   exit 2
 fi
-if [ "$PRODUCE_REVIEW" -eq 1 ] && [ -z "$MODEL" ]; then
-  echo "ERROR: --produce-review requires an explicit --model" >&2
+if [ "$PRODUCE_REVIEW" -eq 1 ] && [ -z "$MODEL" ] && [ "$ALLOCATE" -eq 0 ]; then
+  echo "ERROR: --produce-review requires an explicit --model or --allocate --allocator-role reviewer" >&2
   exit 2
 fi
 if [ "$PRODUCE_REVIEW" -eq 1 ] && [ "$ROLE" != "reviewer" ]; then
@@ -456,9 +460,9 @@ NODE
 fi
 
 # Allocation is a pure preflight. Parse and validate it before write-admission
-# markers, launch runners, or transport side effects. v1 deliberately forwards only
-# a Codex/OpenAI implementation allocation; external Opus/Fable roles remain
-# manually dispatched clean-context seats.
+# markers, launch runners, or transport side effects. Implementation allocation
+# remains Codex-only; reviewer allocation is runtime-specific and still needs
+# the selected runtime's independent compatibility preflight.
 if [ "$ALLOCATE" -eq 1 ]; then
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
@@ -476,7 +480,7 @@ if [ "$ALLOCATE" -eq 1 ]; then
       ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     fi
   fi
-  ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.impl_model !== "string" || !/^(low|medium|high)$/.test(v.impl_effort)) process.exit(2); process.stdout.write(v.impl_model + "\t" + v.impl_effort); } catch (e) { process.exit(2); }' "$ALLOC_JSON")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
+  ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]), role=process.argv[2], key=role === "reviewer" ? "review" : "impl"; if (typeof v[key + "_model"] !== "string" || !/^(low|medium|high)$/.test(v[key + "_effort"])) process.exit(2); process.stdout.write(v[key + "_model"] + "\t" + v[key + "_effort"]); } catch (e) { process.exit(2); }' "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
   MODEL="${1:-}"; EFFORT="${2:-}"
   if [ -z "$MODEL" ]; then

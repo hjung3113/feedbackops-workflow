@@ -19,6 +19,7 @@ if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd P
 while [ "$#" -gt 0 ]; do
   case "$1" in --cwd) cwd="$2"; shift 2;; --command) command="$2"; shift 2;; *) shift;; esac
 done
+
 [ -n "${command:-}" ] && [ -n "${cwd:-}" ] || exit 2
 echo create >> "$CMUX_LOG"
 (cd "$cwd" && bash -c "$command") >/dev/null 2>&1 || :
@@ -85,6 +86,25 @@ for runtime in claude opencode; do
     bad "$runtime valid manual model did not reach launch"
   fi
 done
+
+# A reviewer may ask the allocator for the runtime-specific tuple. Claude's
+# shipped alias must reach the same preflight and publication path as a manual
+# tuple; OpenCode remains target-configured because provider/model IDs vary.
+WT="$TMP/allocated-claude"
+mkdir -p "$WT/.review"
+git init -q "$WT"
+git -C "$WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+echo 'review prompt' > "$WT/.review/ISSUE-903-PROMPT.txt"
+: > "$TMP/allocated-claude.args"
+if RUNTIME_ARGS_LOG="$TMP/allocated-claude.args" CMUX_LOG="$TMP/allocated-claude.cmux.log" PATH="$BIN:$PATH" AGENT_WORKFLOW_CLAUDE_BIN="$BIN/claude" bash "$CORE" --adapter cmux --runtime claude --role reviewer --issue 903 --worktree "$WT" --produce-review --allocate --allocator-role reviewer --poll-timeout 1 >"$TMP/allocated-claude.out" 2>&1; then
+  if grep -q -- '--model sonnet' "$TMP/allocated-claude.args" && grep -q -- '--effort medium' "$TMP/allocated-claude.args"; then
+    ok "Claude reviewer allocation forwards the runtime-specific tuple"
+  else
+    bad "Claude reviewer allocation did not forward the runtime-specific tuple"
+  fi
+else
+  bad "Claude reviewer allocation did not reach preflight and launch: $(cat "$TMP/allocated-claude.out")"
+fi
 
 # Claude/OpenCode implementation seats must apply the same canonical BLOCKER
 # schema/identity/lifecycle gate as codex-safe when the runtime emits one.

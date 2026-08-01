@@ -377,6 +377,7 @@ assert_true "fresh install preserves review evidence" grep -F -q evidence "$fres
 assert_true "fresh install preserves unrelated project files" grep -F -q project "$fresh/project.txt"
 assert_true "fresh install implementation contract requires canonical AC ids in test names" grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$fresh/.agent-workflow/scripts/lib/output-contract.mjs"
 assert_true "fresh install skill documents canonical AC ids in test names" grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$fresh/.claude/skills/agent-workflow/SKILL.md"
+assert_true "fresh install ships Claude reviewer allocation" node -e 'const v=require(process.argv[1]); process.exit(v.reviewer_by_runtime && v.reviewer_by_runtime.claude && v.reviewer_by_runtime.claude.model === "sonnet" && v.reviewer_by_runtime.claude.effort === "medium" ? 0 : 1)' "$fresh/.agent-workflow/model-alloc.json"
 assert_no_maintainer_leakage "$fresh"
 assert_true "default install records FeedbackOps profile" grep -F -q '"profile":"feedbackops"' "$fresh/.agent-workflow/install-profile.json"
 assert_product_home_worktree_contract "$fresh"
