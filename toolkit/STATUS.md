@@ -128,7 +128,7 @@ bash scripts/__tests__/run-all-contract.test.sh
 ### v0.19 — cmux launch-runner transport
 
 - `cmux-dispatch.sh` atomically records a launch-unique worktree-local executable runner before cmux creation. The runner preserves the fully quoted watchdog argv and clears `NODE_OPTIONS`, while cmux receives only `bash .review/ISSUE-N-launch.<unique>/launch.sh` under its mandatory workspace cwd. Concurrent same-issue seats cannot overwrite one another before asynchronous execution.
-- Each runner remains available for asynchronous startup and pre-RUN failures, and dispatch output identifies its exact path. Operators diagnose silent panes with `cmux read-screen --workspace <name> --scrollback --lines <N>`; `dquote>` and `heredoc>` are shell-transport evidence, not completion or liveness evidence.
+- Each runner remains available for asynchronous startup, pre-RUN failures, and its receipt-bound diagnostic lifetime; a later same-issue receipt serially retires prior receipt-marked runners. Dispatch output identifies its exact path. Operators diagnose silent panes with `cmux read-screen --workspace <name> --scrollback --lines <N>`; `dquote>` and `heredoc>` are shell-transport evidence, not completion or liveness evidence.
 
 ### v0.19 — dispatch-contract scoped abort evidence
 

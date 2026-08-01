@@ -166,6 +166,115 @@ write_launch_runner() {
   RUNNER_RELATIVE=".review/$runner_dir_name/launch.sh"
   RUNNER_FILE="$runner"
   RUNNER_COMMAND="bash $RUNNER_RELATIVE"
+  RUNNER_RECEIPT_MARKER="$runner_dir/.receipt-published"
+}
+
+cleanup_superseded_runners() {
+  review_dir="$ABS_WORKTREE/.review"
+  current_runner_dir="${RUNNER_FILE%/launch.sh}"
+  find "$review_dir" -type f -path "$review_dir/ISSUE-${ISSUE_N}-launch.*/.receipt-published" -print0 2>/dev/null |
+  while IFS= read -r -d '' marker; do
+    runner_dir="${marker%/.receipt-published}"
+    [ "$runner_dir" = "$current_runner_dir" ] && continue
+    case "$runner_dir" in
+      "$review_dir"/ISSUE-"$ISSUE_N"-launch.*) ;;
+      *) continue ;;
+    esac
+    rm -f "$marker" "$runner_dir/launch.sh"
+    rmdir "$runner_dir" 2>/dev/null || true
+  done
+}
+
+release_runner_retention_lock() {
+  [ "${RUNNER_RETENTION_LOCK_HELD:-0}" -eq 1 ] || return 0
+  node - "$RUNNER_RETENTION_LOCK" "$$" <<'NODE' >/dev/null 2>&1 || true
+const fs = require("fs");
+const path = require("path");
+const [lock, pid] = process.argv.slice(2);
+try {
+  const owner = JSON.parse(fs.readFileSync(path.join(lock, ".agent-workflow-owner.json"), "utf8"));
+  if (String(owner.pid) === pid) fs.rmSync(lock, { recursive: true, force: true });
+} catch (_) {}
+NODE
+  RUNNER_RETENTION_LOCK_HELD=0
+}
+
+acquire_runner_retention_lock() {
+  RUNNER_RETENTION_LOCK="$ABS_WORKTREE/.review/.ISSUE-${ISSUE_N}-runner-retention.lock"
+  RUNNER_RETENTION_LOCK_HELD=0
+  while :; do
+    node - "$RUNNER_RETENTION_LOCK" "$$" <<'NODE' >/dev/null 2>&1
+const fs = require("fs");
+const path = require("path");
+const [lock, pid] = process.argv.slice(2);
+const pending = `${lock}.pending.${pid}.${Date.now()}`;
+try {
+  fs.mkdirSync(pending, { mode: 0o700 });
+  fs.writeFileSync(path.join(pending, ".agent-workflow-owner.json"), JSON.stringify({ version: 1, pid: Number(pid), kind: "runner-retention" }) + "\n", { flag: "wx", mode: 0o600 });
+  fs.renameSync(pending, lock);
+  process.exit(0);
+} catch (_) {
+  try { fs.rmSync(pending, { recursive: true, force: true }); } catch (_) {}
+  process.exit(fs.existsSync(lock) ? 1 : 2);
+}
+NODE
+    lock_status=$?
+    if [ "$lock_status" -eq 0 ]; then
+      RUNNER_RETENTION_LOCK_HELD=1
+      return 0
+    fi
+    [ "$lock_status" -eq 1 ] || return 1
+    node - "$RUNNER_RETENTION_LOCK" "$$" <<'NODE' >/dev/null 2>&1
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+const [lock, pid] = process.argv.slice(2);
+function alive(value) {
+  if (!Number.isInteger(value) || value < 1) return false;
+  try {
+    process.kill(value, 0);
+    return execFileSync("ps", ["-p", String(value), "-o", "stat="], { encoding: "utf8" }).trim().indexOf("Z") === -1;
+  } catch (_) { return false; }
+}
+try {
+  const stat = fs.lstatSync(lock);
+  if (!stat.isDirectory()) process.exit(2);
+  let owner;
+  try { owner = JSON.parse(fs.readFileSync(path.join(lock, ".agent-workflow-owner.json"), "utf8")); } catch (_) { owner = null; }
+  if (owner && alive(owner.pid)) process.exit(1);
+  const reclaimed = `${lock}.reclaim.${pid}.${Date.now()}`;
+  fs.renameSync(lock, reclaimed);
+  fs.rmSync(reclaimed, { recursive: true, force: true });
+  process.exit(0);
+} catch (_) { process.exit(fs.existsSync(lock) ? 1 : 0); }
+NODE
+    reclaim_status=$?
+    [ "$reclaim_status" -eq 2 ] && return 1
+    sleep 1
+  done
+}
+
+mark_current_receipt_runner() {
+  [ -r "$RECEIPT_FILE" ] || return 0
+  receipt_runner="$(node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ABS_WORKTREE" <<'NODE'
+const fs = require("fs");
+const [file, schemaFile, validatorFile, issue, worktree] = process.argv.slice(2);
+try {
+  const value = JSON.parse(fs.readFileSync(file, "utf8"));
+  const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+  const { validate } = require(validatorFile);
+  if (validate(schema, value).length || value.issue !== Number(issue)
+      || value.worktree_path !== worktree || !value.runner || typeof value.runner.path !== "string") process.exit(2);
+  process.stdout.write(value.runner.path);
+} catch (_) { process.exit(2); }
+NODE
+)" || return 0
+  case "$receipt_runner" in
+    "$ABS_WORKTREE"/.review/ISSUE-"$ISSUE_N"-launch.*/launch.sh) ;;
+    *) return 0 ;;
+  esac
+  [ -f "$receipt_runner" ] || return 0
+  : > "${receipt_runner%/launch.sh}/.receipt-published"
 }
 
 require_standard_artifact_pointers() {
@@ -1146,6 +1255,14 @@ fi
 RECEIPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-TRANSPORT.json"
 RUNNER_SHA="$(node -e 'const fs=require("fs"),crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$RUNNER_FILE")"
 CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+if ! acquire_runner_retention_lock; then
+  echo "ERROR: could not acquire same-issue runner retention lock" >&2
+  exit 2
+fi
+# A SIGKILL may have happened after an earlier receipt rename but before its
+# marker write. Under this lock, recover that receipt-backed runner before the
+# new publication can supersede it.
+mark_current_receipt_runner
 node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$EXTERNAL_HANDLE" "$ABS_WORKTREE" "$RUNNER_FILE" "$RUNNER_RELATIVE" "$RUNNER_SHA" "$LAUNCHED_AT" "$CREATED_AT" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" "$ROUTE_DIGEST" "$ROUTE_POLICY_DIGEST" "$MODEL" "$EFFORT" "${ADMISSION_MODE:-}" "${ADMISSION_DIR:-}" "${INTEGRATED_DIR:-}" <<'NODE'
 const fs = require("fs");
 const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, handle, worktree, runnerPath, runnerRelative, runnerSha, launchedAt, createdAt, runtime, role, runtimeCapabilitiesJson, routeDigest, policyDigest, model, effort, admissionMode, admissionDir, integratedDir] = process.argv.slice(2);
@@ -1185,9 +1302,16 @@ fs.writeFileSync(temp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
 fs.renameSync(temp, file);
 NODE
 if [ "$?" -ne 0 ]; then
+  release_runner_retention_lock
   echo "ERROR: could not publish schema-valid non-authoritative transport receipt" >&2
   exit 2
 fi
+if : > "$RUNNER_RECEIPT_MARKER"; then
+  cleanup_superseded_runners
+else
+  echo "WARNING: transport receipt published but runner retention marker could not be recorded" >&2
+fi
+release_runner_retention_lock
 echo "dispatch-core: transport receipt=$RECEIPT_FILE authoritative=false external-handle=$EXTERNAL_HANDLE"
 
 elapsed=0
