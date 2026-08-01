@@ -13,6 +13,17 @@ bad() { echo "NOT OK - $1"; failures=$((failures + 1)); }
 "$CONTRACT" render --role reviewer > "$TMP/reviewer.md"
 if "$CONTRACT" check --role reviewer --prompt-file "$TMP/reviewer.md" >/dev/null; then ok "reviewer contract renders and validates"; else bad "reviewer contract renders and validates"; fi
 "$CONTRACT" render --role implementation > "$TMP/implementation.md"
+if grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$TMP/implementation.md" \
+  && grep -F -q 'pre-review gate matches discovered test names against those ids' "$TMP/implementation.md"; then
+  ok "implementation contract requires canonical AC ids in test names"
+else
+  bad "implementation contract requires canonical AC ids in test names"
+fi
+if ! grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$TMP/reviewer.md"; then
+  ok "reviewer contract does not receive implementation test-name guidance"
+else
+  bad "reviewer contract does not receive implementation test-name guidance"
+fi
 if node - "$TMP/implementation.md" "$ROOT/schemas/blocker.schema.json" <<'NODE'
 const fs = require("fs");
 const body = fs.readFileSync(process.argv[2], "utf8").match(/```json\n([\s\S]*?)\n```/)[1];

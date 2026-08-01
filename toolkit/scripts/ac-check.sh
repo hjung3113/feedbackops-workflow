@@ -185,7 +185,7 @@ while IFS= read -r id || [ -n "$id" ]; do
   ' "$id" "$tests"
   match_status=$?
   if [ "$match_status" -eq 1 ]; then
-    printf 'MISSING %s\n' "$id"
+    printf 'MISSING %s: no discovered test name contains "%s"\n' "$id" "$id"
     violations=1
   elif [ "$match_status" -ne 0 ]; then
     echo "$PROG: ERROR — could not read tests file: $tests" >&2

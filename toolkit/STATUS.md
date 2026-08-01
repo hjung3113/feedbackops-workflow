@@ -80,7 +80,7 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - independent REVIEWER and host-side VERIFIER gates;
 - a stable `verify.sh` CLI seam whose Vitest classification and canonical VERIFY payload construction live in the internal `scripts/lib/verify-result.cjs` module;
 - an explicit runtime-neutral REVIEWER publication path that requires read mode, holds linked-worktree Git HEAD/ref locks through publication, and host-validates final JSON before atomically publishing the sole canonical REVIEW artifact;
-- pre-review AC-ID existence checking;
+- pre-review AC-ID existence checking, with implementation prompts requiring each test name to carry its canonical AC-ID;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
 - CONDUCTOR-owned canonical ROUND-STATE with a revision-pinned AC manifest view;
 - Standard/Full Cluster initial-write admission that requires the complete canonical ROUND-STATE from dispatch 0 and binds it to the issue, tier, revision, real worktree, live HEAD, and integration base while preserving Trivial's pr_draft-only contract;

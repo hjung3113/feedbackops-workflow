@@ -67,7 +67,7 @@ fi
 
 cp "$TMP_DIR/happy.json" "$TMP_DIR/missing.json"
 printf '%s\n' 'test AC-1 behavior' > "$TMP_DIR/missing.tests"
-assert_case "AC-3 unmatched id" 1 "$TMP_DIR/missing.json" 3 "$TMP_DIR/missing.tests" "MISSING AC-2"
+assert_case "AC-3 unmatched id" 1 "$TMP_DIR/missing.json" 3 "$TMP_DIR/missing.tests" 'MISSING AC-2: no discovered test name contains "AC-2"'
 if grep -F -q -- 'OK' "$TMP_DIR/output.txt"; then
   echo "NOT OK - AC-3 unmatched id must not emit OK"
   FAILURES=$((FAILURES + 1))
@@ -102,7 +102,7 @@ node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.
 assert_case "AC-10 stale base" 1 "$TMP_DIR/stale-base.json" 3 "$TMP_DIR/happy.tests" "STALE ROUND-STATE freshness check failed"
 
 printf '%s\n' 'test AC-10 behavior' > "$TMP_DIR/prefix.tests"
-assert_case "AC-11 AC id boundary" 1 "$TMP_DIR/happy.json" 3 "$TMP_DIR/prefix.tests" "MISSING AC-1"
+assert_case "AC-11 AC id boundary" 1 "$TMP_DIR/happy.json" 3 "$TMP_DIR/prefix.tests" 'MISSING AC-1: no discovered test name contains "AC-1"'
 
 ( bash "$CHECK" --manifest "$TMP_DIR/happy.json" --tests "$TMP_DIR/happy.tests" ) >/dev/null 2>&1
 if [ "$?" -eq 2 ]; then
