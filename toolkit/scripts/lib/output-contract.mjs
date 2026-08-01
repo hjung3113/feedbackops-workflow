@@ -28,7 +28,12 @@ function contract(selectedRole) {
   return { schema_version: "1", role: selectedRole, artifact_paths_are_canonical: true,
     instructions: selectedRole === "reviewer"
       ? ["Read-only reviewer: do not write the artifact; return exactly one JSON object in the final message.", "The host publishes the canonical REVIEW only after validating this schema and the live HEAD.", "Populate every required field listed by the current review schema."]
-      : ["If you must stop before implementation, write exactly one schema-valid BLOCKER at .review/ISSUE-<N>-BLOCKER.json.", "Do not invent fields or reason codes; preserve the original evidence and return non-zero when the contract cannot be met.", "Populate every required field listed by the current blocker schema."], artifacts };
+      : [
+        ...(selectedRole === "implementation" ? ["Name each test so it contains the canonical AC id it satisfies (for example `AC-1 ...`); the pre-review gate matches discovered test names against those ids."] : []),
+        "If you must stop before implementation, write exactly one schema-valid BLOCKER at .review/ISSUE-<N>-BLOCKER.json.",
+        "Do not invent fields or reason codes; preserve the original evidence and return non-zero when the contract cannot be met.",
+        "Populate every required field listed by the current blocker schema."
+      ], artifacts };
 }
 // The contract travels inside bounded reviewer prompts and re-review capsules.
 // Keep its byte representation compact, while retaining the complete nested
