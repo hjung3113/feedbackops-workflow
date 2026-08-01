@@ -51,7 +51,7 @@ node -e '
   const v = JSON.parse(fs.readFileSync(file, "utf8"));
   v.revision = 3; v.base_branch = "main"; v.base_sha = base;
   v.worktree_path = worktree; v.contract.touch_allowlist = ["allowed/**"];
-  delete v.contract.chunk_boundary;
+  delete v.contract.chunk_boundary; delete v.contract.test_count;
   v.acceptance.criteria = [{id: "AC-1", statement: "the test discovery exposes AC-1"}]; v.acceptance.expected_test_count = 1;
   v.contract.test_discovery_command = "printf '\''AC-1\\n'\''";
   v.decisions = []; v.commit_scope.commits = [];
@@ -193,6 +193,42 @@ assert_case "rejects undiscovered acceptance criterion" 1 "$TMP_DIR/state.json" 
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.test_discovery_command="printf '\''AC-1\\n'\''"; v.acceptance.expected_test_count=2; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
 assert_case "rejects unexpected discovered test count" 1 "$TMP_DIR/state.json" "unexpected_discovered_test_count"
 
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.touch_allowlist=["allowed/**","unpromised/**"]; v.contract.new_file_allowlist=["allowed/new-file.txt","unpromised/file.txt"]; v.contract.test_discovery_command="printf '\''TAP version 13\\n# AC-1\\n# tests 3\\n\\n'\''"; v.contract.test_count={pattern:"(?:ℹ |# )?tests ([0-9]+)",group:1}; v.acceptance.expected_test_count=3; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
+( bash "$CHECK" --round-state "$TMP_DIR/state.json" --manifest-revision 3 ) > "$TMP_DIR/extractor-pass.json" 2>/dev/null
+if [ "$?" -eq 0 ] && node -e 'const v=require(process.argv[1]); process.exit(v.status === "pass" && v.discovered_test_count === 3 ? 0 : 1)' "$TMP_DIR/extractor-pass.json"; then
+  echo "ok   - extractor counts native-style discovery output"
+else
+  echo "NOT OK - extractor counts native-style discovery output"
+  FAILURES=$((FAILURES + 1))
+fi
+
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.test_discovery_command="printf '\''# tests 3\\n'\''"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
+assert_case "extractor keeps raw output for acceptance IDs" 1 "$TMP_DIR/state.json" "acceptance_not_discovered"
+
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.test_discovery_command="printf '\''# AC-1\\n# tests 2\\n'\''"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
+assert_case "extractor reports an integer count mismatch" 1 "$TMP_DIR/state.json" "unexpected_discovered_test_count"
+
+for extractor_case in invalid_regex no_match missing_capture non_integer non_positive; do
+  cp "$TMP_DIR/state.json" "$TMP_DIR/extractor-$extractor_case.json"
+  node -e '
+    const fs=require("fs"); const [file,kind]=process.argv.slice(1); const v=JSON.parse(fs.readFileSync(file,"utf8"));
+    const values={invalid_regex:{pattern:"(",group:1},no_match:{pattern:"tests ([0-9]+)",group:1},missing_capture:{pattern:"tests",group:1},non_integer:{pattern:"tests ([^ ]+)",group:1},non_positive:{pattern:"tests ([0-9]+)",group:1}};
+    const output={invalid_regex:"# AC-1\\n# tests 3\\n",no_match:"# AC-1\\n# cases 3\\n",missing_capture:"# AC-1\\n# tests\\n",non_integer:"# AC-1\\n# tests three\\n",non_positive:"# AC-1\\n# tests 0\\n"};
+    v.contract.test_count=values[kind]; v.contract.test_discovery_command="printf '\''" + output[kind] + "'\''"; fs.writeFileSync(file,JSON.stringify(v));
+  ' "$TMP_DIR/extractor-$extractor_case.json" "$extractor_case"
+  assert_case "extractor fails closed for $extractor_case" 2 "$TMP_DIR/extractor-$extractor_case.json" "test_count_extractor_$extractor_case"
+done
+
+cp "$TMP_DIR/state.json" "$TMP_DIR/invalid-extractor-state.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.test_count={pattern:"tests ([0-9]+)",group:-1,extra:true}; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/invalid-extractor-state.json"
+( bash "$CHECK" --round-state "$TMP_DIR/invalid-extractor-state.json" --manifest-revision 3 ) > "$TMP_DIR/invalid-extractor-output.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_round_state" ? 0 : 1)' "$TMP_DIR/invalid-extractor-output.json"; then
+  echo "ok   - malformed extractor shape fails schema validation"
+else
+  echo "NOT OK - malformed extractor shape validation"
+  FAILURES=$((FAILURES + 1))
+fi
+
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); delete v.acceptance.expected_test_count; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
 ( bash "$CHECK" --round-state "$TMP_DIR/state.json" --manifest-revision 3 ) > "$TMP_DIR/error.json" 2>/dev/null
 if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.status === "error" && v.mismatches[0].code === "invalid_round_state" ? 0 : 1)' "$TMP_DIR/error.json"; then
@@ -202,12 +238,21 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
-node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.acceptance.expected_test_count=1; v.contract.test_discovery_command="false"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); delete v.contract.test_count; v.acceptance.expected_test_count=1; v.contract.test_discovery_command="printf '\''out\\n'\''; printf '\''err\\n'\'' >&2; exit 7"; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
 ( bash "$CHECK" --round-state "$TMP_DIR/state.json" --manifest-revision 3 ) > "$TMP_DIR/discovery-error.json" 2>/dev/null
-if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.status === "error" && v.mismatches[0].code === "test_discovery_failed" ? 0 : 1)' "$TMP_DIR/discovery-error.json"; then
-  echo "ok   - failed discovery has machine-readable error"
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.status === "error" && v.mismatches[0].code === "test_discovery_failed" && v.exit_code === 7 && v.output.includes("out") && v.output.includes("err") && v.output_truncated === false ? 0 : 1)' "$TMP_DIR/discovery-error.json"; then
+  echo "ok   - failed discovery includes bounded diagnostics"
 else
-  echo "NOT OK - failed discovery machine-readable error"
+  echo "NOT OK - failed discovery diagnostics"
+  FAILURES=$((FAILURES + 1))
+fi
+
+node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.test_discovery_command="node -e \"process.stdout.write('\''가'\''.repeat(2000)); process.exit(9)\""; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
+( bash "$CHECK" --round-state "$TMP_DIR/state.json" --manifest-revision 3 ) > "$TMP_DIR/discovery-truncated.json" 2>/dev/null
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.exit_code === 9 && v.output_truncated === true && !v.output.includes("�") ? 0 : 1)' "$TMP_DIR/discovery-truncated.json"; then
+  echo "ok   - failed discovery truncates UTF-8 safely"
+else
+  echo "NOT OK - failed discovery UTF-8 truncation"
   FAILURES=$((FAILURES + 1))
 fi
 

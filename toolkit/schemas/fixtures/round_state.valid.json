@@ -20,6 +20,10 @@
     "prohibitions": ["no network", "no push", "no merge", "no issue mutation"],
     "verify_filter": "shared-contract",
     "test_discovery_command": "pnpm --filter backend exec vitest --list",
+    "test_count": {
+      "pattern": "(?:ℹ |# )?tests ([0-9]+)",
+      "group": 1
+    },
     "chunk_boundary": {
       "chunk_id": "C1",
       "typecheck_command": "pnpm -r typecheck",

@@ -190,8 +190,8 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 ### v0.7 — completion calculation gate
 
 - `completion-check.sh` independently calculates the declared worktree's `base_sha..HEAD` changed paths and compares them to the ROUND-STATE touch allowlist.
-- It verifies canonical AC-ID discovery and `acceptance.expected_test_count` without trusting worker prose, RUN.json, or PR-DRAFT claims, and returns machine-readable mismatch/error codes that block review.
-- Test discovery remains a target-profile input; the coordination core does not assume Vitest.
+- It verifies canonical raw-output AC-ID discovery and `acceptance.expected_test_count` without trusting worker prose, RUN.json, or PR-DRAFT claims. Optional `contract.test_count` extracts a positive decimal count via `{pattern, group}`; omitted it preserves the one-non-empty-stdout-line fallback.
+- Test discovery remains a target-profile input; the coordination core does not assume Vitest. Failed discovery retains `test_discovery_failed` and reports exit code plus bounded UTF-8-safe stdout/stderr diagnostics.
 
 ### v0.8 — relocatable product-home interface
 

@@ -85,7 +85,21 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "verify_filter": { "type": "string", "minLength": 1 },
-        "test_discovery_command": { "type": "string", "minLength": 1 },
+        "test_discovery_command": {
+          "description": "Target-native command whose stdout is searched for acceptance IDs. Without test_count, each non-empty stdout line counts as one discovered test.",
+          "type": "string",
+          "minLength": 1
+        },
+        "test_count": {
+          "description": "Optional multiline regular-expression extractor for the positive discovered test count in test_discovery_command stdout.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pattern", "group"],
+          "properties": {
+            "pattern": { "type": "string", "minLength": 1 },
+            "group": { "type": "integer", "minimum": 0 }
+          }
+        },
         "chunk_boundary": {
           "type": "object",
           "additionalProperties": false,
