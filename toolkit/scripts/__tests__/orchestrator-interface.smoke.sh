@@ -295,6 +295,29 @@ cmux_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_h
 if [ "$cmux_handle" = "workspace:11" ]; then
   pass "cmux receipt normalizes the plain-text create workspace ref rather than the requested name"
 else fail "cmux receipt unique create identity ($cmux_handle)"; fi
+
+# A later receipt may retire only an earlier receipt-backed runner. An
+# unmarked runner models another same-issue seat that has been created but has
+# not yet published its own receipt, so cleanup must leave it runnable.
+pending_runner_dir="$CMUX_WT/.review/ISSUE-502-launch.pending"
+mkdir -p "$pending_runner_dir"
+printf '%s\n' '#!/usr/bin/env bash' > "$pending_runner_dir/launch.sh"
+chmod 700 "$pending_runner_dir/launch.sh"
+old_cmux_runner="$cmux_runner"
+# Simulate a publisher killed after receipt rename but before writing its
+# marker. The next same-issue publication must recover that marker and retire
+# the now-superseded receipt runner without touching the pending runner.
+rm -f "${old_cmux_runner%/launch.sh}/.receipt-published"
+TRANSPORT_USED="$TMP_ROOT/cmux-redispatch-used" CMUX_ARGV="$TMP_ROOT/cmux-redispatch-argv" ORCA_ARGV="$TMP_ROOT/unused-orca" \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --read-only --poll-timeout 3 >"$TMP_ROOT/cmux-redispatch.out" 2>&1
+cmux_redispatch_ec=$?
+current_cmux_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
+if [ "$cmux_redispatch_ec" -eq 1 ] && [ "$current_cmux_runner" != "$old_cmux_runner" ] \
+  && [ -x "$current_cmux_runner" ] && [ -f "${current_cmux_runner%/launch.sh}/.receipt-published" ] \
+  && [ ! -e "$old_cmux_runner" ] && [ -x "$pending_runner_dir/launch.sh" ]; then
+  pass "new receipt repairs then retires only the prior receipt runner"
+else fail "receipt-bound runner retention and recovery (ec=$cmux_redispatch_ec old=$old_cmux_runner current=$current_cmux_runner)"; fi
+
 CMUX_LIST_MODE=duplicate_name PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" > "$inspect_out"
 if grep -q '"lifecycle":"live"' "$inspect_out"; then
   pass "duplicate cmux workspace names do not replace exact id inspection"
