@@ -68,7 +68,7 @@ Fresh install은 기존 managed leaf가 있으면 덮어쓰지 않고 `--upgrade
 git clone https://github.com/hjung3113/feedbackops-workflow.git
 cd feedbackops-workflow/toolkit
 NODE_OPTIONS= bash scripts/__tests__/run-all.sh
-scripts/install-into.sh ../my-project
+scripts/install-into.sh ../my-project --profile generic
 ```
 
 `scripts/__tests__/`는 source checkout에서만 실행하는 maintainer 검증 자산입니다. 설치된 PRODUCT_HOME에는 복사되지 않으며, 타겟에서는 workflow 명령과 target-owned verification만 실행합니다.
@@ -97,8 +97,11 @@ cp "$PRODUCT_HOME/docs/agents/workflow-config.example.json" "$PRODUCT_HOME/workf
 ### 2. 격리된 worktree 준비
 
 ```bash
-"$PRODUCT_HOME/scripts/prepare-worktree.sh" ../wt-123 --env-profile ../env/issue-123.env
+git -C ../my-project worktree add -b issue-123 ../wt-123 HEAD
+mkdir -p ../wt-123/.review
 ```
+
+의존성·환경 파일·서비스 격리는 target-owned profile과 해당 저장소의 운영 절차로 준비합니다. generic install에는 특정 package manager, DB 또는 env layout을 가정하는 worktree 준비 명령이 없습니다.
 
 ### 3. transport와 canonical contract를 준비하고 구현자를 dispatch
 
@@ -195,9 +198,25 @@ scripts/redispatch-check.sh \
 
 ### 5. 호스트 VERIFIER로 독립 검증
 
-구현자와 REVIEWER/VERIFIER는 서로 다른 세션이어야 합니다. 구현 sandbox는 local DB나 네트워크에 접근할 수 없으므로 DB 검증은 호스트의 VERIFIER가 수행합니다.
+구현자와 REVIEWER/VERIFIER는 서로 다른 세션이어야 합니다. generic target은 schema를 만족하는 target-owned profile에 runtime/setup/environment와 required verification groups를 선언한 뒤, 실제 worktree에서 호스트 VERIFIER를 실행합니다.
 
 ```bash
+(cd ../wt-123 && \
+  "$PRODUCT_HOME/scripts/target-verify.sh" \
+    "$PRODUCT_HOME/target-profile.json" 123)
+```
+
+`$PRODUCT_HOME/target-profile.json`은 target이 소유합니다. `schemas/target-profile.schema.json`으로 검증하고 `schemas/profiles/`의 Node/Go/Python 예시 중 가까운 것을 복사해 target 명령으로 고치세요. 명령은 argv 배열과 선택적 repository-relative cwd/env allowlist뿐이며 shell string/eval은 허용하지 않습니다. Generic canonical VERIFY가 PASS이려면 모든 required group command의 `exit_code`가 0이고, profile이 test-count extractor를 선언해 evidence에 `test_count`가 있으면 그 값이 정수이면서 0보다 커야 합니다. schema와 installed generic에도 포함되는 `scripts/lib/verify-artifact.cjs` semantic validator가 이 조건을 각각 검사합니다. extractor가 출력과 일치하지 않으면 `test_count:null`인 canonical FAIL 증거를 게시하며, 이를 0개 실행이나 PASS로 해석하지 않습니다. 기존 same-HEAD artifact는 schema와 aggregate 의미 검증을 모두 통과해야 append되므로 손상된 red latch를 새 PASS로 덮을 수 없습니다. 명령 출력의 `output_bytes`는 UTF-8 byte 상한이고 `output_truncated`는 실제 byte 초과 여부입니다. VERIFY schema는 FeedbackOps legacy의 `db_target + clean_state` 또는 generic의 `target_profile + groups` 중 정확히 하나를 요구하며, 증거 없는 empty PASS를 거부합니다. 실제 `node --test`의 `ℹ tests N` 형식을 포함한 Node/Go/Python 예시는 `schemas/profiles/`에 있습니다.
+
+REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review --model <model> --effort <effort>`로 실행합니다. 또는 `--allocate --allocator-role reviewer`로 runtime별 reviewer tuple을 명시적으로 요청할 수 있습니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, non-Codex stdout의 prose-wrapped fenced JSON은 마지막 parseable block만 transcription 후보가 됩니다. Host-side는 그 뒤에도 JSON schema, producer, issue, live HEAD를 검증한 뒤 Git linked-worktree HEAD/ref lock 아래 canonical `.review/ISSUE-123-REVIEW.json`과 immutable snapshot을 원자 게시합니다. lock은 concurrent commit이 publication 사이에 끼어드는 것을 막고 실패 시 안전하게 해제됩니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
+
+## FeedbackOps compatibility alternative
+
+아래는 **`--profile feedbackops`로 설치한 target에만** 적용됩니다. generic install에는 이 adapter들이 없으므로 위의 generic worktree와 target-profile 경로를 사용하세요.
+
+```bash
+"$PRODUCT_HOME/scripts/prepare-worktree.sh" ../wt-123 --env-profile ../env/issue-123.env
+
 eval "$("$PRODUCT_HOME/scripts/prepare-verify-db.sh" \
   --issue 123 \
   --target ../wt-123 \
@@ -210,11 +229,7 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
   "$PRODUCT_HOME/scripts/verify.sh"
 ```
 
-새 타겟은 `schemas/target-profile.schema.json`을 만족하는 target-owned profile 하나에 runtime/setup/environment와 required verification groups를 선언하고 `target-verify.sh <profile> <issue>`를 사용합니다. 명령은 argv 배열과 선택적 repository-relative cwd/env allowlist뿐이며 shell string/eval은 허용하지 않습니다. Generic canonical VERIFY가 PASS이려면 모든 required group command의 `exit_code`가 0이고, profile이 test-count extractor를 선언해 evidence에 `test_count`가 있으면 그 값이 정수이면서 0보다 커야 합니다. schema와 installed generic에도 포함되는 `scripts/lib/verify-artifact.cjs` semantic validator가 이 조건을 각각 검사합니다. extractor가 출력과 일치하지 않으면 `test_count:null`인 canonical FAIL 증거를 게시하며, 이를 0개 실행이나 PASS로 해석하지 않습니다. 기존 same-HEAD artifact는 schema와 aggregate 의미 검증을 모두 통과해야 append되므로 손상된 red latch를 새 PASS로 덮을 수 없습니다. 명령 출력의 `output_bytes`는 UTF-8 byte 상한이고 `output_truncated`는 실제 byte 초과 여부입니다. VERIFY schema는 FeedbackOps legacy의 `db_target + clean_state` 또는 generic의 `target_profile + groups` 중 정확히 하나를 요구하며, 증거 없는 empty PASS를 거부합니다. 실제 `node --test`의 `ℹ tests N` 형식을 포함한 Node/Go/Python 예시는 `schemas/profiles/`에 있습니다.
-
-기존 `verify.sh`는 FeedbackOps 호환 어댑터입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다. Generic target은 PostgreSQL, backend, Vitest, Node 가정을 상속하지 않습니다.
-
-REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca> --runtime <codex|claude|opencode> --role reviewer --produce-review --model <model> --effort <effort>`로 실행합니다. 또는 `--allocate --allocator-role reviewer`로 runtime별 reviewer tuple을 명시적으로 요청할 수 있습니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, non-Codex stdout의 prose-wrapped fenced JSON은 마지막 parseable block만 transcription 후보가 됩니다. Host-side는 그 뒤에도 JSON schema, producer, issue, live HEAD를 검증한 뒤 Git linked-worktree HEAD/ref lock 아래 canonical `.review/ISSUE-123-REVIEW.json`과 immutable snapshot을 원자 게시합니다. lock은 concurrent commit이 publication 사이에 끼어드는 것을 막고 실패 시 안전하게 해제됩니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
+`verify.sh`는 FeedbackOps pnpm/Vitest/Postgres 호환 adapter입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다.
 
 ## Mental model
 

@@ -142,6 +142,14 @@ assert_exists "canonical product skill" "$PRODUCT_ROOT/.claude/skills/agent-work
 assert_exists "product adoption guide" "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
 assert_exists "workflow config example" "$PRODUCT_ROOT/docs/agents/workflow-config.example.json"
 
+assert_command "generic quickstart avoids FeedbackOps-only adapters" \
+  awk '
+    /^## 5분 안에 첫 controlled run/ { quickstart = 1; next }
+    /^## FeedbackOps compatibility alternative/ { quickstart = 0 }
+    quickstart && /prepare-worktree\.sh|prepare-verify-db\.sh|scripts\/verify\.sh/ { failed = 1 }
+    END { exit failed }
+  ' "$PRODUCT_ROOT/README.md"
+
 assert_exists "root maintainer instructions" "$REPOSITORY_ROOT/AGENTS.md"
 assert_exists "root Claude pointer" "$REPOSITORY_ROOT/CLAUDE.md"
 assert_exists "root repository map" "$REPOSITORY_ROOT/README.md"
