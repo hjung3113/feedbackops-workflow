@@ -33,6 +33,20 @@ NODE
 
 assert_json "default-fixture-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"gpt-5.6-sol","review_effort":"medium"}' --role implementation --config "$DEFAULT_CONFIG"
 
+assert_json "claude-reviewer-uses-runtime-allocation" '{"review_model":"sonnet","review_effort":"medium"}' --role reviewer --runner claude --config "$DEFAULT_CONFIG"
+"$ALLOC" --role reviewer --runner opencode --config "$DEFAULT_CONFIG" >/dev/null 2>"$TMP_DIR/opencode-reviewer.err"
+if [ "$?" -eq 2 ] && grep -q 'reviewer_by_runtime.opencode' "$TMP_DIR/opencode-reviewer.err"; then
+  pass "OpenCode reviewer requires a target-configured runtime allocation"
+else
+  fail "OpenCode reviewer requires a target-configured runtime allocation"
+fi
+node - "$DEFAULT_CONFIG" "$TMP_DIR/opencode-reviewer.json" <<'NODE'
+const fs=require("fs"), value=JSON.parse(fs.readFileSync(process.argv[2]));
+value.reviewer_by_runtime.opencode={model:"local/reviewer",effort:"high"};
+fs.writeFileSync(process.argv[3],JSON.stringify(value));
+NODE
+assert_json "opencode-reviewer-uses-target-runtime-allocation" '{"review_model":"local/reviewer","review_effort":"high"}' --role reviewer --runner opencode --config "$TMP_DIR/opencode-reviewer.json"
+
 "$ALLOC" --role implementation --config "$DEFAULT_CONFIG" --runner claude >/dev/null 2>"$TMP_DIR/runtime-mismatch.err"
 if [ "$?" -eq 2 ] && grep -q 'unavailable via claude' "$TMP_DIR/runtime-mismatch.err"; then
   pass "allocation derives availability from selected runtime"

@@ -175,10 +175,10 @@ cp "$ROOT/model-alloc.json" "$PRODUCT_HOME/model-alloc.json"
 bad_alloc_out="$TMP_ROOT/allocator-review.stderr"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --allocate --allocator-role reviewer --dry-run >/dev/null 2>"$bad_alloc_out"
 ec=$?
-if [ "$ec" -eq 2 ] && grep -q "Codex implementation" "$bad_alloc_out"; then
-  pass "allocator refuses to forward a non-Codex reviewer model"
+if [ "$ec" -eq 2 ] && grep -q "requires --role reviewer --produce-review" "$bad_alloc_out"; then
+  pass "reviewer allocation is limited to reviewer publication"
 else
-  fail "allocator refuses to forward a non-Codex reviewer model (ec=$ec: $(cat "$bad_alloc_out"))"
+  fail "reviewer allocation is limited to reviewer publication (ec=$ec: $(cat "$bad_alloc_out"))"
 fi
 
 # --- initial writes require the canonical round-0 contract ---

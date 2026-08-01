@@ -49,11 +49,13 @@ for (const [model, capability] of Object.entries(config.capabilities)) {
 }
 const requiredRoles = ["implementation", "reviewer", "contract_gate", "trivial_implementation"];
 for (const key of requiredRoles) { const value = config.roles[key]; if (!value || !config.capabilities[value.model]) fail(`invalid role allocation: ${key}`); }
-const selected = config.roles[role];
-if (!selected || !config.capabilities[selected.model].available_via.includes(runner)) fail(`model ${selected && selected.model || "unknown"} is unavailable via ${runner} for role ${role}`);
 const clone = key => ({ model: config.roles[key].model, effort: config.roles[key].effort });
-let impl = clone("implementation"), review = clone("reviewer"), contract = clone("contract_gate");
+const defaultReview = clone("reviewer");
+const runtimeReview = role === "reviewer" && config.reviewer_by_runtime && config.reviewer_by_runtime[runner];
+if (role === "reviewer" && runner !== "codex" && !runtimeReview) fail(`reviewer allocation is not configured for ${runner}; set reviewer_by_runtime.${runner} to a preflightable model`);
+let impl = clone("implementation"), review = runtimeReview ? { model: runtimeReview.model, effort: runtimeReview.effort } : defaultReview, contract = clone("contract_gate");
 const rationale = [`config:${config.source}@${config.release}`, `role:${role}`];
+if (runtimeReview) rationale.push(`runtime_reviewer:${runner}`);
 if (!evidenceFile) {
   rationale.push("no_canonical_evidence: default allocation retained");
 } else {
@@ -78,10 +80,10 @@ const output = { impl_model: impl.model, impl_effort: impl.effort, review_model:
 // (for example with trivial_implementation). Revalidate the final tuple, not
 // merely the pre-adaptation role entry, before it reaches dispatch.
 const finalSeat = role === "reviewer" ? review : impl;
-if (!config.capabilities[finalSeat.model] || !config.capabilities[finalSeat.model].available_via.includes(runner)) {
+if (!runtimeReview && (!config.capabilities[finalSeat.model] || !config.capabilities[finalSeat.model].available_via.includes(runner))) {
   fail(`final model ${finalSeat.model} is unavailable via ${runner} for role ${role}`);
 }
-const reviewScore = config.capabilities[review.model].static_coding + config.capabilities[review.model].reasoning;
+const reviewScore = config.capabilities[defaultReview.model].static_coding + config.capabilities[defaultReview.model].reasoning;
 const implScore = config.capabilities[impl.model].static_coding + config.capabilities[impl.model].reasoning;
 if (reviewScore < implScore) {
   if (config.allow_review_below_implementation === true) output.rationale.push("warning: project explicitly relaxed review capability preference");

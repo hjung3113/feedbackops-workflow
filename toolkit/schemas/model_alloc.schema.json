@@ -12,6 +12,15 @@
       "required": ["implementation", "reviewer", "contract_gate", "trivial_implementation"],
       "additionalProperties": { "$ref": "#/definitions/allocation" }
     },
+    "reviewer_by_runtime": {
+      "type": "object",
+      "properties": {
+        "codex": { "$ref": "#/definitions/allocation" },
+        "claude": { "$ref": "#/definitions/allocation" },
+        "opencode": { "$ref": "#/definitions/allocation" }
+      },
+      "additionalProperties": false
+    },
     "capabilities": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/definitions/capability" } },
     "signals": {
       "type": "object",
