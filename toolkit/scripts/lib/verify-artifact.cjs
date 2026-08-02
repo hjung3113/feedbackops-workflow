@@ -84,6 +84,8 @@ function validArtifact(artifact) {
     && typeof artifact === "object"
     && (artifact.classifier === "PASS" || artifact.classifier === "FAIL")
     && Boolean(artifact.head_sha)
+    && typeof artifact.content_sha256 === "string"
+    && /^[0-9a-f]{64}$/.test(artifact.content_sha256)
     && artifact.verdict
     && typeof artifact.verdict === "object"
     && shapeValid

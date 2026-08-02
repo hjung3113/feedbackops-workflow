@@ -2,7 +2,9 @@
 
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const { aggregateArtifact, validArtifact } = require("./verify-artifact.cjs");
+const { contentSha256 } = require("./worktree-content-id.cjs");
 
 function count(data, key) {
   const value = data && data[key];
@@ -121,6 +123,7 @@ function sameIdentity(left, right) {
   return left.issue === right.issue
     && left.branch === right.branch
     && left.head_sha === right.head_sha
+    && left.content_sha256 === right.content_sha256
     && left.cwd === right.cwd
     && sameJson(left.db_target, right.db_target);
 }
@@ -145,6 +148,7 @@ function buildArtifact(data, env, reportReadFailure) {
     issue: Number.parseInt(env.VERIFY_ARTIFACT_ISSUE, 10),
     branch: env.VERIFY_ARTIFACT_BRANCH || "",
     head_sha: env.VERIFY_ARTIFACT_HEAD_SHA || "",
+    content_sha256: env.VERIFY_ARTIFACT_CONTENT_SHA256 || "",
     cwd: env.VERIFY_ARTIFACT_CWD || "",
     verify_cmd: env.VERIFY_ARTIFACT_CMD || "",
     env_profile: "scrubbed",
@@ -213,7 +217,7 @@ function main(argv, env) {
       } catch (error) {
         throw new Error(`cannot append to existing canonical VERIFY artifact: ${error.message}`);
       }
-      if (!validArtifact(existing)) {
+      if (sameIdentity(existing, current) && !validArtifact(existing)) {
         throw new Error("cannot append to an invalid canonical VERIFY artifact");
       }
       artifact = appendRun(existing, current);
@@ -236,6 +240,16 @@ function main(argv, env) {
       }
       if (env.VERIFY_ARTIFACT_TEST_FAIL_BEFORE_RENAME === "1") {
         throw new Error("test-injected failure before atomic rename");
+      }
+      if (env.VERIFY_ARTIFACT_TEST_MUTATE_BEFORE_RENAME === "1") {
+        fs.appendFileSync(path.join(artifact.cwd, "README.md"), "test-mutated before rename\n");
+      }
+      if (env.VERIFY_ARTIFACT_TEST_EMPTY_COMMIT_BEFORE_RENAME === "1") {
+        execFileSync("git", ["-C", artifact.cwd, "commit", "--allow-empty", "-qm", "test empty commit before rename"]);
+      }
+      const currentHeadSha = execFileSync("git", ["-C", artifact.cwd, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      if (currentHeadSha !== artifact.head_sha || contentSha256(artifact.cwd) !== artifact.content_sha256) {
+        throw new Error("worktree identity changed before canonical VERIFY publication");
       }
       fs.renameSync(temporaryPath, artifactPath);
     } catch (error) {

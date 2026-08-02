@@ -5,6 +5,7 @@
   "issue": 71,
   "branch": "fix/no-evidence",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/tmp/no-evidence",
   "verify_cmd": "verify-without-evidence",
   "verdict": { "passed": 1, "failed": 0, "pending": 0, "exit_code": 0 },

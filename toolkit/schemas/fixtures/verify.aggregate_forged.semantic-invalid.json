@@ -5,6 +5,7 @@
   "issue": 42,
   "branch": "fix/issue-42",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/tmp/verify-aggregate",
   "verify_cmd": "verify.sh surveys",
   "db_target": { "host": "localhost", "database": "verify", "role": "fops_verifier" },

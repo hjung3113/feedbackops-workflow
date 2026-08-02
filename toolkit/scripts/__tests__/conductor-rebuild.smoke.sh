@@ -55,6 +55,9 @@ write_pr() {
 
 write_verify() {
   issue="$1"; branch="$2"; sha="$3"; role="$4"; class="$5"; failed="$6"; passed="$7"; exit_code="$8"; internal_issue="$9"
+  worktree="${10:-$TMP_DIR}"
+  content_sha256="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  [ "$#" -lt 10 ] || content_sha256="$(node "$SCRIPT_DIR/../lib/worktree-content-id.cjs" "$worktree")" || exit 1
   cat > "$REVIEW/ISSUE-${issue}-VERIFY.json" <<EOF
 {
   "schema_version": "1",
@@ -63,7 +66,8 @@ write_verify() {
   "issue": $internal_issue,
   "branch": "$branch",
   "head_sha": "$sha",
-  "cwd": "$TMP_DIR",
+  "content_sha256": "$content_sha256",
+  "cwd": "$worktree",
   "verify_cmd": "verify.sh case-$issue",
   "env_profile": "scrubbed",
   "db_target": { "host": "127.0.0.1", "database": "verify_smoke", "role": "fops_app" },
@@ -81,7 +85,7 @@ REPO1="$TMP_DIR/wt-101"
 mk_repo "$REPO1" "feat/101"
 SHA1="$(head_of "$REPO1")"
 write_pr 101 "feat/101" "$SHA1" "ready_for_review" "$REPO1"
-write_verify 101 "feat/101" "$SHA1" "VERIFIER" "PASS" 0 5 0 101
+write_verify 101 "feat/101" "$SHA1" "VERIFIER" "PASS" 0 5 0 101 "$REPO1"
 
 # C2 stale_verify
 REPO2="$TMP_DIR/wt-102"
@@ -164,7 +168,7 @@ REPO14="$TMP_DIR/wt-114"
 mk_repo "$REPO14" "feat/114"
 SHA14="$(head_of "$REPO14")"
 write_pr 114 "feat/114" "$SHA14" "ready_for_review" "$REPO14"
-write_verify 114 "feat/114" "$SHA14" "VERIFIER" "PASS" 0 5 0 114
+write_verify 114 "feat/114" "$SHA14" "VERIFIER" "PASS" 0 5 0 114 "$REPO14"
 REPO15="$TMP_DIR/wt-115"
 mk_repo "$REPO15" "feat/115"
 SHA15="$(head_of "$REPO15")"
@@ -188,8 +192,16 @@ REPO17="$TMP_DIR/wt-117"
 mk_repo "$REPO17" "feat/117"
 SHA17="$(head_of "$REPO17")"
 write_pr 117 "feat/117" "$SHA17" "ready_for_review" "$REPO17"
-write_verify 117 "feat/117" "$SHA17" "VERIFIER" "PASS" 0 5 0 117
+write_verify 117 "feat/117" "$SHA17" "VERIFIER" "PASS" 0 5 0 117 "$REPO17"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8")); o.unexpected="schema-invalid"; fs.writeFileSync(f,JSON.stringify(o));' "$REVIEW/ISSUE-117-PR-DRAFT.json"
+
+# C18 same HEAD but changed uncommitted content must not remain verified.
+REPO18="$TMP_DIR/wt-118"
+mk_repo "$REPO18" "feat/118"
+SHA18="$(head_of "$REPO18")"
+write_pr 118 "feat/118" "$SHA18" "ready_for_review" "$REPO18"
+write_verify 118 "feat/118" "$SHA18" "VERIFIER" "PASS" 0 5 0 118 "$REPO18"
+echo "uncommitted after verification" >> "$REPO18/file.txt"
 
 OUT="$(bash "$REBUILD" "$REVIEW" 2>/dev/null)"
 echo "----- conductor-rebuild output -----"
@@ -222,6 +234,8 @@ expect_state 114 verified "114 accepts legacy flat VERIFY artifact as one synthe
 expect_not_state 115 verified "115 rejects a present-but-malformed runs property"
 expect_not_state 116 verified "116 rejects schema-invalid run fields before aggregate semantics"
 expect_state 117 unknown "117 rejects schema-invalid PR-DRAFT before readiness reconstruction"
+expect_state 118 stale_verify "118 -> stale_verify after uncommitted content changes at the same HEAD"
+expect_not_state 118 verified "118 not verified after uncommitted content changes"
 if printf '%s\n' "$OUT" | grep -q "^111"; then fail "111 must be skipped (superseded)"; else pass "111 skipped (superseded)"; fi
 if printf '%s\n' "$OUT" | grep -q "^112	blocked	missing_dependency"; then pass "112 -> blocked missing_dependency"; else fail "112 -> blocked missing_dependency"; fi
 

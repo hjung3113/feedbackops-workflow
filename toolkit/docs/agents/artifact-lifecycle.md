@@ -21,7 +21,7 @@ ROUND-STATE `contract.prohibitions[]` is required structured authority. Prompt p
 
 - `.review/.write-dispatch-issue-N-started` — pre-cmux durable intent marker for write dispatch. It keeps an attempt visible even if the process dies before RUN/BLOCKER creation; a later write must classify that failed round first.
 - `<git-common-dir>/agent-workflow/redispatch-admissions/issue-N-dispatch-O` — atomic per-ordinal runtime consumption marker created by the shared dispatch core; mode changes cannot replay it. The host-owned `next_dispatch_ordinal` advances with that exact marker, and a crash leaves the marker durable rather than allowing mutable failure edits to reuse it. Integrated fix also creates `issue-N-integrated-fix`, an issue-wide singleton with a durable transaction identity; a dead lock or prepared pair is reclaimed under the issue lock only when ROUND-STATE has not advanced, while committed/advanced admissions are never cleared. These survive state edits and worktree recreation but are not contract authority and must not replace ROUND-STATE evidence.
-- `ISSUE-N-VERIFY.json` — canonical VERIFIER evidence for the current branch/head. It carries the clean preflight's sanitized `sentinel`/`migration_hash` checks, test verdict, and typed failure records. Same-identity narrow runs append in ordered `runs[]`; top-level readiness is their derived aggregate and remains red after any failed run. Only absent `runs` is legacy. Publication validates a same-directory temporary artifact before atomic replacement, preserving prior evidence if it fails. This, not PR-DRAFT prose or a parallel clean-state file, drives verified state.
+- `ISSUE-N-VERIFY.json` — canonical VERIFIER evidence for the current branch/head and required `content_sha256`. The content identity is a stable digest of Git-visible working content (tracked plus non-ignored untracked paths, excluding `.review/`), so same-HEAD runs append only when they verified the same content. A corrected uncommitted tree starts a new aggregate; unchanged content remains red after any failed run. Publishers reject a worktree that changes during verification, and publication validates a same-directory temporary artifact before atomic replacement. This, not PR-DRAFT prose or a parallel clean-state file, drives verified state.
 - `ISSUE-N-PARTIAL.diff` — stashed partial work on abort (v0.1: optional)
 - `PHASE-N-SUMMARY.json` — CONDUCTOR roll-up of a phase's worker clusters. A DERIVED artifact (a cache of lower-level artifacts), never source of truth. Carries `derived_from[]` (each with `content_sha256` of the on-disk artifact + `head_sha`) and `chunks[]` (per-issue `state` + `evidence_artifact` + `evidence_head_sha`).
 - `HEARTBEAT-<pane>.json` — per-pane liveness proof (pane, branch, head_sha, task, blocked, dirty, updated_at). Proves LIVENESS, not correctness.
@@ -68,7 +68,7 @@ Superseded files MUST be ignored by readers. Cleanup: on PR merge, run
 
 ## Conventions
 
-- SHA fields (`base_sha`, `head_sha`, `reviewed_head_sha`) require the **full 40-char lowercase hex SHA**. Never use `git rev-parse --short`.
+- Git SHA fields (`base_sha`, `head_sha`, `reviewed_head_sha`) require the **full 40-char lowercase hex SHA**. `VERIFY.content_sha256` is a full lowercase SHA-256 digest of the verified worktree content. Never use `git rev-parse --short`.
 - `schema_version` is the **string** `"1"`, not the integer `1`. Writers MUST quote it.
 
 ## Validation

@@ -110,9 +110,10 @@ for mode in fail zero; do
 done
 
 (cd "$REPO" && PATH="$REPO/bin:$PATH" FAKE_MODE=fail bash "$VERIFY" profile.json 74) >/dev/null 2>&1
-first=$?; (cd "$REPO" && PATH="$REPO/bin:$PATH" FAKE_MODE=green bash "$VERIFY" profile.json 74) >/dev/null 2>&1
+first=$?; printf '%s\n' 'corrected uncommitted tree' >> "$REPO/README.md"
+(cd "$REPO" && PATH="$REPO/bin:$PATH" FAKE_MODE=green bash "$VERIFY" profile.json 74) >/dev/null 2>&1
 second=$?
-if [ "$first" -ne 0 ] && [ "$second" -ne 0 ] && node -e 'const o=require(process.argv[1]);process.exit(o.classifier==="FAIL"&&o.runs.length===2&&o.runs[1].classifier==="PASS"?0:1)' "$REPO/.review/ISSUE-74-VERIFY.json"; then ok "AC-PROFILE-3 fail-then-pass same HEAD remains red"; else bad "AC-PROFILE-3 aggregate false-green guard"; fi
+if [ "$first" -ne 0 ] && [ "$second" -eq 0 ] && node -e 'const o=require(process.argv[1]);process.exit(o.classifier==="PASS"&&o.runs.length===1&&/^[0-9a-f]{64}$/.test(o.content_sha256||"")?0:1)' "$REPO/.review/ISSUE-74-VERIFY.json"; then ok "AC-PROFILE-3 corrected uncommitted content starts a fresh aggregate"; else bad "AC-PROFILE-3 content identity aggregate reset"; fi
 
 # An extractor miss is durable canonical FAIL evidence with an honest unknown count.
 node -e 'const fs=require("fs");const p=require(process.argv[1]);p.id="extractor-miss";p.verification.groups[0].test_count.pattern="NEVER MATCH ([0-9]+)";fs.writeFileSync(process.argv[2],JSON.stringify(p))' "$REPO/profile.json" "$REPO/extractor-miss.json"

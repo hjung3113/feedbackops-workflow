@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const { validate } = require("./json-schema-subset.cjs");
 const { validArtifact } = require("./verify-artifact.cjs");
+const { contentSha256 } = require("./worktree-content-id.cjs");
 
 const [profileArg, issueArg] = process.argv.slice(2);
 const fail = (message, code = 2) => { console.error(`target-verify: ${message}`); process.exit(code); };
@@ -35,6 +36,11 @@ for (const exe of profile.runtime.executables) if (!executableExists(exe)) fail(
 for (const name of profile.environment?.required || []) if (!process.env[name]) fail(`required environment missing: ${name}`, 1);
 const limit = profile.verification.output_bytes || 16384;
 const allowedBase = new Set(profile.environment?.allow || []);
+const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
+const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+let contentSha;
+try { contentSha = contentSha256(root); }
+catch (error) { fail(`unable to calculate stable worktree content identity: ${error.message}`, 1); }
 const cleanEnv = (extra = []) => {
   const out = {};
   for (const name of ["PATH", "HOME", "TMPDIR", "LANG", ...allowedBase, ...extra]) if (process.env[name] !== undefined) out[name] = process.env[name];
@@ -73,8 +79,6 @@ for (const group of profile.verification.groups) {
   for (const command of commands) if (command.exit_code !== 0) failures.push({ code: "required_command_failed", expected: "0", actual: String(command.exit_code) });
   groups.push({ id: group.id, required: true, commands, ...(group.test_count ? { test_count: testCount } : {}) });
 }
-const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim();
-const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const now = new Date().toISOString();
 const currentRun = { verify_cmd: `target-verify.sh ${profile.id}`, verdict: { passed: failures.length ? 0 : groups.length, failed: failures.length, pending: 0, exit_code: failures.length ? 1 : 0 }, classifier: failures.length ? "FAIL" : "PASS", failures, groups, created_at: now };
 const artifactPath = path.join(root, ".review", `ISSUE-${issueArg}-VERIFY.json`);
@@ -82,11 +86,11 @@ let runs = [currentRun];
 if (fs.existsSync(artifactPath)) {
   let old;
   try { old = JSON.parse(fs.readFileSync(artifactPath, "utf8")); } catch { fail("existing canonical artifact is malformed", 1); }
-  if (old.head_sha === head) {
+  if (old.head_sha === head && old.content_sha256 === contentSha) {
     const oldSchemaErrors = validate(JSON.parse(fs.readFileSync(verifySchemaPath)), old);
     if (oldSchemaErrors.length || !validArtifact(old)) fail("existing same-HEAD canonical artifact failed schema or aggregate validation", 1);
     if (old.issue !== Number(issueArg) || old.branch !== branch || old.cwd !== root || old.target_profile !== profile.id) {
-      fail("existing same-HEAD canonical artifact has a different verification identity", 1);
+      fail("existing same-content canonical artifact has a different verification identity", 1);
     }
     const oldRun = { verify_cmd: old.verify_cmd, verdict: old.verdict, classifier: old.classifier, failures: old.failures, groups: old.groups, created_at: old.created_at };
     runs = (Array.isArray(old.runs) ? old.runs : [oldRun]).concat(currentRun);
@@ -94,13 +98,16 @@ if (fs.existsSync(artifactPath)) {
 }
 const allPass = runs.every((run) => run.classifier === "PASS");
 const latest = runs[runs.length - 1];
-const artifact = { schema_version: "1", artifact_type: "verify_result", producer_role: "VERIFIER", issue: Number(issueArg), branch, head_sha: head, cwd: root, verify_cmd: latest.verify_cmd, target_profile: profile.id, verdict: { passed: runs.reduce((n,r)=>n+r.verdict.passed,0), failed: runs.reduce((n,r)=>n+r.verdict.failed,0), pending: 0, exit_code: allPass ? 0 : 1 }, classifier: allPass ? "PASS" : "FAIL", failures: runs.flatMap((r)=>r.failures), groups: latest.groups, runs, created_at: latest.created_at };
+const artifact = { schema_version: "1", artifact_type: "verify_result", producer_role: "VERIFIER", issue: Number(issueArg), branch, head_sha: head, content_sha256: contentSha, cwd: root, verify_cmd: latest.verify_cmd, target_profile: profile.id, verdict: { passed: runs.reduce((n,r)=>n+r.verdict.passed,0), failed: runs.reduce((n,r)=>n+r.verdict.failed,0), pending: 0, exit_code: allPass ? 0 : 1 }, classifier: allPass ? "PASS" : "FAIL", failures: runs.flatMap((r)=>r.failures), groups: latest.groups, runs, created_at: latest.created_at };
 const schemaErrors = validate(JSON.parse(fs.readFileSync(verifySchemaPath)), artifact);
 if (schemaErrors.length || !validArtifact(artifact)) fail(`verification artifact schema or aggregate rejected: ${schemaErrors.join("; ")}`, 1);
 fs.mkdirSync(path.dirname(artifactPath), { recursive: true });
 const temp = `${artifactPath}.tmp-${process.pid}`;
 fs.writeFileSync(temp, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 });
-if (execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() !== head) { fs.unlinkSync(temp); fail("HEAD changed during verification", 1); }
+let currentContentSha;
+try { currentContentSha = contentSha256(root); }
+catch (error) { fs.unlinkSync(temp); fail(`unable to recalculate stable worktree content identity: ${error.message}`, 1); }
+if (execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() !== head || currentContentSha !== contentSha) { fs.unlinkSync(temp); fail("worktree changed during verification", 1); }
 fs.renameSync(temp, artifactPath);
 console.log(`${artifact.classifier}: ${groups.length} required groups at ${head}`);
 process.exit(artifact.classifier === "PASS" ? 0 : 1);
