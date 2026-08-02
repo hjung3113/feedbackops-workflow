@@ -5,6 +5,7 @@
   "issue": 71,
   "branch": "fix/empty-pass",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/tmp/empty-pass",
   "verify_cmd": "target-verify.sh empty",
   "target_profile": "node-test",

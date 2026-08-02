@@ -5,6 +5,7 @@
   "issue": 71,
   "branch": "fix/generic-target",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/tmp/generic-target",
   "verify_cmd": "target-verify.sh node-test",
   "target_profile": "node-test",

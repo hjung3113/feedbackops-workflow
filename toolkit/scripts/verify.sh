@@ -31,6 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VERIFY_RESULT="$SCRIPT_DIR/lib/verify-result.cjs"
 VERIFY_SCHEMA="$SCRIPT_DIR/../schemas/verify.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+WORKTREE_CONTENT_ID="$SCRIPT_DIR/lib/worktree-content-id.cjs"
 
 usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
@@ -152,6 +153,8 @@ emit_verify_artifact() {
   report="$3"
   vitest_ec="$4"
   classifier="$5"
+  verified_head_sha="$6"
+  verified_content_sha256="$7"
 
   case "$issue" in
     ""|*[!0-9]*)
@@ -172,6 +175,16 @@ emit_verify_artifact() {
   head_sha="$(git rev-parse HEAD 2>/dev/null || printf '')"
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf '')"
   cwd="$(pwd)"
+  content_sha256="$(node "$WORKTREE_CONTENT_ID" "$cwd" 2>/dev/null)" || {
+    echo "FAIL: unable to calculate stable worktree content identity" >&2
+    emit_machine_failure "worktree_content_identity" "stable Git-visible worktree content" "unavailable"
+    return 1
+  }
+  if [ "$head_sha" != "$verified_head_sha" ] || [ "$content_sha256" != "$verified_content_sha256" ]; then
+    echo "FAIL: worktree changed during verification; refusing to publish stale VERIFY evidence" >&2
+    emit_machine_failure "worktree_changed_during_verify" "unchanged HEAD and content identity" "changed"
+    return 1
+  fi
   if [ -n "$filter" ]; then verify_cmd="verify.sh $filter"; else verify_cmd="verify.sh --full-module"; fi
   created_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -179,6 +192,7 @@ emit_verify_artifact() {
   VERIFY_ARTIFACT_ISSUE="$issue" \
   VERIFY_ARTIFACT_BRANCH="$branch" \
   VERIFY_ARTIFACT_HEAD_SHA="$head_sha" \
+  VERIFY_ARTIFACT_CONTENT_SHA256="$content_sha256" \
   VERIFY_ARTIFACT_CWD="$cwd" \
   VERIFY_ARTIFACT_CMD="$verify_cmd" \
   VERIFY_ARTIFACT_DB_HOST="$DB_HOST" \
@@ -349,6 +363,22 @@ main() {
     fi
   fi
 
+  verify_head_sha=""
+  verify_content_sha256=""
+  if [ -n "${VERIFY_ISSUE+x}" ] && [ -n "$VERIFY_ISSUE" ]; then
+    verify_head_sha="$(git rev-parse HEAD 2>/dev/null || printf '')"
+    verify_content_sha256="$(node "$WORKTREE_CONTENT_ID" "$(pwd)" 2>/dev/null)" || {
+      echo "FAIL: unable to calculate stable worktree content identity" >&2
+      emit_machine_failure "worktree_content_identity" "stable Git-visible worktree content" "unavailable"
+      exit 5
+    }
+    if [ -z "$verify_head_sha" ] || [ -z "$verify_content_sha256" ]; then
+      echo "FAIL: unable to bind verification to the current worktree identity" >&2
+      emit_machine_failure "worktree_content_identity" "HEAD and stable Git-visible worktree content" "unavailable"
+      exit 5
+    fi
+  fi
+
   tmp_report="$(mktemp -t verify-vitest.XXXXXX)"
   trap 'rm -f "$tmp_report" "${VERIFY_CLEAN_RESULT_PATH:-}"' EXIT
 
@@ -391,7 +421,7 @@ main() {
   fi
 
   if [ -n "${VERIFY_ISSUE+x}" ] && [ -n "$VERIFY_ISSUE" ]; then
-    emit_verify_artifact "$VERIFY_ISSUE" "$filter" "$tmp_report" "$vitest_ec" "$classifier"
+    emit_verify_artifact "$VERIFY_ISSUE" "$filter" "$tmp_report" "$vitest_ec" "$classifier" "$verify_head_sha" "$verify_content_sha256"
     emit_ec=$?
     if [ "$emit_ec" -ne 0 ]; then
       if [ "$cls_ec" -eq 0 ]; then
@@ -403,7 +433,7 @@ main() {
       fi
     fi
     if [ "${VERIFY_ARTIFACT_AGGREGATE_EXIT:-0}" -ne 0 ]; then
-      echo "FAIL: canonical VERIFY aggregate remains red for this HEAD; all recorded runs must pass" >&2
+      echo "FAIL: canonical VERIFY aggregate remains red for this content identity; all recorded runs must pass" >&2
       exit 1
     fi
   fi

@@ -3,7 +3,7 @@
   "title": "Verify Result Artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "cwd", "verify_cmd", "verdict", "classifier", "failures", "created_at"],
+  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "content_sha256", "cwd", "verify_cmd", "verdict", "classifier", "failures", "created_at"],
   "allOf": [
     {
       "oneOf": [
@@ -58,6 +58,7 @@
     "issue": { "type": "integer" },
     "branch": { "type": "string" },
     "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Stable Git-visible worktree content identity at verification time; .review is excluded." },
     "cwd": { "type": "string" },
     "verify_cmd": { "type": "string" },
     "target_profile": { "type": "string", "minLength": 1 },

@@ -164,6 +164,7 @@ for arg in "$@"; do
   esac
 done
 [ -n "$out" ] || { echo "missing --outputFile" >&2; exit 2; }
+if [ -n "${PNPM_MUTATE_FILE:-}" ]; then printf '%s\n' 'test-mutated worktree' >> "$PNPM_MUTATE_FILE"; fi
 case "${PNPM_STUB_MODE:-green}" in
   green)
     printf '%s\n' '{"numPassedTests":3,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true,"testResults":[]}' > "$out"
@@ -250,6 +251,27 @@ run_filter_case "no-verify-issue-green-unchanged" 0 "file" "green" ""
 
 echo "--- canonical VERIFY aggregate ---"
 
+content_identity_repo="$TMP_DIR/content-identity"
+mkdir -p "$content_identity_repo"
+git -C "$content_identity_repo" init -q
+git -C "$content_identity_repo" config user.email smoke@test.local
+git -C "$content_identity_repo" config user.name smoke
+printf '%s\n' retained > "$content_identity_repo/retained.txt"
+printf '%s\n' deleted > "$content_identity_repo/deleted.txt"
+git -C "$content_identity_repo" add -A
+git -C "$content_identity_repo" commit -qm seed
+content_before_delete="$(node "$SCRIPT_DIR/../lib/worktree-content-id.cjs" "$content_identity_repo")"
+git -C "$content_identity_repo" rm -q deleted.txt
+content_staged_delete="$(node "$SCRIPT_DIR/../lib/worktree-content-id.cjs" "$content_identity_repo")"
+git -C "$content_identity_repo" commit -qm delete
+content_committed_delete="$(node "$SCRIPT_DIR/../lib/worktree-content-id.cjs" "$content_identity_repo")"
+if [ "$content_before_delete" != "$content_staged_delete" ] && [ "$content_staged_delete" = "$content_committed_delete" ]; then
+  echo "ok   - content identity follows the tree across staged deletion and commit"
+else
+  echo "NOT OK - content identity follows the tree across staged deletion and commit"
+  FAILURES=$((FAILURES + 1))
+fi
+
 make_aggregate_repo() {
   repo="$1"
   bin="$repo/bin"
@@ -272,15 +294,68 @@ aggregate_fail_pass="$TMP_DIR/aggregate-fail-pass"
 make_aggregate_repo "$aggregate_fail_pass"
 run_aggregate_filter "$aggregate_fail_pass" fail 42 permissions
 aggregate_first_ec=$?
+printf '%s\n' 'corrected uncommitted tree' >> "$aggregate_fail_pass/README.md"
 run_aggregate_filter "$aggregate_fail_pass" green 42 surveys
 aggregate_second_ec=$?
-if [ "$aggregate_first_ec" -eq 1 ] && [ "$aggregate_second_ec" -eq 1 ] && node -e '
+if [ "$aggregate_first_ec" -eq 1 ] && [ "$aggregate_second_ec" -eq 0 ] && node -e '
   const fs=require("fs"); const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
-  if(!Array.isArray(o.runs)||o.runs.length!==2||o.runs[0].classifier!=="FAIL"||o.runs[1].classifier!=="PASS"||o.classifier!=="FAIL"||o.verdict.exit_code===0||o.verdict.failed<1||!o.failures.some((f)=>f.code==="failed_tests")) process.exit(1);
+  if(!Array.isArray(o.runs)||o.runs.length!==1||o.runs[0].classifier!=="PASS"||o.classifier!=="PASS"||o.verdict.exit_code!==0||o.verdict.failed!==0||!/^[0-9a-f]{64}$/.test(o.content_sha256||"")) process.exit(1);
 ' "$aggregate_fail_pass/.review/ISSUE-42-VERIFY.json"; then
-  echo "ok   - FAIL then PASS retains both runs and red-latches canonical readiness"
+  echo "ok   - corrected uncommitted content starts a fresh canonical aggregate"
 else
-  echo "NOT OK - FAIL then PASS retains both runs and red-latches canonical readiness (exits $aggregate_first_ec/$aggregate_second_ec)"
+  echo "NOT OK - corrected uncommitted content starts a fresh canonical aggregate (exits $aggregate_first_ec/$aggregate_second_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_same_content="$TMP_DIR/aggregate-same-content"
+make_aggregate_repo "$aggregate_same_content"
+run_aggregate_filter "$aggregate_same_content" fail 47 permissions
+aggregate_same_first_ec=$?
+run_aggregate_filter "$aggregate_same_content" green 47 surveys
+aggregate_same_second_ec=$?
+if [ "$aggregate_same_first_ec" -eq 1 ] && [ "$aggregate_same_second_ec" -eq 1 ] && node -e '
+  const o=require(process.argv[1]);
+  process.exit(o.classifier==="FAIL"&&Array.isArray(o.runs)&&o.runs.length===2&&o.runs[0].classifier==="FAIL"&&o.runs[1].classifier==="PASS"?0:1);
+' "$aggregate_same_content/.review/ISSUE-47-VERIFY.json"; then
+  echo "ok   - unchanged content retains the red-latched aggregate"
+else
+  echo "NOT OK - unchanged content retains the red-latched aggregate (exits $aggregate_same_first_ec/$aggregate_same_second_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_mutated_during_run="$TMP_DIR/aggregate-mutated-during-run"
+make_aggregate_repo "$aggregate_mutated_during_run"
+( cd "$aggregate_mutated_during_run" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" VERIFY_ISSUE=48 PNPM_STUB_MODE=green PNPM_MUTATE_FILE=README.md VERIFY_ENV_ALLOW="PNPM_MUTATE_FILE" PATH="$aggregate_mutated_during_run/bin:$PATH" bash "$VERIFY" surveys ) >/dev/null 2>&1
+aggregate_mutated_ec=$?
+if [ "$aggregate_mutated_ec" -eq 5 ] && [ ! -e "$aggregate_mutated_during_run/.review/ISSUE-48-VERIFY.json" ]; then
+  echo "ok   - a worktree mutation during a green run fails closed without evidence"
+else
+  echo "NOT OK - a worktree mutation during a green run fails closed without evidence (exit $aggregate_mutated_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_mutated_before_rename="$TMP_DIR/aggregate-mutated-before-rename"
+make_aggregate_repo "$aggregate_mutated_before_rename"
+( cd "$aggregate_mutated_before_rename" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" VERIFY_ISSUE=49 PNPM_STUB_MODE=green VERIFY_ARTIFACT_TEST_MUTATE_BEFORE_RENAME=1 VERIFY_ENV_ALLOW="PNPM_STUB_MODE" PATH="$aggregate_mutated_before_rename/bin:$PATH" bash "$VERIFY" surveys ) >/dev/null 2>&1
+aggregate_mutated_before_rename_ec=$?
+if [ "$aggregate_mutated_before_rename_ec" -eq 5 ] && [ ! -e "$aggregate_mutated_before_rename/.review/ISSUE-49-VERIFY.json" ] && grep -F -q 'test-mutated before rename' "$aggregate_mutated_before_rename/README.md"; then
+  echo "ok   - a mutation after temporary validation cannot publish stale evidence"
+else
+  echo "NOT OK - a mutation after temporary validation cannot publish stale evidence (exit $aggregate_mutated_before_rename_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+aggregate_empty_commit_before_rename="$TMP_DIR/aggregate-empty-commit-before-rename"
+make_aggregate_repo "$aggregate_empty_commit_before_rename"
+run_aggregate_filter "$aggregate_empty_commit_before_rename" fail 50 permissions
+aggregate_empty_commit_before_rename_before="$(shasum -a 256 "$aggregate_empty_commit_before_rename/.review/ISSUE-50-VERIFY.json" | awk '{print $1}')"
+( cd "$aggregate_empty_commit_before_rename" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="$CLEAN_PROBE" VERIFY_ISSUE=50 PNPM_STUB_MODE=green VERIFY_ARTIFACT_TEST_EMPTY_COMMIT_BEFORE_RENAME=1 VERIFY_ENV_ALLOW="PNPM_STUB_MODE" PATH="$aggregate_empty_commit_before_rename/bin:$PATH" bash "$VERIFY" surveys ) >/dev/null 2>&1
+aggregate_empty_commit_before_rename_ec=$?
+aggregate_empty_commit_before_rename_after="$(shasum -a 256 "$aggregate_empty_commit_before_rename/.review/ISSUE-50-VERIFY.json" | awk '{print $1}')"
+if [ "$aggregate_empty_commit_before_rename_ec" -eq 5 ] && [ "$aggregate_empty_commit_before_rename_before" = "$aggregate_empty_commit_before_rename_after" ]; then
+  echo "ok   - an empty commit after verification cannot publish stale evidence"
+else
+  echo "NOT OK - an empty commit after verification cannot publish stale evidence (exit $aggregate_empty_commit_before_rename_ec)"
   FAILURES=$((FAILURES + 1))
 fi
 

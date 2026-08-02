@@ -5,6 +5,7 @@
   "issue": 33,
   "branch": "fix/33-artifact-fresh",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
+  "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "cwd": "/target",
   "verify_cmd": "verify.sh --full-module",
   "db_target": { "host": "localhost", "database": "verify_issue_33", "role": "fops_verifier" },

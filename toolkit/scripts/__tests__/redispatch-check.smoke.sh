@@ -84,7 +84,7 @@ node - "$WORKTREE" "$EVIDENCE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path");
 const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
 const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
-const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:00:00Z"};
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,content_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:00:00Z"};
 const verifyFail={...verifyPass,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}]};
 for (const name of ["F-1","F-2","F-3"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyFail));
 fs.writeFileSync(path.join(root,"hard-fact.json"),JSON.stringify(verifyPass));
@@ -110,7 +110,7 @@ CLOSURE_HEAD="$(git -C "$WORKTREE" rev-parse HEAD)"
 node - "$WORKTREE" "$CLOSURE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path");
 const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".review/evidence");
-const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state:{sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:01:00Z"};
+const verifyPass={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,content_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state:{sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}},verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:01:00Z"};
 for (const name of ["F-1-closed","F-2-closed"]) fs.writeFileSync(path.join(root,name+".json"),JSON.stringify(verifyPass));
 fs.writeFileSync(path.join(root,"wrong-branch.json"),JSON.stringify({...verifyPass,branch:"other"}));
 fs.writeFileSync(path.join(root,"unrelated-pass.json"),JSON.stringify({...verifyPass,verify_cmd:"smoke verify --filter unrelated"}));
@@ -342,7 +342,7 @@ const failed={verify_cmd:"smoke verify --filter shared-contract",clean_state,ver
 const passed={verify_cmd:"smoke verify --filter unrelated",clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:03:00Z"};
 // This is intentionally forged: legacy top-level checks say PASS and name the
 // required scope, but no passing run actually covers that scope.
-const forged={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:passed.created_at,runs:[failed,passed]};
+const forged={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,content_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",cwd:worktree,verify_cmd:"smoke verify --filter shared-contract",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:passed.created_at,runs:[failed,passed]};
 fs.writeFileSync(path.join(root,"aggregate-unmatched.json"),JSON.stringify(forged));
 NODE
 cp "$TMP_DIR/closed-history.json" "$TMP_DIR/aggregate-unmatched-closure.json"
@@ -361,7 +361,7 @@ const [worktree,head]=process.argv.slice(2); const root=path.join(worktree,".rev
 const clean_state={sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}};
 const matching={verify_cmd:"smoke verify --filter shared-contract",clean_state,verdict:{passed:1,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:04:00Z"};
 const later={verify_cmd:"smoke verify --filter another-scope",clean_state,verdict:{passed:2,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-20T00:05:00Z"};
-const aggregate={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,cwd:worktree,verify_cmd:later.verify_cmd,db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:3,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:later.created_at,runs:[matching,later]};
+const aggregate={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue:188,branch:"main",head_sha:head,content_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",cwd:worktree,verify_cmd:later.verify_cmd,db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state,verdict:{passed:3,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:later.created_at,runs:[matching,later]};
 fs.writeFileSync(path.join(root,"aggregate-matched.json"),JSON.stringify(aggregate));
 fs.writeFileSync(path.join(root,"aggregate-malformed-runs.json"),JSON.stringify({...aggregate,runs:{}}));
 NODE

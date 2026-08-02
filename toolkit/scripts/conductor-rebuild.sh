@@ -20,6 +20,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+WORKTREE_CONTENT_ID="$SCRIPT_DIR/lib/worktree-content-id.cjs"
 VERIFY_SCHEMA=""
 PR_DRAFT_SCHEMA=""
 if [ -r "$PRODUCT_HOME_LIB" ] && [ -r "$SCHEMA_VALIDATOR" ]; then
@@ -128,6 +129,7 @@ parse_verify_artifact() {
       get(["verdict", "passed"]),
       get(["verdict", "exit_code"]),
       get(["head_sha"]),
+      get(["content_sha256"]),
       get(["issue"]),
       get(["branch"]),
       get(["verify_cmd"])
@@ -206,9 +208,10 @@ NODE
   v_passed="${4:-}"
   v_exit="${5:-}"
   v_head="${6:-}"
-  v_issue="${7:-}"
-  v_branch="${8:-}"
-  v_cmd="${9:-}"
+  v_content="${7:-}"
+  v_issue="${8:-}"
+  v_branch="${9:-}"
+  v_cmd="${10:-}"
 
   if [ -n "$verify_cmd" ] && [ -n "$v_cmd" ] && [ "$verify_cmd" != "$v_cmd" ]; then
     echo "conductor-rebuild: WARN $f verify_cmd '$verify_cmd' differs from $vfile verify_cmd '$v_cmd' — reviewer must check filter coverage" >&2
@@ -239,6 +242,7 @@ NODE
   # worktree as a trustworthy source (head_source stays empty → state `unknown`).
   # With no `branch` field we cannot cross-check, so we keep prior behavior.
   actual_head=""
+  actual_content=""
   head_source=""
   if [ -n "$worktree" ] && [ -d "$worktree" ]; then
     actual_branch="$(git -C "$worktree" rev-parse --abbrev-ref HEAD 2>/dev/null)"
@@ -249,7 +253,13 @@ NODE
       echo "conductor-rebuild: $f worktree on branch '$actual_branch' but artifact claims '$branch' — identity mismatch, not verifiable" >&2
     else
       actual_head="$(git -C "$worktree" rev-parse HEAD 2>/dev/null)"
-      [ -n "$actual_head" ] && head_source="worktree"
+      actual_content="$(node "$WORKTREE_CONTENT_ID" "$worktree" 2>/dev/null)"
+      if [ -n "$actual_head" ] && [ -n "$actual_content" ]; then
+        head_source="worktree"
+      else
+        actual_head=""
+        actual_content=""
+      fi
     fi
   fi
   if [ -z "$head_source" ] && [ -z "$actual_head" ] && [ -n "$FALLBACK_HEAD" ]; then
@@ -265,11 +275,11 @@ NODE
     # produce `verified` (that would let an artifact certify itself). Cap
     # at `unknown` regardless of whether it happens to match head_sha.
     state="unknown"
-  elif [ "$v_head" = "$actual_head" ]; then
-    # head_source == "worktree": an INDEPENDENT live lookup agreed → verified.
+  elif [ "$v_head" = "$actual_head" ] && [ "$v_content" = "$actual_content" ]; then
+    # head_source == "worktree": independent live HEAD and content lookups agreed → verified.
     state="verified"
   else
-    # work landed after verify
+    # work landed or its Git-visible content changed after verify
     state="stale_verify"
   fi
 
