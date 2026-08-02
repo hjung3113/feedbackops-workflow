@@ -121,7 +121,6 @@ assert_current_content() {
 assert_no_maintainer_leakage() {
   target="$1"
   assert_true "install excludes Matt skills" test ! -e "$target/.agents"
-  assert_true "install excludes root instructions" test ! -e "$target/AGENTS.md"
   assert_true "install excludes maintainer tracker" test ! -e "$target/docs/agents/issue-tracker.md"
   assert_true "install excludes plans" test ! -e "$target/docs/plans"
 }
@@ -375,12 +374,49 @@ assert_current_content "fresh install" "$fresh"
 assert_true "fresh install omits source-only smoke suite" test ! -e "$fresh/.agent-workflow/scripts/__tests__"
 assert_true "fresh install preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
 assert_true "fresh install preserves unrelated project files" grep -F -q project "$fresh/project.txt"
+assert_true "fresh install does not create target instructions" test ! -e "$fresh/AGENTS.md"
 assert_true "fresh install implementation contract requires canonical AC ids in test names" grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$fresh/.agent-workflow/scripts/lib/output-contract.mjs"
 assert_true "fresh install skill documents canonical AC ids in test names" grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$fresh/.claude/skills/agent-workflow/SKILL.md"
 assert_true "fresh install ships Claude reviewer allocation" node -e 'const v=require(process.argv[1]); process.exit(v.reviewer_by_runtime && v.reviewer_by_runtime.claude && v.reviewer_by_runtime.claude.model === "sonnet" && v.reviewer_by_runtime.claude.effort === "medium" ? 0 : 1)' "$fresh/.agent-workflow/model-alloc.json"
 assert_no_maintainer_leakage "$fresh"
 assert_true "default install records FeedbackOps profile" grep -F -q '"profile":"feedbackops"' "$fresh/.agent-workflow/install-profile.json"
 assert_product_home_worktree_contract "$fresh"
+
+agents_target="$TMP_DIR/agents-target"
+mkdir -p "$agents_target"
+printf '%s\n' '# Target instructions' 'Keep this target-owned preamble.' > "$agents_target/AGENTS.md"
+chmod 640 "$agents_target/AGENTS.md"
+assert_exit "install appends one managed AGENTS pointer" PASS bash "$INSTALL" "$agents_target"
+assert_true "managed AGENTS pointer preserves preamble" grep -F -q 'Keep this target-owned preamble.' "$agents_target/AGENTS.md"
+assert_true "managed AGENTS pointer names allocation contract" grep -F -q '.agent-workflow/model-alloc.json' "$agents_target/AGENTS.md"
+assert_true "managed AGENTS pointer has one begin marker" bash -c '[ "$(grep -F -c "<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->" "$1")" -eq 1 ]' _ "$agents_target/AGENTS.md"
+assert_true "managed AGENTS install preserves target mode" node -e 'const fs=require("fs"); process.exit((fs.statSync(process.argv[1]).mode & 0o7777) === 0o640 ? 0 : 1)' "$agents_target/AGENTS.md"
+printf '%s\n' 'Keep this target-owned suffix.' >> "$agents_target/AGENTS.md"
+node -e 'const fs=require("fs"); const file=process.argv[1]; fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("### Model routing (installed by the agent-workflow toolkit)", "### outdated pointer"));' "$agents_target/AGENTS.md"
+agents_upgrade_output="$TMP_DIR/agents-upgrade-output.txt"
+bash "$INSTALL" "$agents_target" --upgrade >"$agents_upgrade_output" 2>&1
+agents_upgrade_exit=$?
+if [ "$agents_upgrade_exit" -eq 0 ]; then ok "upgrade rewrites managed AGENTS pointer"; else not_ok "upgrade rewrites managed AGENTS pointer"; fi
+assert_true "managed AGENTS upgrade preserves preamble" grep -F -q 'Keep this target-owned preamble.' "$agents_target/AGENTS.md"
+assert_true "managed AGENTS upgrade preserves suffix" grep -F -q 'Keep this target-owned suffix.' "$agents_target/AGENTS.md"
+assert_true "managed AGENTS upgrade replaces old pointer bytes" bash -c '! grep -F -q "### outdated pointer" "$1"' _ "$agents_target/AGENTS.md"
+assert_true "managed AGENTS upgrade has one begin marker" bash -c '[ "$(grep -F -c "<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->" "$1")" -eq 1 ]' _ "$agents_target/AGENTS.md"
+assert_true "managed AGENTS upgrade preserves target mode" node -e 'const fs=require("fs"); process.exit((fs.statSync(process.argv[1]).mode & 0o7777) === 0o640 ? 0 : 1)' "$agents_target/AGENTS.md"
+agents_backup_root="$(sed -n 's/^upgrade backup: //p' "$agents_upgrade_output")"
+assert_true "managed AGENTS upgrade backs up previous pointer bytes" grep -F -q '### outdated pointer' "$agents_backup_root/agents"
+
+malformed_agents="$TMP_DIR/malformed-agents"
+mkdir -p "$malformed_agents"
+printf '%s\n' '# Target instructions' '<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->' > "$malformed_agents/AGENTS.md"
+assert_exit_output "unpaired AGENTS pointer markers fail closed" 2 "malformed or duplicate agent-workflow pointer markers" bash "$INSTALL" "$malformed_agents"
+assert_true "malformed AGENTS pointer leaves installer paths absent" test ! -e "$malformed_agents/.agent-workflow"
+assert_true "malformed AGENTS pointer preserves target file" grep -F -q '# Target instructions' "$malformed_agents/AGENTS.md"
+
+duplicate_agents="$TMP_DIR/duplicate-agents"
+mkdir -p "$duplicate_agents"
+printf '%s\n' '<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->' '<!-- agent-workflow:end -->' '<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->' '<!-- agent-workflow:end -->' > "$duplicate_agents/AGENTS.md"
+assert_exit_output "duplicate AGENTS pointer markers fail closed" 2 "malformed or duplicate agent-workflow pointer markers" bash "$INSTALL" "$duplicate_agents"
+assert_true "duplicate AGENTS pointer leaves installer paths absent" test ! -e "$duplicate_agents/.agent-workflow"
 
 generic="$TMP_DIR/generic target"
 mkdir -p "$generic"
@@ -408,7 +444,7 @@ if (cd "$generic" && PATH="$generic/bin:$PATH" bash .agent-workflow/scripts/targ
 else
   not_ok "generic install executes target verifier and publishes semantic PASS evidence"
 fi
-assert_true "generic install excludes root instructions" test ! -e "$generic/AGENTS.md"
+assert_true "generic install does not create root instructions" test ! -e "$generic/AGENTS.md"
 assert_true "generic install excludes maintainer docs" test ! -e "$generic/docs"
 assert_exit_output "generic upgrade refuses FeedbackOps profile substitution" 2 "refusing to change an existing generic installation" bash "$INSTALL" "$generic" --upgrade
 assert_exit "generic same-profile upgrade succeeds" PASS bash "$INSTALL" "$generic" --profile generic --upgrade
@@ -605,6 +641,15 @@ printf '%s\n' 0 > "$mv_counter"
 assert_exit_output "restore removal failure reports manual recovery" 70 "could not remove replacement" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=7 INSTALL_RM_FAIL_PATH="$rollback_remove_root/.agent-workflow/scripts" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_remove_failure" --upgrade
 assert_true "restore removal failure does not nest backup" test ! -e "$rollback_remove_failure/.agent-workflow/scripts/scripts"
 assert_true "restore removal failure retains old scripts backup" bash -c 'test -n "$(find "$1" -path "*/scripts/old.txt" -print -quit)"' _ "$rollback_remove_failure/.review/agent-workflow-install-backups"
+
+agents_rollback="$TMP_DIR/agents-rollback"
+mkdir -p "$agents_rollback"
+printf '%s\n' '# Target instructions' > "$agents_rollback/AGENTS.md"
+bash "$INSTALL" "$agents_rollback" >/dev/null
+printf '%s\n' rollback-agents-sentinel >> "$agents_rollback/AGENTS.md"
+printf '%s\n' 0 > "$mv_counter"
+assert_exit_output "AGENTS replacement failure rolls back target instructions" 23 "restoring the previous installation" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=12 PATH="$mv_bin:$PATH" bash "$INSTALL" "$agents_rollback" --upgrade
+assert_true "AGENTS rollback restores target-owned instructions" grep -F -q rollback-agents-sentinel "$agents_rollback/AGENTS.md"
 
 product_export="$TMP_DIR/product export"
 export_target="$TMP_DIR/export target"

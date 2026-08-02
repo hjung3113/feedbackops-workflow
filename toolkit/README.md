@@ -58,6 +58,8 @@ scripts/install-into.sh ../feedbackops-target --profile feedbackops --upgrade
 
 Fresh install은 기존 managed leaf가 있으면 덮어쓰지 않고 `--upgrade`를 안내합니다. Upgrade는 source를 target 내부 staging에 먼저 복사·검증하고 기존 leaf를 `.review/agent-workflow-install-backups/<id>/`에 보존한 뒤 transaction으로 교체합니다. partial/mixed/식별 불가능한 layout, 상관없는 symlink, symlink인 managed parent는 fail closed합니다. rollback 이동까지 거부되면 exit `70`과 보존된 backup 경로를 출력합니다. 기존 `.review` 증거와 그 밖의 타겟 파일은 삭제하지 않습니다. 제거된 `--mode`, `--force`, `--migrate-legacy`는 작업을 수행하지 않고 `--upgrade` 안내와 함께 거부됩니다.
 
+타겟 루트에 이미 실제 파일 `AGENTS.md`가 있으면 installer는 그 파일의 관리 marker 사이에 model-routing pointer를 추가하거나 upgrade에서 canonical 내용으로 다시 씁니다. `AGENTS.md`를 새로 만들거나 `CLAUDE.md`를 관리하지 않으며, marker가 unpaired·중복·변형되었거나 `AGENTS.md`가 symlink/일반 파일이 아니면 target을 바꾸지 않고 실패합니다. upgrade의 이전 pointer bytes는 같은 backup transaction에 보존됩니다.
+
 ## 5분 안에 첫 controlled run
 
 아래는 호환되는 타겟 `../my-project`에 issue `123`을 적용하는 최소 운영 경로입니다. 상세 admission과 liveness 규칙은 [운영 플레이북](docs/agents/multi-agent-workflow.md)을 따릅니다.

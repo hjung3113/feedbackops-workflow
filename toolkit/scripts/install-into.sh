@@ -107,6 +107,7 @@ OPENCODE_CONFIG_DEST="$TARGET_ROOT/opencode.json"
 MODEL_ALLOC_SRC="$PRODUCT_ROOT/model-alloc.json"
 MODEL_ALLOC_DEST="$AGENT_DIR/model-alloc.json"
 PROFILE_DEST="$AGENT_DIR/install-profile.json"
+AGENTS_DEST="$TARGET_ROOT/AGENTS.md"
 GENERIC_PROFILE_SRC="$SCRIPTS_SRC/install-profiles/generic"
 
 if [[ "$PROFILE" == "generic" ]]; then
@@ -165,6 +166,49 @@ reject_symlinked_managed_parent
 exists_node() {
   [[ -e "$1" || -L "$1" ]]
 }
+
+AGENTS_POINTER_STATE="absent"
+if exists_node "$AGENTS_DEST"; then
+  if [[ -L "$AGENTS_DEST" || ! -f "$AGENTS_DEST" || ! -r "$AGENTS_DEST" ]]; then
+    echo "install-into: target AGENTS.md must be a readable regular file: $AGENTS_DEST" >&2
+    echo "No changes made. Resolve the target-owned instruction file before installing." >&2
+    exit 2
+  fi
+  AGENTS_POINTER_STATE="$(node - "$AGENTS_DEST" <<'NODE'
+const fs = require("fs");
+const file = process.argv[2];
+const begin = "<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->";
+const end = "<!-- agent-workflow:end -->";
+const content = fs.readFileSync(file, "utf8");
+const lines = content.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) || [];
+let state = 0;
+let blocks = 0;
+for (const raw of lines) {
+  if (raw === "") continue;
+  const line = raw.replace(/\r\n$|\n$|\r$/, "");
+  if (line.includes("<!-- agent-workflow:begin") || line.includes("<!-- agent-workflow:end")) {
+    if (line === begin) {
+      if (state !== 0) process.exit(2);
+      state = 1;
+    } else if (line === end) {
+      if (state !== 1) process.exit(2);
+      state = 0;
+      blocks += 1;
+    } else {
+      process.exit(2);
+    }
+  }
+}
+if (state !== 0 || blocks > 1) process.exit(2);
+process.stdout.write(blocks === 1 ? "managed" : "unmanaged");
+NODE
+)" || {
+    echo "install-into: target AGENTS.md has malformed or duplicate agent-workflow pointer markers; no changes made." >&2
+    exit 2
+  }
+else
+  echo "warning: target has no AGENTS.md; skipping the managed agent-workflow pointer." >&2
+fi
 
 installed_profile() {
   local profile_file="$1"
@@ -309,6 +353,7 @@ STAGE_PROFILE="$STAGE_ROOT/install-profile.json"
 STAGE_CODEX_SKILL="$STAGE_ROOT/codex-skill"
 STAGE_OPENCODE_AGENT="$STAGE_ROOT/opencode-agent.md"
 STAGE_OPENCODE_CONFIG="$STAGE_ROOT/opencode.json"
+STAGE_AGENTS="$STAGE_ROOT/AGENTS.md"
 
 cleanup_stage() {
   if [[ -n "${STAGE_ROOT:-}" && -d "$STAGE_ROOT" ]]; then
@@ -342,6 +387,52 @@ fi
 if ! cp "$MODEL_ALLOC_SRC" "$STAGE_MODEL_ALLOC"; then
   echo "install-into: could not stage default model allocation config; target installation was not changed." >&2
   exit 1
+fi
+if [[ "$AGENTS_POINTER_STATE" != "absent" ]]; then
+  if ! node - "$AGENTS_DEST" "$STAGE_AGENTS" <<'NODE'
+const fs = require("fs");
+const source = process.argv[2];
+const destination = process.argv[3];
+const begin = "<!-- agent-workflow:begin (managed by install-into.sh — do not edit) -->";
+const end = "<!-- agent-workflow:end -->";
+const block = `${begin}\n### Model routing (installed by the agent-workflow toolkit)\n\nRead before any dispatch:\n- .agent-workflow/model-alloc.json — project-owned allocation contract\n- .agent-workflow/docs/agents/multi-agent-workflow.md — Model Allocation\n- .agent-workflow/docs/agents/conductor-persona.md — section 2: CONDUCTOR is read-only on product code\n\nThe allocation file is authoritative. CONDUCTOR dispatches artifact-producing work; workers produce code, docs, plans, and recon.\n${end}\n`;
+const content = fs.readFileSync(source, "utf8");
+const lines = content.match(/[^\r\n]*(?:\r\n|\n|\r|$)/g) || [];
+let offset = 0;
+let state = 0;
+let blocks = 0;
+let beginStart = -1;
+let endOffset = -1;
+for (const raw of lines) {
+  if (raw === "") continue;
+  const line = raw.replace(/\r\n$|\n$|\r$/, "");
+  if (line.includes("<!-- agent-workflow:begin") || line.includes("<!-- agent-workflow:end")) {
+    if (line === begin) {
+      if (state !== 0) process.exit(2);
+      state = 1;
+      beginStart = offset;
+    } else if (line === end) {
+      if (state !== 1) process.exit(2);
+      state = 0;
+      blocks += 1;
+      endOffset = offset + raw.length;
+    } else {
+      process.exit(2);
+    }
+  }
+  offset += raw.length;
+}
+if (state !== 0 || blocks > 1) process.exit(2);
+const next = blocks === 1
+  ? content.slice(0, beginStart) + block + content.slice(endOffset)
+  : content + (content.length === 0 ? "" : /(?:\r\n|\n|\r)$/.test(content) ? "\n" : "\n\n") + block;
+fs.writeFileSync(destination, next);
+fs.chmodSync(destination, fs.statSync(source).mode & 0o7777);
+NODE
+  then
+    echo "install-into: could not stage the managed AGENTS.md pointer; target installation was not changed." >&2
+    exit 1
+  fi
 fi
 # Smoke suites exercise the source product layout and may create temporary
 # installations.  They are maintainer verification assets, not target runtime
@@ -424,6 +515,20 @@ restore_previous() {
       restore_status=1
     fi
   fi
+  if [[ -n "$BACKUP_ROOT" ]] && exists_node "$BACKUP_ROOT/agents"; then
+    if exists_node "$AGENTS_DEST"; then
+      if ! rm -f "$AGENTS_DEST" || exists_node "$AGENTS_DEST"; then
+        echo "install-into: rollback incomplete; could not remove replacement: $AGENTS_DEST" >&2
+        restore_status=1
+      elif ! mv "$BACKUP_ROOT/agents" "$AGENTS_DEST"; then
+        echo "install-into: rollback incomplete for $AGENTS_DEST; retained backup: $BACKUP_ROOT/agents" >&2
+        restore_status=1
+      fi
+    elif ! mv "$BACKUP_ROOT/agents" "$AGENTS_DEST"; then
+      echo "install-into: rollback incomplete for $AGENTS_DEST; retained backup: $BACKUP_ROOT/agents" >&2
+      restore_status=1
+    fi
+  fi
   if [[ "$UPGRADE" -eq 0 ]] && exists_node "$MODEL_ALLOC_DEST"; then
     rm -f "$MODEL_ALLOC_DEST" || restore_status=1
   fi
@@ -449,6 +554,9 @@ commit_installation() {
     done
     if exists_node "$PROFILE_DEST"; then
       mv "$PROFILE_DEST" "$BACKUP_ROOT/profile" || return $?
+    fi
+    if [[ "$AGENTS_POINTER_STATE" != "absent" ]]; then
+      mv "$AGENTS_DEST" "$BACKUP_ROOT/agents" || return $?
     fi
     if [[ "$PROFILE" == "generic" ]]; then
       mv "$CODEX_SKILL_DEST" "$BACKUP_ROOT/codex-skill" || return $?
@@ -496,6 +604,10 @@ commit_installation() {
   fi
   mv "$STAGE_PROFILE" "$PROFILE_DEST" || return $?
   echo "installed: $PROFILE_DEST"
+  if [[ "$AGENTS_POINTER_STATE" != "absent" ]]; then
+    mv "$STAGE_AGENTS" "$AGENTS_DEST" || return $?
+    echo "installed: $AGENTS_DEST"
+  fi
 }
 
 set +e
