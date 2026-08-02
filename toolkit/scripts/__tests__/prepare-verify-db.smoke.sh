@@ -76,7 +76,77 @@ else
   fail "last line is exact VERIFY_DATABASE_URL (got: $LAST_LINE)"
 fi
 
-# Case 5: --drop still requires a base URL / PGADMIN_URL.
+# Case 5: a role override has an explicit verifier-only credential source.
+# The admin password must never be reused, while a raw verifier password is
+# URL-encoded into the final handoff line only.
+VERIFY_DB_ROLE=fops_verifier VERIFY_DB_PASSWORD='ver ify:p@ss' PATH="$FAKE_BIN:/usr/bin:/bin" env -u PGADMIN_URL bash "$PREP" --issue 456 --base-url postgres://admin:admin-secret@localhost/postgres > "$TMP_DIR/out.txt" 2>&1
+ec=$?
+OUT="$(cat "$TMP_DIR/out.txt")"
+LAST_LINE="$(tail -n 1 "$TMP_DIR/out.txt")"
+if [ "$ec" -eq 0 ]; then pass "role override with explicit password exits zero"; else fail "role override with explicit password exits zero (got $ec)"; fi
+if [ "$LAST_LINE" = "VERIFY_DATABASE_URL=postgres://fops_verifier:ver%20ify%3Ap%40ss@localhost/verify_issue_456" ]; then
+  pass "role override emits a usable encoded verifier URL"
+else
+  fail "role override emits a usable encoded verifier URL (got: $LAST_LINE)"
+fi
+STATUS_OUTPUT="$(printf '%s\n' "$OUT" | sed '$d')"
+case "$STATUS_OUTPUT" in
+  *admin-secret*|*'ver ify:p@ss'*) fail "status output never logs admin or verifier password" ;;
+  *) pass "status output never logs admin or verifier password" ;;
+esac
+
+# Case 6: UTF-8 verifier passwords are encoded byte-for-byte even when the
+# caller runs under a multibyte locale (macOS Bash 3.2 otherwise truncates the
+# non-ASCII character to one byte).
+VERIFY_DB_ROLE=fops_verifier VERIFY_DB_PASSWORD="$(printf 'caf\303\251')" PATH="$FAKE_BIN:/usr/bin:/bin" env -u PGADMIN_URL bash "$PREP" --issue 456 --base-url postgres://admin:admin-secret@localhost/postgres > "$TMP_DIR/out.txt" 2>&1
+ec=$?
+OUT="$(cat "$TMP_DIR/out.txt")"
+LAST_LINE="$(tail -n 1 "$TMP_DIR/out.txt")"
+if [ "$ec" -eq 0 ]; then pass "UTF-8 role password exits zero"; else fail "UTF-8 role password exits zero (got $ec)"; fi
+if [ "$LAST_LINE" = "VERIFY_DATABASE_URL=postgres://fops_verifier:caf%C3%A9@localhost/verify_issue_456" ]; then
+  pass "UTF-8 role password is encoded byte-for-byte"
+else
+  fail "UTF-8 role password is encoded byte-for-byte (got: $LAST_LINE)"
+fi
+STATUS_OUTPUT="$(printf '%s\n' "$OUT" | sed '$d')"
+case "$STATUS_OUTPUT" in
+  *admin-secret*|*caf*) fail "UTF-8 password is absent from status output" ;;
+  *) pass "UTF-8 password is absent from status output" ;;
+esac
+
+# Case 7: a role without an explicit verifier credential fails closed rather
+# than printing a passwordless URL that may not authenticate.
+VERIFY_DB_ROLE=fops_verifier PATH="$FAKE_BIN:/usr/bin:/bin" env -u PGADMIN_URL -u VERIFY_DB_PASSWORD bash "$PREP" --issue 456 --base-url postgres://admin:admin-secret@localhost/postgres > "$TMP_DIR/out.stdout" 2> "$TMP_DIR/out.stderr"
+ec=$?
+if [ "$ec" -ne 0 ]; then pass "role override without verifier password exits non-zero"; else fail "role override without verifier password exits non-zero"; fi
+if grep -q "VERIFY_DB_PASSWORD" "$TMP_DIR/out.stderr" && ! grep -q "admin-secret" "$TMP_DIR/out.stderr"; then
+  pass "missing role credential explains safe contract without leaking admin password"
+else
+  fail "missing role credential explains safe contract without leaking admin password"
+fi
+if grep -q "^VERIFY_DATABASE_URL=" "$TMP_DIR/out.stdout"; then
+  fail "missing role credential must not print VERIFY_DATABASE_URL"
+else
+  pass "missing role credential must not print VERIFY_DATABASE_URL"
+fi
+
+# Case 8: role names are constrained so the final eval-compatible assignment
+# cannot be influenced by shell syntax in an environment value.
+VERIFY_DB_ROLE='fops;echo unsafe' VERIFY_DB_PASSWORD=verifier-secret PATH="$FAKE_BIN:/usr/bin:/bin" env -u PGADMIN_URL bash "$PREP" --issue 456 --base-url postgres://admin:admin-secret@localhost/postgres > "$TMP_DIR/out.stdout" 2> "$TMP_DIR/out.stderr"
+ec=$?
+if [ "$ec" -ne 0 ]; then pass "unsafe role name exits non-zero"; else fail "unsafe role name exits non-zero"; fi
+if grep -q "VERIFY_DB_ROLE must contain only" "$TMP_DIR/out.stderr" && ! grep -q "fops;echo unsafe" "$TMP_DIR/out.stderr"; then
+  pass "unsafe role is rejected without echoing its value"
+else
+  fail "unsafe role is rejected without echoing its value"
+fi
+if grep -q "^VERIFY_DATABASE_URL=" "$TMP_DIR/out.stdout"; then
+  fail "unsafe role must not print VERIFY_DATABASE_URL"
+else
+  pass "unsafe role must not print VERIFY_DATABASE_URL"
+fi
+
+# Case 9: --drop still requires a base URL / PGADMIN_URL.
 run_prep --issue 12 --drop
 ec=$?
 OUT="$(cat "$TMP_DIR/out.txt")"
@@ -86,7 +156,7 @@ case "$OUT" in
   *) fail "--drop without base-url gives guidance" ;;
 esac
 
-# Case 6: createdb client must NOT be used (its "-d <url>" is an invalid
+# Case 10: createdb client must NOT be used (its "-d <url>" is an invalid
 # option on modern pg clients — 2026-07-13 incident); all DDL goes via psql.
 if [ -s "$TMP_DIR/fake.log" ]; then
   fail "createdb client is never invoked (got: $(cat "$TMP_DIR/fake.log"))"
@@ -94,7 +164,7 @@ else
   pass "createdb client is never invoked"
 fi
 
-# Case 7: failed CREATE DATABASE → non-zero exit, CREATEDB hint, and NO
+# Case 11: failed CREATE DATABASE → non-zero exit, CREATEDB hint, and NO
 # VERIFY_DATABASE_URL line on stdout (fail closed; that line feeds
 # `eval $(... | tail -1)` pipelines downstream).
 FAIL_BIN="$TMP_DIR/bin-create-fail"
@@ -122,7 +192,7 @@ else
   pass "failed create must not print VERIFY_DATABASE_URL on stdout"
 fi
 
-# Case 8: failed migrate cmd → non-zero exit and NO VERIFY_DATABASE_URL line.
+# Case 12: failed migrate cmd → non-zero exit and NO VERIFY_DATABASE_URL line.
 OK_BIN="$TMP_DIR/bin-all-ok"
 mkdir -p "$OK_BIN"
 cat > "$OK_BIN/psql" <<'SH'
@@ -144,7 +214,7 @@ else
   pass "failed migrate must not print VERIFY_DATABASE_URL on stdout"
 fi
 
-# Case 9: base-url connection failure during the existence probe → non-zero
+# Case 13: base-url connection failure during the existence probe → non-zero
 # exit and NO VERIFY_DATABASE_URL line (previously `|| true` swallowed it).
 DEAD_BIN="$TMP_DIR/bin-conn-fail"
 mkdir -p "$DEAD_BIN"
