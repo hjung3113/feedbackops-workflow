@@ -277,6 +277,7 @@ Profile-driven preparation and tier routing remain deferred until they can consu
 - Parallel write chunks require separate worktrees. FeedbackOps-style DB suites also require separate throwaway databases.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
 - `VERIFY_ISSUE` without `VERIFY_DATABASE_URL` fails closed instead of using a shared `.env` DB.
+- `prepare-verify-db.sh` requires `VERIFY_DB_PASSWORD` whenever `VERIFY_DB_ROLE` selects a verifier identity; it never reuses the admin password, and only its final captured handoff line contains the URL-encoded verifier credential.
 - Generic transient failures require two failed selected-runtime probes separated by the configured gap before `status:"refused"`. Reviewer non-zero output and explicit auth/model/permission/capability diagnostics are terminal refusals immediately; stalls retry up to the configured limit.
 - Write-capable Codex receives only the resolved Git metadata dir for either a linked worktree or plain checkout, never a broader checkout or parent root.
 

@@ -233,6 +233,8 @@ VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
 
 `verify.sh`는 FeedbackOps pnpm/Vitest/Postgres 호환 adapter입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다.
 
+`VERIFY_DB_ROLE`로 admin과 다른 verifier 역할을 선택할 때는 raw verifier 비밀번호를 `VERIFY_DB_PASSWORD`로 함께 설정해야 합니다. Role은 letter/digit/dot/underscore/hyphen만 허용하며, `prepare-verify-db.sh`는 admin URL의 비밀번호를 재사용하지 않고 마지막 `VERIFY_DATABASE_URL=...` handoff 줄에만 URL-encoded verifier credential을 넣습니다. 따라서 위처럼 stdout을 바로 capture하고, `tee`나 로그에 이 명령의 stdout을 남기지 마세요.
+
 ## Mental model
 
 ```text

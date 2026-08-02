@@ -87,13 +87,42 @@ swap_dbname() {
 with_role() {
   url="$1"
   role="$2"
+  password="$3"
   rest="$(url_without_scheme "$url")"
   prefix="$(printf '%s\n' "$url" | sed 's,\(^[^:][^:]*://\).*,\1,')"
   case "$rest" in
     *@*) after_at="${rest#*@}" ;;
     *) after_at="$rest" ;;
   esac
-  printf '%s%s@%s\n' "$prefix" "$role" "$after_at"
+  printf '%s%s:%s@%s\n' "$prefix" "$role" "$(url_encode_userinfo "$password")" "$after_at"
+}
+
+url_encode_userinfo() {
+  # Bash expands `?` by character under a UTF-8 locale, but printf's numeric
+  # conversion then truncates a non-ASCII character to one byte. Force C so
+  # this loop consumes and percent-encodes each original UTF-8 byte instead.
+  local LC_ALL=C
+  value="$1"
+  encoded=""
+  # Connection URLs use percent-encoding for password bytes outside the
+  # unreserved URI set. Keep this here rather than asking callers to hand
+  # encode a secret (and accidentally double-encode it).
+  while [ -n "$value" ]; do
+    char="${value%"${value#?}"}"
+    value="${value#?}"
+    case "$char" in
+      [a-zA-Z0-9.~_-]) encoded="${encoded}${char}" ;;
+      *)
+        # Bash 3.2 reports high-bit bytes as signed numbers here; normalize
+        # before hexadecimal formatting to avoid sign-extended %FFFFFFFFC3.
+        printf -v byte '%d' "'$char"
+        byte=$(( (byte + 256) % 256 ))
+        printf -v hex '%02X' "$byte"
+        encoded="${encoded}%${hex}"
+        ;;
+    esac
+  done
+  printf '%s\n' "$encoded"
 }
 
 run_in_target() {
@@ -166,7 +195,15 @@ OWNER="${VERIFY_DB_OWNER:-fops_migrate}"
 VERIFY_URL="$(swap_dbname "$BASE_URL" "$DB_NAME")"
 MIGRATE_URL="$VERIFY_URL"
 if [ -n "${VERIFY_DB_ROLE:-}" ]; then
-  VERIFY_URL="$(with_role "$VERIFY_URL" "$VERIFY_DB_ROLE")"
+  case "$VERIFY_DB_ROLE" in
+    *[!A-Za-z0-9_.-]*)
+      die "VERIFY_DB_ROLE must contain only letters, digits, dot, underscore, or hyphen"
+      ;;
+  esac
+  if [ -z "${VERIFY_DB_PASSWORD:-}" ]; then
+    die "VERIFY_DB_ROLE requires VERIFY_DB_PASSWORD; the admin URL password is never reused for verification"
+  fi
+  VERIFY_URL="$(with_role "$VERIFY_URL" "$VERIFY_DB_ROLE" "$VERIFY_DB_PASSWORD")"
 else
   VERIFY_USER="$(url_user "$VERIFY_URL")"
   if [ "$VERIFY_USER" = "postgres" ]; then
