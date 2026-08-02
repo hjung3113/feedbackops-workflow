@@ -11,5 +11,6 @@
   "head_sha": "b8b6332c4d5e6f708192a3b4c5d6e7f809102132",
   "files_touched": [{ "path": "src/example.ts", "change": "edit" }],
   "verify_cmd": "npm test",
-  "status": "ready_for_review"
+  "status": "ready_for_review",
+  "worktree_path": "/workspace/feedbackops-wt/issue-31"
 }

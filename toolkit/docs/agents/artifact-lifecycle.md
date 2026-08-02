@@ -6,7 +6,7 @@ Immutable derivation evidence belongs to a consuming repository's own evidence a
 
 ## Files
 
-- `ISSUE-N-PR-DRAFT.json` — implementation → REVIEWER handoff (commit SHA, files, claimed tests, risks). Runtime-neutral producers record `producer_runtime` and observed `producer_version`; legacy `CODEX` producers remain readable. Its optional `verify_result` field is deprecated and ignored; an implementer cannot verify its own work.
+- `ISSUE-N-PR-DRAFT.json` — implementation → REVIEWER handoff (commit SHA, files, claimed tests, risks). Runtime-neutral producers record `producer_runtime` and observed `producer_version`; legacy `CODEX` producers remain readable. It requires an absolute `worktree_path`, because independent consumers need that branch's live HEAD; the shared runtime boundary rejects a normal implementation exit without a fresh schema-valid issue/HEAD/worktree-bound draft. Its optional `verify_result` field is deprecated and ignored; an implementer cannot verify its own work.
 - `ISSUE-N-BLOCKER.json` — runtime-neutral agent abort report (no commit, why stopped). It records producer runtime/version where required, the producer-observed `head_sha`, and structured cause. Only `active` and `final` BLOCKER artifacts are consumable; `superseded` is ignored. Runtime or role provenance never relaxes the normal schema/issue/HEAD freshness checks.
 - `ISSUE-N-REVIEW.json` — independent REVIEWER findings + patch instructions. The sanctioned `agent-workflow.sh dispatch --produce-review` path uses the selected capability-probed runtime in its required read-only mode, pins the start HEAD, validates schema/producer/issue/HEAD, and uses a repo-local temp plus atomic rename for canonical publication while holding the linked-worktree HEAD and selected ref locks Git itself uses for commits. For a non-Codex runtime, only the last parseable fenced `json` block (or a whole-buffer JSON object) may enter that unchanged validation; surrounding prose remains non-authoritative. Publication and Git lock directories publish an owner record before their visible name; a SIGKILL leaves only dead-owner locks that a later publisher can reclaim, while a live owner is never reclaimed. Each valid publication also retains the byte-identical immutable snapshot `ISSUE-N-REVIEW-<reviewed_head_sha>.json`; a differing snapshot is never overwritten. Round-state failure evidence should cite that snapshot so later canonical REVIEW publications cannot invalidate an earlier evidence hash. Invalid output, a non-zero reviewer exit, HEAD drift, pane prose, and CONDUCTOR transcription never replace it; a refused non-Codex attempt retains raw stdout only as `ISSUE-N-review-attempt<K>-output.log`. All publication locks are released on every failure path.
 - `ISSUE-N-TOUCH.json` — declared files (parallel coordination, v0.2+)
@@ -49,12 +49,11 @@ artifact has no `base_branch`, the check **refuses (fails with exit 2) rather
 than assuming develop**.
 
 Freshness is a property of the artifact's OWN branch HEAD, not the caller's.
-`artifact-fresh.sh` now resolves the merge-base in the artifact's own
-`worktree_path` when that field is present and points at a real directory (it
-runs `git -C "$worktree_path"`), so a reader running from infra/main gets the
-right answer. When `worktree_path` is absent or missing, it falls back to the
-caller's HEAD and prints a stderr **warning** that the result is only valid if
-run from the artifact's checkout.
+`artifact-fresh.sh` resolves a PR-DRAFT's merge-base in its required real
+`worktree_path` (it runs `git -C "$worktree_path"`), so a reader running from
+infra/main gets the right answer; a missing or invalid PR-DRAFT path is an
+error. The caller-HEAD fallback remains only for other/legacy artifact shapes
+that do not have the PR-DRAFT contract.
 
 ## Lifecycle
 

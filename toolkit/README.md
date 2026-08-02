@@ -113,7 +113,7 @@ CONDUCTOR는 dispatch 전에 `.review/ISSUE-123-CONTEXT.md`에 원자료를 정�
 
 `orchestrator`, `runtime`, `role`은 직교하는 축입니다. 각각 CLI가 환경 변수보다, 환경 변수가 PRODUCT_HOME `workflow-config.json`보다 우선합니다. runtime/role을 생략하면 legacy compatibility 값(Codex/implementation)만 사용하며, 새 설치는 세 축을 명시하는 것이 운영 계약입니다. 선택한 runtime 또는 transport의 capability probe가 실패하면 admission 전 machine-readable reason으로 거부하며 다른 runtime/transport로 바꾸지 않습니다.
 
-산출물을 생성하는 좌석은 프롬프트에 스키마에서 파생한 출력 계약을 넣습니다. `"$PRODUCT_HOME/scripts/output-contract.sh" render --role reviewer` 또는 `--role implementation`으로 블록을 만들고, `check`로 설치된 스키마와의 일치를 검증하세요. BLOCKER는 스키마 검증을 통과한 fresh 파일만 디스패치 liveness 증거가 됩니다.
+산출물을 생성하는 좌석은 프롬프트에 스키마에서 파생한 출력 계약을 넣습니다. `"$PRODUCT_HOME/scripts/output-contract.sh" render --role reviewer` 또는 `--role implementation`으로 블록을 만들고, `check`로 설치된 스키마와의 일치를 검증하세요. 구현자는 정상 종료 시 현재 issue/live HEAD/실제 worktree에 결속된 canonical `ISSUE-N-PR-DRAFT.json`을 새로 써야 하며, runtime boundary가 이를 검증합니다. BLOCKER는 스키마 검증을 통과한 fresh 파일만 디스패치 liveness 증거가 됩니다.
 
 ```bash
 NODE_OPTIONS= "$PRODUCT_HOME/scripts/agent-workflow.sh" dispatch \

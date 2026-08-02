@@ -3,7 +3,7 @@
   "title": "PR Draft Artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "branch", "base_sha", "head_sha", "files_touched", "verify_cmd", "status"],
+  "required": ["schema_version", "artifact_type", "lifecycle", "producer_role", "issue", "branch", "base_sha", "head_sha", "files_touched", "verify_cmd", "status", "worktree_path"],
   "properties": {
     "schema_version": { "const": "1" },
     "artifact_type": { "const": "pr_draft" },
@@ -61,7 +61,7 @@
       "type": "string",
       "description": "informational pointer only; conductor does NOT trust this — derives ISSUE-<n>-VERIFY.json deterministically"
     },
-    "worktree_path": { "type": "string", "description": "optional: absolute path to the worktree this artifact's branch lives in; used by conductor-rebuild to resolve the branch's real HEAD" },
+    "worktree_path": { "type": "string", "minLength": 1, "pattern": "^/", "description": "Absolute path to the worktree this artifact's branch lives in; CONDUCTOR and re-review consumers resolve its real HEAD and reject a missing, invalid, or mismatched path." },
     "base_branch": { "type": "string", "description": "optional: the integration branch this feature branched from (e.g. 'develop' or 'feature/agent-workflow-trial'); used by artifact-fresh to compute merge-base instead of assuming develop" },
     "closure_binding": { "$ref": "#/definitions/closure_binding" }
   },

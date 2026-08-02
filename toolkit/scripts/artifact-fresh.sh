@@ -76,6 +76,14 @@ worktree_path="$(read_field worktree_path)" || {
   echo "$PROG: ERROR — could not parse $artifact" >&2
   exit 2
 }
+artifact_type="$(read_field artifact_type)" || {
+  echo "$PROG: ERROR — could not parse $artifact" >&2
+  exit 2
+}
+if [ "$artifact_type" = "pr_draft" ] && { [ -z "$worktree_path" ] || [ ! -d "$worktree_path" ]; }; then
+  echo "$PROG: ERROR — PR-DRAFT requires a real worktree_path to resolve its branch HEAD" >&2
+  exit 2
+fi
 if [ -n "$worktree_path" ] && [ -d "$worktree_path" ]; then
   set -- -C "$worktree_path"
 else
