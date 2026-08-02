@@ -182,6 +182,15 @@ node -e '
   fs.writeFileSync(f,JSON.stringify(o));
 ' "$REVIEW/ISSUE-116-VERIFY.json"
 
+# C17 PR-DRAFT itself is a schema-validated consumer input, not just a source
+# of convenient fields. A structurally invalid draft cannot become verified.
+REPO17="$TMP_DIR/wt-117"
+mk_repo "$REPO17" "feat/117"
+SHA17="$(head_of "$REPO17")"
+write_pr 117 "feat/117" "$SHA17" "ready_for_review" "$REPO17"
+write_verify 117 "feat/117" "$SHA17" "VERIFIER" "PASS" 0 5 0 117
+node -e 'const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8")); o.unexpected="schema-invalid"; fs.writeFileSync(f,JSON.stringify(o));' "$REVIEW/ISSUE-117-PR-DRAFT.json"
+
 OUT="$(bash "$REBUILD" "$REVIEW" 2>/dev/null)"
 echo "----- conductor-rebuild output -----"
 echo "$OUT"
@@ -212,6 +221,7 @@ expect_not_state 113 verified "113 not verified when a forged aggregate top-leve
 expect_state 114 verified "114 accepts legacy flat VERIFY artifact as one synthetic run"
 expect_not_state 115 verified "115 rejects a present-but-malformed runs property"
 expect_not_state 116 verified "116 rejects schema-invalid run fields before aggregate semantics"
+expect_state 117 unknown "117 rejects schema-invalid PR-DRAFT before readiness reconstruction"
 if printf '%s\n' "$OUT" | grep -q "^111"; then fail "111 must be skipped (superseded)"; else pass "111 skipped (superseded)"; fi
 if printf '%s\n' "$OUT" | grep -q "^112	blocked	missing_dependency"; then pass "112 -> blocked missing_dependency"; else fail "112 -> blocked missing_dependency"; fi
 

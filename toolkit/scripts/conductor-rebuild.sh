@@ -21,12 +21,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 VERIFY_SCHEMA=""
+PR_DRAFT_SCHEMA=""
 if [ -r "$PRODUCT_HOME_LIB" ] && [ -r "$SCHEMA_VALIDATOR" ]; then
   . "$PRODUCT_HOME_LIB"
   PRODUCT_ROOT="$(agent_workflow_product_root "$SCRIPT_DIR")"
   SCHEMA_DIR="$(agent_workflow_schema_dir "$PRODUCT_ROOT" 2>/dev/null || printf '')"
-  if [ -n "$SCHEMA_DIR" ] && [ -r "$SCHEMA_DIR/verify.schema.json" ]; then
+  if [ -n "$SCHEMA_DIR" ] && [ -r "$SCHEMA_DIR/verify.schema.json" ] && [ -r "$SCHEMA_DIR/pr_draft.schema.json" ]; then
     VERIFY_SCHEMA="$SCHEMA_DIR/verify.schema.json"
+    PR_DRAFT_SCHEMA="$SCHEMA_DIR/pr_draft.schema.json"
   fi
 fi
 
@@ -160,6 +162,15 @@ process_pr_draft() {
     return 0
   fi
   [ -z "$branch" ] && branch="(unknown-branch)"
+
+  if [ -z "$PR_DRAFT_SCHEMA" ] || ! node - "$f" "$PR_DRAFT_SCHEMA" "$SCHEMA_VALIDATOR" <<'NODE' >/dev/null 2>&1
+const fs=require("fs"); try { const value=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), schema=JSON.parse(fs.readFileSync(process.argv[3],"utf8")), {validate}=require(process.argv[4]); process.exit(validate(schema,value).length ? 1 : 0); } catch (_) { process.exit(1); }
+NODE
+  then
+    echo "conductor-rebuild: $f failed PR-DRAFT schema validation — unknown" >&2
+    printf '%s\t%s\t%s\n' "$issue" "unknown" "$branch"
+    return 0
+  fi
 
   status="$(parse_field "$f" 'status')"
   worktree="$(parse_field "$f" 'worktree_path')"

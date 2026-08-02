@@ -12,5 +12,6 @@
     { "path": ".agent-workflow/schemas/pr_draft.schema.json", "change": "edit" }
   ],
   "verify_cmd": "pnpm dlx ajv-cli validate -s ... -d ...",
-  "status": "needs_amendment"
+  "status": "needs_amendment",
+  "worktree_path": "/workspace/feedbackops-wt/issue-33"
 }

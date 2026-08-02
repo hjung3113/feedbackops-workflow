@@ -33,6 +33,7 @@ check_fixture run run.agent.invalid.json invalid
 check_fixture pr_draft pr_draft.valid.json valid
 check_fixture pr_draft pr_draft.runtime.valid.json valid
 check_fixture pr_draft pr_draft.runtime.invalid.json invalid
+check_fixture pr_draft pr_draft.worktree.invalid.json invalid
 check_fixture blocker blocker.valid.json valid
 check_fixture blocker blocker.runtime.valid.json valid
 check_fixture blocker blocker.runtime.invalid.json invalid

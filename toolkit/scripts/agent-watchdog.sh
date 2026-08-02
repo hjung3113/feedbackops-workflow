@@ -70,6 +70,8 @@ if [ "$PRODUCE_REVIEW" -eq 1 ]; then
 fi
 BLOCKER_PATH="$CWD/.review/ISSUE-${ISSUE_N}-BLOCKER.json"
 BLOCKER_BEFORE_SIG="$(blocker_signature "$BLOCKER_PATH")"
+PR_DRAFT_PATH="$CWD/.review/ISSUE-${ISSUE_N}-PR-DRAFT.json"
+PR_DRAFT_BEFORE_SIG="$(blocker_signature "$PR_DRAFT_PATH")"
 case "$MAX_RETRIES" in ''|*[!0-9]*) echo '--max-retries must be a non-negative integer' >&2; exit 2;; esac
 CAPABILITIES="$($RUNTIME_EXEC capabilities --runtime "$RUNTIME")" || { echo "$CAPABILITIES" >&2; exit 3; }
 RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).version||"")}catch(_){process.exit(2)}})')" || { echo 'runtime capability output lacks version' >&2; exit 3; }
@@ -97,9 +99,24 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     continue
   fi
   BLOCKER_AFTER_SIG="$(blocker_signature "$BLOCKER_PATH")"
+  FRESH_BLOCKER=0
   if [ "$PRODUCE_REVIEW" -eq 0 ] && [ "$BLOCKER_AFTER_SIG" != "$BLOCKER_BEFORE_SIG" ] && [ "$BLOCKER_AFTER_SIG" != absent ]; then
     if ! node "$SCRIPT_DIR/lib/blocker-check.cjs" "$BLOCKER_PATH" "$SCRIPT_DIR/../schemas/blocker.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" >/dev/null 2>&1; then
       echo 'ERROR: BLOCKER output is not schema-valid/current/consumable for this issue' >&2
+      write_marker refused "$attempt" "$pid" 1 || true
+      exit 1
+    fi
+    FRESH_BLOCKER=1
+  fi
+  if [ "$ROLE" = "implementation" ] && [ "$MODE" = "write" ] && [ "$FRESH_BLOCKER" -eq 0 ]; then
+    PR_DRAFT_AFTER_SIG="$(blocker_signature "$PR_DRAFT_PATH")"
+    if [ "$PR_DRAFT_AFTER_SIG" = "$PR_DRAFT_BEFORE_SIG" ] || [ "$PR_DRAFT_AFTER_SIG" = absent ]; then
+      echo 'ERROR: implementation exited without a fresh canonical PR-DRAFT artifact' >&2
+      write_marker refused "$attempt" "$pid" 1 || true
+      exit 1
+    fi
+    if ! node "$SCRIPT_DIR/lib/pr-draft-check.cjs" "$PR_DRAFT_PATH" "$SCRIPT_DIR/../schemas/pr_draft.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" >/dev/null 2>&1; then
+      echo 'ERROR: PR-DRAFT output is not schema-valid/current/bound to this issue worktree' >&2
       write_marker refused "$attempt" "$pid" 1 || true
       exit 1
     fi

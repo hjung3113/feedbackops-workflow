@@ -24,17 +24,23 @@ if ! grep -F -q 'Name each test so it contains the canonical AC id it satisfies'
 else
   bad "reviewer contract does not receive implementation test-name guidance"
 fi
-if node - "$TMP/implementation.md" "$ROOT/schemas/blocker.schema.json" <<'NODE'
+if node - "$TMP/implementation.md" "$ROOT/schemas/pr_draft.schema.json" "$ROOT/schemas/blocker.schema.json" <<'NODE'
 const fs = require("fs");
 const body = fs.readFileSync(process.argv[2], "utf8").match(/```json\n([\s\S]*?)\n```/)[1];
-const artifact = JSON.parse(body).artifacts[0];
-const canonical = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const artifacts = JSON.parse(body).artifacts;
+const prDraft = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const blocker = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
 // The writer receives the entire canonical schema, including constraints a
 // lossy shape projection previously omitted (bounds, patterns, and branches).
-process.exit(artifact.schema && JSON.stringify(artifact.schema) === JSON.stringify(canonical)
-  && artifact.schema.allOf && artifact.schema.allOf[0].oneOf ? 0 : 1);
+process.exit(artifacts.length === 2
+  && artifacts[0].name === "pr_draft"
+  && JSON.stringify(artifacts[0].schema) === JSON.stringify(prDraft)
+  && artifacts[0].schema.required.includes("worktree_path")
+  && artifacts[1].name === "blocker"
+  && JSON.stringify(artifacts[1].schema) === JSON.stringify(blocker)
+  && artifacts[1].schema.allOf && artifacts[1].schema.allOf[0].oneOf ? 0 : 1);
 NODE
-then ok "implementation contract embeds the complete canonical BLOCKER schema"; else bad "implementation contract embeds the complete canonical BLOCKER schema"; fi
+then ok "implementation contract embeds complete canonical PR-DRAFT and BLOCKER schemas"; else bad "implementation contract embeds complete canonical PR-DRAFT and BLOCKER schemas"; fi
 usage_out="$TMP/usage.out"
 if ! "$CONTRACT" >"$usage_out" 2>&1 && grep -F -q 'valid roles: implementation|reviewer|architect|conductor|release' "$usage_out"; then ok "usage lists valid output-contract roles"; else bad "usage lists valid output-contract roles"; fi
 if ! "$CONTRACT" render --role visual >"$usage_out" 2>&1 && grep -F -q 'invalid output-contract role: visual' "$usage_out"; then ok "unsupported output-contract role is rejected with usage"; else bad "unsupported output-contract role is rejected with usage"; fi
