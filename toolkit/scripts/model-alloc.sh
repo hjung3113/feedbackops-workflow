@@ -54,6 +54,9 @@ const promote = (allocation, effort) => {
   const rank = { none: 0, low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
   if (rank[allocation.effort] < rank[effort]) allocation.effort = effort;
 };
+const stepDown = allocation => {
+  allocation.effort = { none: "none", low: "low", medium: "low", high: "medium", xhigh: "high", max: "xhigh" }[allocation.effort];
+};
 const defaultReview = clone("reviewer");
 const runtimeReview = role === "reviewer" && config.reviewer_by_runtime && config.reviewer_by_runtime[runner];
 if (role === "reviewer" && runner !== "codex" && !runtimeReview) fail(`reviewer allocation is not configured for ${runner}; set reviewer_by_runtime.${runner} to a preflightable model`);
@@ -74,10 +77,10 @@ if (!evidenceFile) {
   else if (evidence.changed_lines <= config.signals.trivial_changed_lines && evidence.file_count <= 1) { impl = clone("trivial_implementation"); rationale.push("small_touch_set: trivial implementation allocation"); }
   else if (large) { promote(impl, "high"); rationale.push("large_touch_set: implementation effort promoted"); }
   if (evidence.blocker || findingRounds.length >= 2) {
-    if (impl.effort === "low") impl.effort = "medium";
+    promote(impl, "medium");
     rationale.push("blocker_or_consecutive_finding_rounds: implementation promoted without demotion");
   }
-  if (evidence.review_round > 0) { review.effort = review.effort === "high" ? "medium" : "low"; rationale.push("rereview: review effort demoted"); }
+  if (evidence.review_round > 0) { stepDown(review); rationale.push("rereview: review effort stepped down one level"); }
 }
 const output = { impl_model: impl.model, impl_effort: impl.effort, review_model: review.model, review_effort: review.effort, contract_model: contract.model, contract_effort: contract.effort, rationale };
 // Evidence adaptation can replace the configured implementation allocation

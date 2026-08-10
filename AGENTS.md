@@ -37,6 +37,8 @@ win if it disagrees. The detailed product playbook is
 - The product workflow is opt-in in this repository. Matt Pocock skills under `.agents/skills/` are development tools; product self-dogfooding requires explicit `/agent-workflow ... --self-test` authorization.
 - Make the smallest change that satisfies the accepted scope. State assumptions
   that materially affect scope; defer unrelated findings.
+- Apply YAGNI: do not add speculative abstractions, hardening, security gates,
+  or extensibility without a current requirement or demonstrated failure.
 - For multi-step work, define observable success criteria and verify them
   before reporting completion.
 - Scripts must remain macOS Bash 3.2-compatible: no `declare -A`, `${var,,}`,

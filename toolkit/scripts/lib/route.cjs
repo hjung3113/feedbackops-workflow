@@ -55,8 +55,10 @@ function validPolicy(value) {
 }
 
 function validModelAlloc(value) {
-  return hasOnly(value, ["model", "effort"]) && typeof value.model === "string" && value.model.length > 0
-    && /^(none|low|medium|high|xhigh|max)$/.test(value.effort);
+  if (!hasOnly(value, ["model", "effort"]) || typeof value.model !== "string" || value.model.length === 0) return false;
+  return /^gpt-5[.-]6(?:-|$)/.test(value.model)
+    ? /^(none|low|medium|high|xhigh|max)$/.test(value.effort)
+    : /^(low|medium|high)$/.test(value.effort);
 }
 
 function decide({ demand, offer, policy, modelAlloc, now, policyDigest }) {

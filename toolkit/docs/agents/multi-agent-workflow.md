@@ -179,7 +179,7 @@ The installed `.agent-workflow/model-alloc.json` is the project-owned allocation
 | VERIFIER log classification / mechanical edits | luna medium / luna low |
 | Fable 5 | not allocated |
 
-`scripts/model-alloc.sh --role implementation|reviewer [--evidence <canonical-json>]` emits JSON with implementation, review, contract-gate model/effort values and rationale. Its evidence must explicitly contain changed lines, file count, review round, `consecutive_finding_rounds` (unique adjacent completed rounds ending at the supplied round), blocker state, and touch set. Without it the script makes **no adaptive change**; with it, an exported contract, blocker, or two consecutive finding rounds promotes low implementation effort to terra medium without lowering a large-touch terra high allocation; a small one-file touch can use luna low, and a re-review lowers review effort before changing models. The allocation uses Agentic Coding for implementation and static Coding + Reasoning for review/contract decisions; benchmark scores guide ordering, not hard telemetry thresholds.
+`scripts/model-alloc.sh --role implementation|reviewer [--evidence <canonical-json>]` emits JSON with implementation, review, contract-gate model/effort values and rationale. Its evidence must explicitly contain changed lines, file count, review round, `consecutive_finding_rounds` (unique adjacent completed rounds ending at the supplied round), blocker state, and touch set. Without it the script makes **no adaptive change**; with it, an exported contract, blocker, or two consecutive finding rounds promotes implementation effort to at least terra medium without lowering a higher allocation; a small one-file touch can use luna low, and a re-review steps review effort down one level before changing models. The allocation uses Agentic Coding for implementation and static Coding + Reasoning for review/contract decisions; benchmark scores guide ordering, not hard telemetry thresholds.
 
 ### Local model/task telemetry
 
@@ -189,7 +189,7 @@ Telemetry is local, offline, and opt-in. `scripts/telemetry.sh collect` validate
 
 `cmux-dispatch.sh --allocate --allocator-role implementation` parses and validates allocation before any marker, runner, or cmux side effect, then forwards only the explicit `gpt-*` implementation pair to `codex-safe.sh`. v1 auto-dispatch is deliberately **Codex-executor only**: it never forwards Opus, Fable, or another Claude role through Codex. REVIEWER remains a fresh external clean-context seat. Direct dispatches must remain explicitly pinned; allocation dispatches must use `--allocate`, never omit both mechanisms.
 
-`codex-safe.sh` accepts the official GPT-5.6 effort set `none`, `low`, `medium`, `high`, `xhigh`, and `max` for Sol, Terra, and Luna, and pins omitted 5.6 effort to the documented `medium` default. Allocator adaptation promotes only when needed and never demotes an explicitly higher effort.
+`codex-safe.sh` accepts the official GPT-5.6 effort set `none`, `low`, `medium`, `high`, `xhigh`, and `max` for Sol, Terra, and Luna, and pins omitted 5.6 effort to the documented `medium` default. Allocator promotion never lowers an explicitly higher effort; re-review adaptation steps the configured review effort down one rank.
 
 Before a bulk parallel dispatch, preflight-probe each selected runtime's pinned model once so an unavailable model surfaces on one cheap call instead of on every worker. Resolve one effective effort for the selected model first (Codex defaults to `low`; Claude/OpenCode default to `medium` when omitted), then use that exact tuple for both probe and launch; never let runtime-global effort fill the gap:
 
@@ -278,7 +278,7 @@ executable, model/effort, and OpenCode permission file. `codex-watchdog.sh`
 remains only a legacy direct-call compatibility path; it is not the public
 multi-runtime authority. Codex write/review execution still delegates inside
 the runtime adapter to hardened `codex-safe.sh`, preserving its Git metadata,
-stash, effort-cap, and atomic review-publication invariants.
+stash, effort forwarding, and atomic review-publication invariants.
 
 Liveness is process plus filesystem progress, never stdout first-token output.
 The shared watchdog excludes `.git`, `.review`, and `node_modules` from the
