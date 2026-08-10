@@ -33,6 +33,23 @@ NODE
 
 assert_json "default-fixture-without-adaptation" '{"impl_model":"gpt-5.6-terra","impl_effort":"low","review_model":"gpt-5.6-sol","review_effort":"medium"}' --role implementation --config "$DEFAULT_CONFIG"
 
+node - "$DEFAULT_CONFIG" "$TMP_DIR/all-efforts.json" <<'NODE'
+const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
+v.roles.implementation={model:"gpt-5.6-terra",effort:"max"};
+v.roles.reviewer={model:"gpt-5.6-sol",effort:"xhigh"};
+v.roles.trivial_implementation={model:"gpt-5.6-luna",effort:"none"};
+fs.writeFileSync(process.argv[3],JSON.stringify(v));
+NODE
+assert_json "terra-max-allocation" '{"impl_model":"gpt-5.6-terra","impl_effort":"max"}' --role implementation --config "$TMP_DIR/all-efforts.json"
+assert_json "sol-xhigh-review-allocation" '{"review_model":"gpt-5.6-sol","review_effort":"xhigh"}' --role reviewer --config "$TMP_DIR/all-efforts.json"
+
+node - "$DEFAULT_CONFIG" "$TMP_DIR/non-gpt-max.json" <<'NODE'
+const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
+v.reviewer_by_runtime.claude={model:"sonnet",effort:"max"};
+fs.writeFileSync(process.argv[3],JSON.stringify(v));
+NODE
+if "$ALLOC" --role reviewer --runner claude --config "$TMP_DIR/non-gpt-max.json" >/dev/null 2>&1; then fail "non-GPT model rejects GPT-5.6-only effort"; else pass "non-GPT model rejects GPT-5.6-only effort"; fi
+
 assert_json "claude-reviewer-uses-runtime-allocation" '{"review_model":"sonnet","review_effort":"medium"}' --role reviewer --runner claude --config "$DEFAULT_CONFIG"
 "$ALLOC" --role reviewer --runner opencode --config "$DEFAULT_CONFIG" >/dev/null 2>"$TMP_DIR/opencode-reviewer.err"
 if [ "$?" -eq 2 ] && grep -q 'reviewer_by_runtime.opencode' "$TMP_DIR/opencode-reviewer.err"; then
@@ -97,10 +114,17 @@ cat > "$TMP_DIR/blocker.json" <<'EOF'
 EOF
 assert_json "blocker-promotes-implementation" '{"impl_model":"gpt-5.6-terra","impl_effort":"medium"}' --role implementation --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/blocker.json"
 
+node - "$TMP_DIR/all-efforts.json" "$TMP_DIR/none-implementation.json" <<'NODE'
+const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
+v.roles.implementation.effort="none"; fs.writeFileSync(process.argv[3],JSON.stringify(v));
+NODE
+assert_json "blocker-promotes-none-implementation" '{"impl_effort":"medium"}' --role implementation --config "$TMP_DIR/none-implementation.json" --evidence "$TMP_DIR/blocker.json"
+
 cat > "$TMP_DIR/rereview.json" <<'EOF'
 {"changed_lines":120,"file_count":3,"review_round":1,"consecutive_finding_rounds":[1],"blocker":false,"touch_set":["src/a.ts"]}
 EOF
 assert_json "rereview-demotes-review-effort" '{"review_model":"gpt-5.6-sol","review_effort":"low"}' --role reviewer --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/rereview.json"
+assert_json "rereview-steps-xhigh-down-once" '{"review_model":"gpt-5.6-sol","review_effort":"high"}' --role reviewer --config "$TMP_DIR/all-efforts.json" --evidence "$TMP_DIR/rereview.json"
 
 cat > "$TMP_DIR/contract.json" <<'EOF'
 {"changed_lines":20,"file_count":1,"review_round":0,"consecutive_finding_rounds":[],"blocker":false,"touch_set":["packages/shared/index.ts"]}
@@ -120,6 +144,7 @@ cat > "$TMP_DIR/large-blocker.json" <<'EOF'
 {"changed_lines":401,"file_count":3,"review_round":2,"consecutive_finding_rounds":[1,2],"blocker":true,"touch_set":["src/a.ts"]}
 EOF
 assert_json "large-touch-high-is-not-demoted-by-findings" '{"impl_model":"gpt-5.6-terra","impl_effort":"high"}' --role implementation --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/large-blocker.json"
+assert_json "max-is-not-demoted-by-large-touch" '{"impl_model":"gpt-5.6-terra","impl_effort":"max"}' --role implementation --config "$TMP_DIR/all-efforts.json" --evidence "$TMP_DIR/large-blocker.json"
 
 node - "$DEFAULT_CONFIG" "$TMP_DIR/review-lower.json" <<'NODE'
 const fs = require("fs");

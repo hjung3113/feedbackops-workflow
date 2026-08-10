@@ -145,10 +145,37 @@ fi
 
 CODEX_STUB_ARGS="$TMP_DIR/xhigh.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6 --effort xhigh >/dev/null 2>&1
 xhigh_ec=$?
-if [ "$xhigh_ec" -eq 2 ] && [ ! -f "$TMP_DIR/xhigh.args" ]; then
-  echo "ok   - gpt-5.6 xhigh effort refused before codex call"
+if [ "$xhigh_ec" -eq 0 ] && grep -q 'model_reasoning_effort="xhigh"' "$TMP_DIR/xhigh.args"; then
+  echo "ok   - gpt-5.6 xhigh effort reaches codex explicitly"
 else
-  echo "NOT OK - gpt-5.6 xhigh effort refused before codex call (exit $xhigh_ec)"
+  echo "NOT OK - gpt-5.6 xhigh effort reaches codex explicitly (exit $xhigh_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+CODEX_STUB_ARGS="$TMP_DIR/luna-max.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6-luna --effort max >/dev/null 2>&1
+luna_max_ec=$?
+if [ "$luna_max_ec" -eq 0 ] && grep -q 'model_reasoning_effort="max"' "$TMP_DIR/luna-max.args"; then
+  echo "ok   - gpt-5.6-luna max effort reaches codex explicitly"
+else
+  echo "NOT OK - gpt-5.6-luna max effort reaches codex explicitly (exit $luna_max_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+CODEX_STUB_ARGS="$TMP_DIR/sol-max.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6-sol --effort max >/dev/null 2>&1
+sol_max_ec=$?
+if [ "$sol_max_ec" -eq 0 ] && grep -q 'model_reasoning_effort="max"' "$TMP_DIR/sol-max.args"; then
+  echo "ok   - gpt-5.6-sol max effort reaches codex explicitly"
+else
+  echo "NOT OK - gpt-5.6-sol max effort reaches codex explicitly (exit $sol_max_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+CODEX_STUB_ARGS="$TMP_DIR/none.args" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" --model gpt-5.6-terra --effort none >/dev/null 2>&1
+none_ec=$?
+if [ "$none_ec" -eq 0 ] && grep -q 'model_reasoning_effort="none"' "$TMP_DIR/none.args"; then
+  echo "ok   - gpt-5.6-terra none effort reaches codex explicitly"
+else
+  echo "NOT OK - gpt-5.6-terra none effort reaches codex explicitly (exit $none_ec)"
   FAILURES=$((FAILURES + 1))
 fi
 

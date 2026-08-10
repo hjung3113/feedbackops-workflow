@@ -29,7 +29,7 @@ EOF
 cat > "$TMP/policy.json" <<'EOF'
 {"version":1,"rules":[{"when":{"runtime":"codex","role":"implementation"},"candidates":{"from":"model_alloc"},"fallback":"deny"}]}
 EOF
-printf '%s\n' '{"model":"gpt-5.6-terra","effort":"medium"}' > "$TMP/alloc.json"
+printf '%s\n' '{"model":"gpt-5.6-terra","effort":"xhigh"}' > "$TMP/alloc.json"
 
 # Static identity/configuration is a host-side cached probe. It establishes
 # only the pinned executable identity; it does not claim model availability.
@@ -121,9 +121,11 @@ mv "$TMP/snapshot.content.saved" "$SNAPSHOT"
 chmod 0444 "$SNAPSHOT"
 
 expect "eligible policy admits exact model-alloc tuple" 0 bash "$ROUTE" decide --demand "$(cat "$TMP/demand.json")" --offer "$(cat "$TMP/offer.json")" --policy "$(cat "$TMP/policy.json")" --model-alloc "$(cat "$TMP/alloc.json")" --now 2026-07-26T00:30:00Z
+grep -q '"effort":"xhigh"' "$TMP/out" && ok "route preserves xhigh effort" || bad "route lost xhigh effort"
 first="$(cat "$TMP/out")"
 expect "identical inputs yield byte-identical decision" 0 bash "$ROUTE" decide --demand "$(cat "$TMP/demand.json")" --offer "$(cat "$TMP/offer.json")" --policy "$(cat "$TMP/policy.json")" --model-alloc "$(cat "$TMP/alloc.json")" --now 2026-07-26T00:30:00Z
 if [ "$first" = "$(cat "$TMP/out")" ]; then ok "decision is deterministic"; else bad "decision changed for identical inputs"; fi
+expect "non-GPT model refuses GPT-5.6-only effort" 3 bash "$ROUTE" decide --demand "$(cat "$TMP/demand.json")" --offer "$(cat "$TMP/offer.json")" --policy "$(cat "$TMP/policy.json")" --model-alloc '{"model":"sonnet","effort":"max"}' --now 2026-07-26T00:30:00Z
 
 expect "expired offer is refused" 3 bash "$ROUTE" decide --demand "$(cat "$TMP/demand.json")" --offer '{"runtime":"codex","executable":"/opt/bin/codex","version":"1.2.3","observed_at":"2026-07-26T00:00:00Z","expires_at":"2026-07-26T00:01:00Z","permission_profile_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}' --policy "$(cat "$TMP/policy.json")" --model-alloc "$(cat "$TMP/alloc.json")" --now 2026-07-26T00:30:00Z
 grep -q 'runner_offer_expired' "$TMP/out" && ok "expired offer has typed refusal" || bad "expired offer refusal code"

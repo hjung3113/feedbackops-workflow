@@ -159,12 +159,12 @@ else
   fail "write dispatch resolves a model and effort without --allocate (ec=$ec: $(cat "$default_tuple_out"))"
 fi
 node - "$PRODUCT_HOME/model-alloc.json" <<'NODE'
-const fs=require("fs"); const file=process.argv[2]; const value=JSON.parse(fs.readFileSync(file,"utf8")); value.roles.implementation.model="gpt-5.6-luna"; value.roles.implementation.effort="high"; fs.writeFileSync(file,JSON.stringify(value));
+const fs=require("fs"); const file=process.argv[2]; const value=JSON.parse(fs.readFileSync(file,"utf8")); value.roles.implementation.model="gpt-5.6-luna"; value.roles.implementation.effort="xhigh"; fs.writeFileSync(file,JSON.stringify(value));
 NODE
 configured_tuple_out="$TMP_ROOT/configured-tuple-dry-run.out"
 bash "$PRODUCT_DISPATCH" --issue 301 --worktree "$WT" --tier trivial --dry-run >"$configured_tuple_out" 2>&1
 ec=$?
-if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-luna --effort high' "$configured_tuple_out"; then
+if [ "$ec" -eq 0 ] && grep -q -- '--model gpt-5.6-luna --effort xhigh' "$configured_tuple_out"; then
   pass "omitted-model dispatch honors the PRODUCT_HOME model allocation tuple"
 else
   fail "omitted-model dispatch honors the PRODUCT_HOME model allocation tuple (ec=$ec: $(cat "$configured_tuple_out"))"

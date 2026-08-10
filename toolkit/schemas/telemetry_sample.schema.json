@@ -46,7 +46,7 @@
     },
     "tier": { "enum": ["trivial", "standard", "full_cluster"] },
     "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
-    "effort": { "enum": ["low", "medium", "high"] },
+    "effort": { "enum": ["none", "low", "medium", "high", "xhigh", "max"] },
     "base_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "head_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
     "transport": { "enum": ["cmux", "orca", "local"] },
@@ -99,6 +99,7 @@
       }
     }
   },
+  "allOf": [{ "$ref": "#/definitions/model_effort_pair" }],
   "oneOf": [
     {
       "type": "object",
@@ -112,6 +113,12 @@
     }
   ],
   "definitions": {
+    "model_effort_pair": {
+      "oneOf": [
+        { "type": "object", "properties": { "model": { "type": "string", "pattern": "^gpt-5[.-]6(?:-|$)" }, "effort": { "enum": ["none", "low", "medium", "high", "xhigh", "max"] } } },
+        { "type": "object", "properties": { "model": { "type": "string", "not": { "type": "string", "pattern": "^gpt-5[.-]6(?:-|$)" } }, "effort": { "enum": ["low", "medium", "high"] } } }
+      ]
+    },
     "artifact": {
       "type": "object",
       "additionalProperties": false,

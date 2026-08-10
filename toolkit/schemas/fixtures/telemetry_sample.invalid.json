@@ -11,7 +11,7 @@
   "task_class": "secret",
   "tier": "cheap",
   "model": "model with spaces",
-  "effort": "max",
+  "effort": "turbo",
   "base_sha": "bad",
   "head_sha": "bad",
   "transport": "cloud",
