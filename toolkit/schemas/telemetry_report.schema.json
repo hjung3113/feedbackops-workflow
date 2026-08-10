@@ -130,7 +130,7 @@
               "task_class": { "enum": ["feature", "bugfix", "refactor", "docs", "test", "workflow"] },
               "tier": { "enum": ["trivial", "standard", "full_cluster"] },
               "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
-              "effort": { "enum": ["low", "medium", "high"] },
+              "effort": { "enum": ["none", "low", "medium", "high", "xhigh", "max"] },
               "usage_kind": { "enum": ["observed", "estimated", "unavailable"] }
             }
           }
@@ -198,7 +198,7 @@
         "task_class": { "enum": ["feature", "bugfix", "refactor", "docs", "test", "workflow"] },
         "tier": { "enum": ["trivial", "standard", "full_cluster"] },
         "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
-        "effort": { "enum": ["low", "medium", "high"] },
+        "effort": { "enum": ["none", "low", "medium", "high", "xhigh", "max"] },
         "sample_count": { "type": "integer", "minimum": 1 },
         "chain_count": { "type": "integer", "minimum": 1 },
         "complete_independent_chains": { "type": "integer", "minimum": 0 },

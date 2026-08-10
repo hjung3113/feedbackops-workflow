@@ -589,7 +589,7 @@ if [ "$ALLOCATE" -eq 1 ]; then
       ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     fi
   fi
-  ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]), role=process.argv[2], key=role === "reviewer" ? "review" : "impl"; if (typeof v[key + "_model"] !== "string" || !/^(low|medium|high)$/.test(v[key + "_effort"])) process.exit(2); process.stdout.write(v[key + "_model"] + "\t" + v[key + "_effort"]); } catch (e) { process.exit(2); }' "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
+  ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]), role=process.argv[2], key=role === "reviewer" ? "review" : "impl"; if (typeof v[key + "_model"] !== "string" || !/^(none|low|medium|high|xhigh|max)$/.test(v[key + "_effort"])) process.exit(2); process.stdout.write(v[key + "_model"] + "\t" + v[key + "_effort"]); } catch (e) { process.exit(2); }' "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
   MODEL="${1:-}"; EFFORT="${2:-}"
   if [ -z "$MODEL" ]; then
@@ -611,7 +611,7 @@ if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
   else
     DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
   fi
-  DEFAULT_ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.impl_model !== "string" || !/^(low|medium|high)$/.test(v.impl_effort)) process.exit(2); process.stdout.write(v.impl_model + "\t" + v.impl_effort); } catch (e) { process.exit(2); }' "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
+  DEFAULT_ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.impl_model !== "string" || !/^(none|low|medium|high|xhigh|max)$/.test(v.impl_effort)) process.exit(2); process.stdout.write(v.impl_model + "\t" + v.impl_effort); } catch (e) { process.exit(2); }' "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $DEFAULT_ALLOC_FIELDS; IFS=$oldIFS
   MODEL="${1:-}"; [ -n "$EFFORT" ] || EFFORT="${2:-}"
   [ -n "$MODEL" ] && [ -n "$EFFORT" ] || { echo "ERROR: default allocation did not resolve model and effort" >&2; exit 2; }
@@ -1007,7 +1007,7 @@ try {
   if (result.status !== "admitted" || !/^[a-f0-9]{64}$/.test(result.route_digest || "")
       || !/^[a-f0-9]{64}$/.test(result.policy_digest || "")
       || !result.selected || typeof result.selected.model !== "string"
-      || !/^(low|medium|high)$/.test(result.selected.effort || "")
+      || !/^(none|low|medium|high|xhigh|max)$/.test(result.selected.effort || "")
       || !Array.isArray(result.reasons) || !result.reasons.length) process.exit(2);
   process.stdout.write(JSON.stringify({
     route_digest: result.route_digest, policy_digest: result.policy_digest,

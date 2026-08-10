@@ -64,7 +64,7 @@ BIN="$(runtime_bin "$RUNTIME")"; PROMPT="$(cat "$PROMPT_FILE")"; [ -n "$PROMPT" 
 case "$RUNTIME" in
   codex)
     # Delegate write/review launches to the existing hardened wrapper. This
-    # preserves writable Git metadata, 5.6 effort cap, abort stash, heartbeat,
+    # preserves writable Git metadata, effort forwarding, abort stash, heartbeat,
     # and atomic REVIEW publication rather than reimplementing the contract.
     if [ "$MODE" = write ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then
       [ -n "$ISSUE_N" ] || machine_error issue_required 'Codex write/review requires --issue for codex-safe invariants'

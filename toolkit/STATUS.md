@@ -27,6 +27,10 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
   Claude entry uses `sonnet`, while OpenCode remains target-provider-configured
   and refuses before admission when no `reviewer_by_runtime.opencode` tuple is
   supplied.
+- GPT-5.6 allocations accept the official `none`, `low`, `medium`, `high`,
+  `xhigh`, and `max` efforts for Sol, Terra, and Luna and preserve them through
+  routing, receipts, recovery, and telemetry. The scorecard retains its
+  comparable LiveBench capability fields while refreshing official API prices.
 - OpenCode is deny-first: a permission JSON denies `*`, write explicitly allows
   edit, and read does not. Missing/invalid configuration is admission failure,
   not permission to substitute another runtime.

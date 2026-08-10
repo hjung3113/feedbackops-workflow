@@ -52,7 +52,7 @@ const safeRouteBinding = value => {
       || !value.selected || typeof value.selected !== "object"
       || Object.keys(value.selected).sort().join(",") !== "effort,model"
       || !/^[A-Za-z0-9._-]{1,64}$/.test(value.selected.model || "")
-      || !["low", "medium", "high"].includes(value.selected.effort)) return false;
+      || !["none", "low", "medium", "high", "xhigh", "max"].includes(value.selected.effort)) return false;
   return new Set(value.decision_reason_codes).size === value.decision_reason_codes.length;
 };
 if (expectedRouteDigest !== null && !safeRouteDigest(expectedRouteDigest)) process.exit(2);

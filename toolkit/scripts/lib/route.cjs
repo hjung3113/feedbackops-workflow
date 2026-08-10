@@ -56,7 +56,7 @@ function validPolicy(value) {
 
 function validModelAlloc(value) {
   return hasOnly(value, ["model", "effort"]) && typeof value.model === "string" && value.model.length > 0
-    && /^(low|medium|high)$/.test(value.effort);
+    && /^(none|low|medium|high|xhigh|max)$/.test(value.effort);
 }
 
 function decide({ demand, offer, policy, modelAlloc, now, policyDigest }) {

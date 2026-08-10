@@ -21,7 +21,7 @@
     "policy_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "selection_basis": "ordered_policy",
     "decision_reason_codes": ["model_alloc", "ordered_policy"],
-    "selected": { "model": "gpt-5.6-terra", "effort": "medium" }
+    "selected": { "model": "gpt-5.6-luna", "effort": "xhigh" }
   },
   "launched_at": "2026-07-26T00:00:00Z",
   "created_at": "2026-07-26T00:00:00Z"

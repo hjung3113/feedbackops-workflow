@@ -35,23 +35,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Policy guard: gpt-5.6 xhigh/max reasoning is forbidden (cost). As of
+# As of
 # 2026-07-15 the 5.6 family IS available on the ChatGPT account via suffixed
 # variants; bare "gpt-5.6" still 400s. Ladder: sol (top, reasoning-heavy) >
 # terra (everyday impl) > luna (light). Default allocation: design/contract =
 # gpt-5.6-sol medium, implementation = gpt-5.6-terra low, mechanical =
 # gpt-5.6-luna low. Review remains an external clean-context Opus medium seat
 # (docs/agents/multi-agent-workflow.md "Model Allocation").
-# If effort is omitted for 5.6, pin the dispatched config to medium so
-# user/global config cannot silently raise it.
+# If effort is omitted for 5.6, pin the dispatched config to its documented
+# medium default so user/global config cannot silently change it.
 case "$MODEL" in
   *5.6*|*5-6*)
-    [[ -z "$EFFORT" ]] && EFFORT="medium"
-    case "$EFFORT" in
-      xhigh|max)
-        echo "REFUSED: gpt-5.6 at '$EFFORT' reasoning is banned (max allowed: high); lower --effort or change model" >&2
-        exit 2 ;;
-    esac ;;
+    [[ -z "$EFFORT" ]] && EFFORT="medium" ;;
 esac
 
 [[ -z "$ISSUE_N" ]] && { echo "missing --issue" >&2; exit 2; }
