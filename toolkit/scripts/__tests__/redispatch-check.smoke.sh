@@ -424,6 +424,22 @@ node -e '
 ' "$TMP_DIR/integrated-ready.json" "$WORKTREE" "$EVIDENCE_HEAD"
 assert_case "ordered diagnosis authorizes one integrated fix batch" 0 "$TMP_DIR/integrated-ready.json" "allow_integrated_fix" "same_origin"
 
+cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/integrated-exhausted.json"
+node -e '
+  const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); const third=JSON.parse(JSON.stringify(v.round_control.failures[1]));
+  third.id="F-3"; third.dispatch_ordinal=3; v.round_control.failures.push(third);
+  v.round_control.last_admission_key="issue-188-dispatch-3"; v.round_control.next_dispatch_ordinal=4;
+  v.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"];
+  v.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:4,failure_ids:["F-1","F-2","F-3"],status:"ready"};
+  fs.writeFileSync(f,JSON.stringify(v));
+' "$TMP_DIR/integrated-exhausted.json"
+ADMISSION_ROOT="$WORKTREE/.git/agent-workflow/redispatch-admissions"
+mkdir -p "$ADMISSION_ROOT/issue-188-integrated-fix" "$ADMISSION_ROOT/issue-188-dispatch-3"
+printf '%s\n' '{"version":1,"issue":"188","admission_key":"issue-188-dispatch-3","status":"committed","kind":"integrated"}' > "$ADMISSION_ROOT/issue-188-integrated-fix/.admission-transaction.json"
+cp "$ADMISSION_ROOT/issue-188-integrated-fix/.admission-transaction.json" "$ADMISSION_ROOT/issue-188-dispatch-3/.admission-transaction.json"
+assert_case "a committed integrated singleton is refused before dispatch" 1 "$TMP_DIR/integrated-exhausted.json" "diagnosis_exhausted" "same_origin"
+node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$ADMISSION_ROOT/issue-188-integrated-fix" "$ADMISSION_ROOT/issue-188-dispatch-3"
+
 # The next ordinal is exact: a state edit cannot skip evidence/circuit history.
 cp "$TMP_DIR/integrated-ready.json" "$TMP_DIR/integrated-host-ordinal.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.next_dispatch_ordinal=7; v.round_control.diagnosis.integrated_fix_batch.dispatch_ordinal=3; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/integrated-host-ordinal.json"
