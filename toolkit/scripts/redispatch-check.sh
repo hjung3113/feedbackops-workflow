@@ -428,6 +428,7 @@ if (activeFailures.length > 0) {
 }
 const highestDispatchOrdinal = failures.reduce((highest, failure) => Math.max(highest, failure.dispatch_ordinal), 0);
 let highestConsumedAdmissionOrdinal = 0;
+let integratedFixConsumed = false;
 try {
   let commonDir = execFileSync("git", ["-C", worktreeRoot, "rev-parse", "--git-common-dir"], { encoding: "utf8" }).trim();
   if (!path.isAbsolute(commonDir)) commonDir = path.resolve(worktreeRoot, commonDir);
@@ -438,14 +439,21 @@ try {
     // consumed: the issue lock/recovery path will either finish it or remove
     // the pair after this gate has selected the same host-owned ordinal.
     let preparedKey = null;
+    const integratedDir = path.join(admissionRoot, `issue-${state.issue.number}-integrated-fix`);
     try {
-      const transaction = JSON.parse(fs.readFileSync(path.join(admissionRoot, `issue-${state.issue.number}-integrated-fix`, ".admission-transaction.json"), "utf8"));
+      const transaction = JSON.parse(fs.readFileSync(path.join(integratedDir, ".admission-transaction.json"), "utf8"));
+      const preparedOrdinal = /^issue-[0-9]+-dispatch-([0-9]+)$/.exec(transaction && transaction.admission_key || "");
       if (transaction && transaction.version === 1 && transaction.status === "prepared"
           && String(transaction.issue) === String(state.issue.number)
-          && /^issue-[0-9]+-dispatch-[0-9]+$/.test(transaction.admission_key || "")) {
+          && preparedOrdinal
+          && control.last_admission_key !== transaction.admission_key
+          && (!Number.isInteger(control.next_dispatch_ordinal)
+            || control.next_dispatch_ordinal <= Number(preparedOrdinal[1]))) {
         preparedKey = transaction.admission_key;
+      } else {
+        integratedFixConsumed = true;
       }
-    } catch (_) {}
+    } catch (_) { integratedFixConsumed = fs.existsSync(integratedDir); }
     fs.readdirSync(admissionRoot).forEach((entry) => {
       const match = new RegExp(`^issue-${state.issue.number}-dispatch-([0-9]+)$`).exec(entry);
       if (!match) return;
@@ -503,6 +511,10 @@ if (control.security_stop && control.security_stop.active) {
 let trigger = null;
 if (sameOriginStreak >= 2) trigger = "same_origin";
 else if (redispatchesCompleted >= 2) trigger = "third_redispatch";
+
+if (integratedFixConsumed) {
+  decision("diagnosis_exhausted", false, null, trigger, ["blocker_or_new_decision"], 1);
+}
 
 if (!trigger) {
   if (activeFailures.some((failure) => failure.next_action.kind === "diagnosis")) {

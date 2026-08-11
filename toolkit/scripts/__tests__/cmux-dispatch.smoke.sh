@@ -1076,7 +1076,7 @@ cp "$INTEGRATED_STATE" "$INTEGRATED_READY_SNAPSHOT"
 
 # A pre-transaction integrated singleton is a legacy durable "consumed"
 # sentinel.  Its matching ROUND-STATE can still propose the same integrated
-# batch, but recovery must fail closed rather than mistake the old marker for
+# batch, but the selector must fail closed rather than mistake the old marker for
 # an interrupted current transaction and admit a second batch.
 legacy_singleton="$admit_common/agent-workflow/redispatch-admissions/issue-307-integrated-fix"
 legacy_ordinal="$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-3"
@@ -1089,7 +1089,7 @@ if CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issu
 else
   legacy_integrated_ec=$?
 fi
-if [ "$legacy_integrated_ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$legacy_integrated" \
+if [ "$legacy_integrated_ec" -ne 0 ] && grep -q '"decision":"diagnosis_exhausted"' "$legacy_integrated" \
   && [ -d "$legacy_singleton" ] && [ ! -e "$legacy_ordinal" ]; then
   pass "legacy integrated singleton remains a consumed sentinel"
 else
@@ -1218,7 +1218,7 @@ node -e '
 integrated_second="$TMP_ROOT/integrated-second.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$SECOND_INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_second" 2>&1
 ec=$?
-if [ "$ec" -ne 0 ] && grep -q "integrated fix admission already consumed" "$integrated_second" \
+if [ "$ec" -ne 0 ] && grep -q '"decision":"diagnosis_exhausted"' "$integrated_second" \
   && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-4" ]; then
   pass "a later ordinal cannot admit a second integrated fix"
 else
@@ -1231,7 +1231,7 @@ node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.
 normal_same_ordinal="$TMP_ROOT/normal-same-ordinal.out"
 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
 ec=$?
-if [ "$ec" -ne 0 ] && grep -q "redispatch admission already consumed" "$normal_same_ordinal"; then
+if [ "$ec" -ne 0 ] && grep -q '"decision":"diagnosis_exhausted"' "$normal_same_ordinal"; then
   pass "a consumed integrated admission cannot replay under a corrected mode"
 else
   fail "a consumed integrated admission cannot replay under a corrected mode (ec=$ec: $(cat "$normal_same_ordinal"))"
