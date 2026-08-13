@@ -59,6 +59,30 @@ assert_exit_output() {
   fi
 }
 
+guidance_has_no_stale_transport_set() {
+  path="$1"
+  if grep -E -i -q 'cmux\|orca([^[:alnum:]_|]|$)' "$path" || \
+     grep -F -i -q '`cmux` or `orca`' "$path" || \
+     grep -F -i -q 'cmux or Orca' "$path" || \
+     grep -F -i -q 'Orca or cmux' "$path" || \
+     grep -F -i -q 'Orca/cmux' "$path"; then
+    return 1
+  fi
+  return 0
+}
+
+assert_transport_guidance_files() {
+  label="$1"
+  root="$2"
+  shift 2
+  for relative in "$@"; do
+    path="$root/$relative"
+    assert_true "$label includes named guidance $relative" test -f "$path"
+    assert_true "$label names Herdr in $relative" grep -F -i -q 'Herdr' "$path"
+    assert_true "$label updates exhaustive transport set in $relative" guidance_has_no_stale_transport_set "$path"
+  done
+}
+
 assert_portable_layout() {
   label="$1"; target="$2"
   for leaf in \
@@ -102,6 +126,7 @@ assert_current_content() {
   assert_true "$label includes shared dispatch core" test -x "$target/.agent-workflow/scripts/dispatch-core.sh"
   assert_true "$label includes cmux adapter" test -x "$target/.agent-workflow/scripts/adapters/cmux.sh"
   assert_true "$label includes Orca adapter" test -x "$target/.agent-workflow/scripts/adapters/orca.sh"
+  assert_true "$label includes Herdr adapter" test -x "$target/.agent-workflow/scripts/adapters/herdr.sh"
   assert_true "$label includes receipt schema" test -e "$target/.agent-workflow/schemas/transport_receipt.schema.json"
   assert_true "$label includes routing receipt fixtures" test -e "$target/.agent-workflow/schemas/fixtures/transport_receipt.routing.valid.json"
   assert_true "$label includes workflow config example" test -e "$target/.agent-workflow/docs/agents/workflow-config.example.json"
@@ -117,6 +142,11 @@ assert_current_content() {
   assert_true "$label installs RFC3339 closure timestamps" grep -F -q '(?:Z|[+-]\\d{2}:\\d{2})' "$target/.agent-workflow/schemas/candidate_closure.schema.json"
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"
+  assert_transport_guidance_files "$label installed transport guidance" "$target" \
+    ".agent-workflow/docs/agents/multi-agent-workflow.md" \
+    ".agent-workflow/docs/agents/conductor-persona.md" \
+    ".claude/skills/agent-workflow/SKILL.md" \
+    ".claude/skills/agent-workflow/references/adoption.md"
 }
 
 assert_no_maintainer_leakage() {
@@ -145,9 +175,21 @@ assert_generic_profile() {
   assert_true "generic install creates Codex skill discovery" test -f "$target/.agents/skills/agent-workflow/SKILL.md"
   assert_true "generic install creates OpenCode agent discovery" test -f "$target/.opencode/agents/agent-workflow.md"
   assert_true "generic install creates deny-first OpenCode config" node -e 'const v=require(process.argv[1]); process.exit(v.permission && v.permission["*"] === "deny" ? 0 : 1)' "$target/opencode.json"
+  assert_transport_guidance_files "generic install transport guidance" "$target" \
+    ".agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "Claude and Codex use one router content" cmp -s "$target/.claude/skills/agent-workflow/SKILL.md" "$target/.agents/skills/agent-workflow/SKILL.md"
   assert_true "generic managed inventory has no compatibility leakage" bash -c '! grep -E -R -i "feedbackops|vitest|postgres|fops_" "$@"' _ "$target/.agent-workflow" "$target/.claude/skills/agent-workflow" "$target/.agents/skills/agent-workflow" "$target/.opencode" "$target/opencode.json"
 }
+
+assert_true "source includes executable Herdr adapter" test -x "$PRODUCT_ROOT/scripts/adapters/herdr.sh"
+assert_transport_guidance_files "source transport guidance" "$PRODUCT_ROOT" \
+  "README.md" \
+  "docs/agents/multi-agent-workflow.md" \
+  "scripts/install-profiles/generic/docs/agents/multi-agent-workflow.md" \
+  ".claude/skills/agent-workflow/SKILL.md" \
+  ".claude/skills/agent-workflow/references/adoption.md" \
+  "docs/agents/conductor-persona.md" \
+  "STATUS.md"
 
 prepare_gate_fixture() {
   target="$1"

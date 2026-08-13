@@ -32,6 +32,30 @@ assert_contains() {
   if grep -F -q -- "$needle" "$path"; then ok "$name"; else not_ok "$name"; fi
 }
 
+guidance_has_no_stale_transport_set() {
+  path="$1"
+  if grep -E -i -q 'cmux\|orca([^[:alnum:]_|]|$)' "$path" || \
+     grep -F -i -q '`cmux` or `orca`' "$path" || \
+     grep -F -i -q 'cmux or Orca' "$path" || \
+     grep -F -i -q 'Orca or cmux' "$path" || \
+     grep -F -i -q 'Orca/cmux' "$path"; then
+    return 1
+  fi
+  return 0
+}
+
+assert_transport_guidance_files() {
+  label="$1"
+  root="$2"
+  shift 2
+  for relative in "$@"; do
+    path="$root/$relative"
+    assert_command "$label includes named guidance $relative" test -f "$path"
+    assert_command "$label names Herdr in $relative" grep -F -i -q 'Herdr' "$path"
+    assert_command "$label updates exhaustive transport set in $relative" guidance_has_no_stale_transport_set "$path"
+  done
+}
+
 assert_command() {
   name="$1"
   shift
@@ -89,6 +113,7 @@ assert_exists "transport-neutral public CLI" "$PRODUCT_ROOT/scripts/agent-workfl
 assert_exists "shared dispatch core" "$PRODUCT_ROOT/scripts/dispatch-core.sh"
 assert_exists "cmux transport adapter" "$PRODUCT_ROOT/scripts/adapters/cmux.sh"
 assert_exists "Orca transport adapter" "$PRODUCT_ROOT/scripts/adapters/orca.sh"
+assert_command "Herdr transport adapter is executable" test -x "$PRODUCT_ROOT/scripts/adapters/herdr.sh"
 assert_exists "product smoke suite" "$PRODUCT_ROOT/scripts/__tests__/run-all.sh"
 assert_exists "product schemas" "$PRODUCT_ROOT/schemas/round_state.schema.json"
 assert_exists "target profile schema" "$PRODUCT_ROOT/schemas/target-profile.schema.json"
@@ -118,6 +143,14 @@ assert_contains "review schema carries direct closure binding" '"closure_binding
 assert_contains "verification schema carries direct closure binding" '"closure_binding"' "$PRODUCT_ROOT/schemas/verify.schema.json"
 assert_contains "PR draft schema carries direct closure binding" '"closure_binding"' "$PRODUCT_ROOT/schemas/pr_draft.schema.json"
 assert_contains "candidate timestamps use RFC3339 shape" '(?:Z|[+-]\\d{2}:\\d{2})' "$PRODUCT_ROOT/schemas/candidate_closure.schema.json"
+assert_transport_guidance_files "source transport guidance" "$PRODUCT_ROOT" \
+  "README.md" \
+  "docs/agents/multi-agent-workflow.md" \
+  "scripts/install-profiles/generic/docs/agents/multi-agent-workflow.md" \
+  ".claude/skills/agent-workflow/SKILL.md" \
+  ".claude/skills/agent-workflow/references/adoption.md" \
+  "docs/agents/conductor-persona.md" \
+  "STATUS.md"
 assert_exists "telemetry sample schema" "$PRODUCT_ROOT/schemas/telemetry_sample.schema.json"
 assert_exists "telemetry report schema" "$PRODUCT_ROOT/schemas/telemetry_report.schema.json"
 assert_exists "semantic closure telemetry fixture" "$PRODUCT_ROOT/schemas/fixtures/telemetry_sample.closure.valid.json"
@@ -370,6 +403,12 @@ assert_command "copy scripts are not symlinked to source" test ! -L "$copy_targe
 assert_command "copy schemas are not symlinked to source" test ! -L "$copy_target/.agent-workflow/schemas"
 assert_command "copy docs are not symlinked to source" test ! -L "$copy_target/.agent-workflow/docs/agents"
 assert_command "copy skill is not symlinked to source" test ! -L "$copy_target/.claude/skills/agent-workflow"
+assert_command "installed Herdr transport adapter is executable" test -x "$copy_target/.agent-workflow/scripts/adapters/herdr.sh"
+assert_transport_guidance_files "installed transport guidance" "$copy_target" \
+  ".agent-workflow/docs/agents/multi-agent-workflow.md" \
+  ".agent-workflow/docs/agents/conductor-persona.md" \
+  ".claude/skills/agent-workflow/SKILL.md" \
+  ".claude/skills/agent-workflow/references/adoption.md"
 assert_contains "copy preserves canonical initial-state admission" 'initial write requires --round-state and --manifest-revision' "$copy_target/.agent-workflow/scripts/dispatch-core.sh"
 printf '%s\n' '[source-only](../../../README.md)' \
   > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
