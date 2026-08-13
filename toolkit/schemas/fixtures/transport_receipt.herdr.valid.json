@@ -1,0 +1,29 @@
+{
+  "schema_version": "2",
+  "artifact_type": "transport_receipt",
+  "authoritative": false,
+  "issue": 42,
+  "runtime": "codex",
+  "role": "implementation",
+  "runtime_version": "0.147.0",
+  "adapter": "herdr",
+  "adapter_version": "herdr 0.8.0",
+  "capabilities": [
+    "session.inherited",
+    "workspace.create.cwd",
+    "workspace.create.label",
+    "workspace.create.no_focus",
+    "workspace.get.read_only",
+    "workspace.close",
+    "pane.run"
+  ],
+  "external_handle": "workspace-42",
+  "worktree_path": "/tmp/example",
+  "runner": {
+    "path": "/tmp/example/.review/ISSUE-42-launch.abcd/launch.sh",
+    "relative_path": ".review/ISSUE-42-launch.abcd/launch.sh",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "launched_at": "2026-08-13T00:00:00Z",
+  "created_at": "2026-08-13T00:00:00Z"
+}

@@ -42,6 +42,7 @@ check_fixture touch touch.runtime.valid.json valid
 check_fixture touch touch.runtime.invalid.json invalid
 check_fixture transport_receipt transport_receipt.valid.json valid
 check_fixture transport_receipt transport_receipt.runtime.valid.json valid
+check_fixture transport_receipt transport_receipt.herdr.valid.json valid
 check_fixture transport_receipt transport_receipt.runtime.invalid.json invalid
 check_fixture transport_receipt transport_receipt.routing.valid.json valid
 check_fixture transport_receipt transport_receipt.routing.invalid.json invalid

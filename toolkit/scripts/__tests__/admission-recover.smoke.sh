@@ -9,6 +9,7 @@ trap 'rm -rf "$TMP"' EXIT
 FAIL=0
 DIGEST_A="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 DIGEST_B="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+HERDR_BINDING='{"route_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","policy_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":"codex","role":"implementation","tier":"standard","transport":"herdr","selection_basis":"ordered_policy","decision_reason_codes":["model_alloc","ordered_policy"],"selected":{"model":"gpt-5.6-terra","effort":"low"}}'
 
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAIL=$((FAIL + 1)); }
@@ -38,6 +39,40 @@ try { process.exit(JSON.parse(fs.readFileSync(file, "utf8")).status === expected
 catch (_) { process.exit(1); }
 NODE
 }
+
+# Herdr is an admitted routed transport, while unknown transports remain
+# fail-closed before a transaction directory becomes visible.
+ROOT="$TMP/herdr-binding"
+KEY="issue-70-dispatch-2"
+STATE="$ROOT/state.json"
+mkdir -p "$ROOT"
+state_file "$STATE" "$KEY" yes
+node "$RECOVER" publish "$ROOT" "$ROOT/$KEY" "$STATE" 70 "$KEY" "$$" normal --route-digest "$DIGEST_A" --route-binding "$HERDR_BINDING" >/dev/null
+node "$RECOVER" commit-admission "$ROOT/$KEY" "" "" 70 "$KEY" >/dev/null
+if node - "$ROOT/$KEY/.admission-transaction.json" <<'NODE'
+const fs = require("fs");
+const tx = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+process.exit(tx.routing && tx.routing.transport === "herdr" && tx.status === "committed" ? 0 : 1);
+NODE
+then
+  pass "Herdr route binding is admitted and committed"
+else
+  fail "Herdr route binding was not admitted"
+fi
+
+ROOT="$TMP/unknown-binding"
+KEY="issue-70-dispatch-3"
+STATE="$ROOT/state.json"
+UNKNOWN_BINDING='{"route_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","policy_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":"codex","role":"implementation","tier":"standard","transport":"unknown","selection_basis":"ordered_policy","decision_reason_codes":["model_alloc","ordered_policy"],"selected":{"model":"gpt-5.6-terra","effort":"low"}}'
+mkdir -p "$ROOT"
+state_file "$STATE" "$KEY" yes
+node "$RECOVER" publish "$ROOT" "$ROOT/$KEY" "$STATE" 70 "$KEY" "$$" normal --route-digest "$DIGEST_A" --route-binding "$UNKNOWN_BINDING" >/dev/null 2>&1
+unknown_status=$?
+if [ "$unknown_status" -ne 0 ] && [ ! -e "$ROOT/$KEY" ]; then
+  pass "unknown route transport remains rejected"
+else
+  fail "unknown route transport was admitted"
+fi
 
 # A matching normal route transaction can be adopted only for the current key.
 ROOT="$TMP/normal-match"

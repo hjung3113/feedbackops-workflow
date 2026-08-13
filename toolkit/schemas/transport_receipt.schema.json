@@ -12,7 +12,7 @@
     "runtime": { "enum": ["codex", "claude", "opencode"], "description": "Agent runtime selected independently from transport." },
     "role": { "enum": ["conductor", "architect", "implementation", "reviewer", "verifier", "visual", "release"] },
     "runtime_version": { "type": "string", "minLength": 1 },
-    "adapter": { "enum": ["cmux", "orca"] },
+    "adapter": { "enum": ["cmux", "orca", "herdr"] },
     "adapter_version": { "type": "string", "minLength": 1 },
     "capabilities": { "type": "array", "description": "Launch and read-only inspection capabilities proven before admission.", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "external_handle": { "type": "string", "minLength": 1, "description": "Adapter-owned lifecycle handle; never workflow completion authority." },

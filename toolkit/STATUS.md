@@ -19,10 +19,11 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
   an installed target uses its workflow commands and target-owned verification,
   while maintainers run smoke from the source checkout.
 - Runtime (`codex|claude|opencode`), role (including conductor), and transport
-  (`cmux|orca`) are independent admitted axes. Capability probe, observed
+  (`cmux|orca|herdr`) are independent admitted axes. Capability probe, observed
   runtime version, RUN/receipt provenance, and no-fallback failures are part
   of the contract; only fresh canonical REVIEW and VERIFY evidence at live HEAD
-  retains completion authority.
+  retains completion authority. Herdr requires an inherited session
+  (`HERDR_ENV=1` and non-empty `HERDR_SOCKET_PATH`) and never falls back.
 - Reviewer allocation can be explicitly requested per runtime: the shipped
   Claude entry uses `sonnet`, while OpenCode remains target-provider-configured
   and refuses before admission when no `reviewer_by_runtime.opencode` tuple is
@@ -80,7 +81,7 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
 
-- isolated worktree preparation and explicit Orca/cmux dispatch through one shared correctness core, with a retained atomic launch runner so either adapter receives only a short relative command even when the watchdog argv contains deep paths;
+- isolated worktree preparation and explicit cmux/Orca/Herdr dispatch through one shared correctness core, with a retained atomic launch runner so the selected adapter receives only a short relative command even when the watchdog argv contains deep paths;
 - runtime-neutral dispatch with capability-probed Codex, Claude Code, or OpenCode execution; Codex write/review delegates to its hardened sandbox wrapper;
 - project-owned model allocation defaults (including omitted-model dispatch), schema-validated evidence-gated Codex-only auto-dispatch, source-dated static-plus-reasoning review preference, and preserved install upgrades;
 - shared process + filesystem liveness, per-runtime retry/refusal probes, and runtime-provenance RUN markers;
@@ -122,12 +123,12 @@ bash scripts/__tests__/run-all-contract.test.sh
 
 ## Shipped timeline
 
-### v0.20 — explicit Orca/cmux transport interface
+### v0.20 — explicit cmux/Orca/Herdr transport interface
 
 - `agent-workflow.sh` exposes `capabilities`, `dispatch`, and `inspect`. Dispatch selection is explicit and deterministic: CLI, then `AGENT_WORKFLOW_ORCHESTRATOR`, then target-local config; missing, unknown, or unavailable selections fail without a default or fallback.
-- `dispatch-core.sh` is the sole owner of ROUND-STATE/prompt validation, HEAD/worktree binding, atomic admission, launch-unique runners, and RUN/BLOCKER freshness. Thin cmux and Orca adapters receive only a typed seat request; `cmux-dispatch.sh` remains an explicit cmux compatibility facade.
-- Every launch publishes a schema-valid, non-authoritative `ISSUE-N-TRANSPORT.json`; policy-opted canonical redispatch uses v3 only after validating the immutable ordinal binding (and integrated companion when applicable). `inspect` queries the adapter's external handle read-only and normalizes live, missing/stale, and unverifiable probes while independently detecting a missing or changed runner. Orca launch accepts only `result.terminal.handle`, and inspect matches that handle only against `result.terminals[].handle`; the create response's top-level request `id` is never a terminal identity. cmux launch accepts exactly one create-result `id`/`workspace_id`/`workspaceId`/`ref`, never the requested display name, and inspect matches only that unique identity; none of this transport evidence replaces canonical REVIEW/VERIFY evidence.
-- Before admission, cmux proves a `0.64.0` version floor plus side-effect-free help for the actual workspace-create cwd/command contract, and Orca proves create worktree/title/command/JSON plus read-only list capabilities. Orca records only a plausible `result.runtime.appVersion` from `orca status --json`; unavailable, malformed, or implausible values are `unknown`. Probe failures do not consume admission. Orca opens a fresh bare-shell terminal at the exact existing worktree and refuses ambiguous handles. Offline fake-adapter smokes cover selection, no fallback, parity, receipts, and external-handle inspection; live GUI E2E remains a separately labeled gate.
+- `dispatch-core.sh` is the sole owner of ROUND-STATE/prompt validation, HEAD/worktree binding, atomic admission, launch-unique runners, and RUN/BLOCKER freshness. Thin cmux, Orca, and Herdr adapters receive only a typed seat request; `cmux-dispatch.sh` remains an explicit cmux compatibility facade.
+- Every launch publishes a schema-valid, non-authoritative `ISSUE-N-TRANSPORT.json`; policy-opted canonical redispatch uses v3 only after validating the immutable ordinal binding (and integrated companion when applicable). `inspect` queries the adapter's external handle read-only and normalizes live, missing/stale, and unverifiable probes while independently detecting a missing or changed runner. Orca launch accepts only `result.terminal.handle`, and inspect matches that handle only against `result.terminals[].handle`; the create response's top-level request `id` is never a terminal identity. cmux launch accepts exactly one create-result `id`/`workspace_id`/`workspaceId`/`ref`, never the requested display name, and inspect matches only that unique identity. Herdr uses the returned `workspace_id` as its external handle, never a requested label or pane ID. These receipts record launch intent/provenance, not confirmed command delivery, and none of this transport evidence replaces canonical REVIEW/VERIFY evidence.
+- Before admission, cmux proves a `0.64.0` version floor plus side-effect-free help for the actual workspace-create cwd/command contract, Orca proves create worktree/title/command/JSON plus read-only list capabilities, and Herdr proves its required capabilities only from an inherited session (`HERDR_ENV=1` with non-empty `HERDR_SOCKET_PATH`). Herdr session/probe failures do not consume admission and never fall back to another transport. Orca records only a plausible `result.runtime.appVersion` from `orca status --json`; unavailable, malformed, or implausible values are `unknown`. Probe failures do not consume admission. Orca opens a fresh bare-shell terminal at the exact existing worktree and refuses ambiguous handles. Offline fake-adapter smokes cover selection, no fallback, parity, receipts, and external-handle inspection; live GUI E2E remains a separately labeled gate. A live Herdr workspace is liveness evidence only, not workflow completion.
 - The core resolves the caller's Codex binary to one absolute executable before admission and pins it through the runner, watchdog, and safe wrapper; the host-only override is fail-closed and target config cannot inject a binary. cmux receipts use one proven create-result id/ref rather than a display name, so duplicate names and removed workspaces inspect correctly.
 
 ### v0.19 — cmux launch-runner transport
@@ -263,7 +264,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 | Area | Current status |
 |---|---|
-| Dispatch, watchdog, artifact lifecycle | Reusable across Git repositories with cmux or Orca plus Codex, Claude Code, or OpenCode |
+| Dispatch, watchdog, artifact lifecycle | Reusable across Git repositories with cmux, Orca, or Herdr plus Codex, Claude Code, or OpenCode |
 | target profile + `target-verify.sh` | Reusable structured setup/runtime/verification contract |
 | `prepare-worktree.sh` | pnpm plus root/`apps/backend` env layout |
 | `tier-probe.sh` | TypeScript/TSX exported-contract heuristics |
@@ -276,7 +277,7 @@ Profile-driven preparation and tier routing remain deferred until they can consu
 ## Key operating facts
 
 - A process exit or worker prose is not completion evidence. Review and verification must match the live HEAD.
-- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected Orca/cmux adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `codex-watchdog.sh` and `cmux-dispatch.sh` remain compatibility paths.
+- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected cmux/Orca/Herdr adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `codex-watchdog.sh` and `cmux-dispatch.sh` remain compatibility paths.
 - Read-only seats use `--read-only`; optional first-progress/stall budgets are forwarded only when supplied.
 - Parallel write chunks require separate worktrees. FeedbackOps-style DB suites also require separate throwaway databases.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
