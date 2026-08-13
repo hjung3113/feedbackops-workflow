@@ -11,13 +11,13 @@ VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 
 usage() {
   echo "usage: agent-workflow.sh capabilities [--worktree PATH]" >&2
-  echo "       agent-workflow.sh dispatch [--orchestrator cmux|orca] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
+  echo "       agent-workflow.sh dispatch [--orchestrator cmux|orca|herdr] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
   echo "       agent-workflow.sh inspect --receipt PATH" >&2
 }
 
 adapter_script() {
   case "$1" in
-    cmux|orca) printf '%s/adapters/%s.sh\n' "$SCRIPT_DIR" "$1" ;;
+    cmux|orca|herdr) printf '%s/adapters/%s.sh\n' "$SCRIPT_DIR" "$1" ;;
     *) return 1 ;;
   esac
 }
@@ -26,7 +26,7 @@ capabilities() {
   worktree="${1:-$PWD}"
   printf '{"schema_version":"1","adapters":['
   first=1
-  for adapter in cmux orca; do
+  for adapter in cmux orca herdr; do
     script="$(adapter_script "$adapter")"
     result="$(bash "$script" capabilities --worktree "$worktree" 2>/dev/null)"
     [ -n "$result" ] || result="{\"adapter\":\"$adapter\",\"available\":false,\"reason_code\":\"capability_probe_failed\",\"version\":\"unknown\",\"capabilities\":[]}"
@@ -142,12 +142,12 @@ case "$COMMAND" in
       SOURCE="config"
     fi
     if [ -z "$CHOICE" ]; then
-      echo "ERROR: orchestrator_not_configured: choose --orchestrator cmux|orca, set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
+      echo "ERROR: orchestrator_not_configured: choose --orchestrator cmux|orca|herdr, set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
       exit 2
     fi
     case "$CHOICE" in
-      cmux|orca) ;;
-      *) echo "ERROR: unknown_orchestrator: $CHOICE (expected cmux or orca)" >&2; exit 2 ;;
+      cmux|orca|herdr) ;;
+      *) echo "ERROR: unknown_orchestrator: $CHOICE (expected cmux, orca, or herdr)" >&2; exit 2 ;;
     esac
     RUNTIME="$CLI_RUNTIME"
     RUNTIME_SOURCE="cli"

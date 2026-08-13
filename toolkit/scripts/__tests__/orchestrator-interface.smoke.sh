@@ -124,7 +124,243 @@ case "${ORCA_CREATE_MODE:-actual}" in
   ambiguous) printf '%s\n' "{\"id\":\"request-$issue\",\"result\":{\"terminal\":[{\"handle\":\"term-$issue\"},{\"handle\":\"term-other\"}]}}" ;;
 esac
 EOF
-chmod +x "$BIN/cmux" "$BIN/orca"
+cat > "$BIN/herdr" <<'EOF'
+#!/usr/bin/env bash
+set -u
+
+STATE_DIR="${HERDR_STATE_DIR:-${TMPDIR:-/tmp}/herdr-fake-state}"
+CREATE_LOG="${HERDR_CREATE_LOG:-$STATE_DIR/create.log}"
+RUN_LOG="${HERDR_RUN_LOG:-$STATE_DIR/run.log}"
+CLOSE_LOG="${HERDR_CLOSE_LOG:-$STATE_DIR/close.log}"
+GET_LOG="${HERDR_GET_LOG:-$STATE_DIR/get.log}"
+mkdir -p "$STATE_DIR"
+
+log_args() {
+  target="$1"
+  operation="$2"
+  shift 2
+  {
+    printf '%s\n' "$operation"
+    for arg in "$@"; do printf '%s\n' "$arg"; done
+    printf '%s\n' '--END--'
+  } >> "$target"
+}
+
+write_run() {
+  run_cwd="$1"
+  run_command="$2"
+  if [ -n "${HERDR_RUN_ISSUE:-}" ]; then
+    run_issue="$HERDR_RUN_ISSUE"
+  else
+    run_issue="$(printf '%s\n' "$run_command" | sed -n 's/.*ISSUE-\([0-9][0-9]*\)-launch.*/\1/p')"
+    [ -n "$run_issue" ] || run_issue="$(printf '%s\n' "$run_command" | sed -n 's/.*--issue \([0-9][0-9]*\).*/\1/p')"
+  fi
+  [ -n "$run_issue" ] || run_issue="0"
+  run_started="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  node - "$run_cwd" "$run_issue" "$run_started" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+const [cwd, issue, started] = process.argv.slice(2);
+fs.mkdirSync(path.join(cwd, ".review"), { recursive: true });
+fs.writeFileSync(path.join(cwd, ".review", `ISSUE-${issue}-RUN.json`), JSON.stringify({
+  schema_version: "1", artifact_type: "codex_run", issue: Number(issue), attempt: 1,
+  started_at: started, updated_at: started, status: "running"
+}) + "\n");
+NODE
+}
+
+workspace_help() {
+  case "${HERDR_HELP_MODE:-complete}" in
+    workspace_fail) printf '%s\n' 'workspace help unavailable'; return 2 ;;
+    missing_get) printf '%s\n' 'Commands: create close'; return 0 ;;
+    missing_close) printf '%s\n' 'Commands: create get'; return 0 ;;
+    *) printf '%s\n' 'Commands: create get close'; return 0 ;;
+  esac
+}
+
+workspace_create_help() {
+  case "${HERDR_HELP_MODE:-complete}" in
+    missing_cwd) printf '%s\n' 'workspace create --label LABEL --no-focus'; return 0 ;;
+    missing_label) printf '%s\n' 'workspace create --cwd PATH --no-focus'; return 0 ;;
+    missing_focus) printf '%s\n' 'workspace create --cwd PATH --label LABEL'; return 0 ;;
+    *) printf '%s\n' 'workspace create --cwd PATH --label LABEL --no-focus'; return 0 ;;
+  esac
+}
+
+pane_help() {
+  case "${HERDR_HELP_MODE:-complete}" in
+    pane_fail) printf '%s\n' 'pane help unavailable'; return 2 ;;
+    missing_pane_run) printf '%s\n' 'Commands: send'; return 0 ;;
+    *) printf '%s\n' 'Commands: run'; return 0 ;;
+  esac
+}
+
+pane_run_help() {
+  case "${HERDR_HELP_MODE:-complete}" in
+    missing_pane_run) printf '%s\n' 'pane send PANE COMMAND'; return 0 ;;
+    *) printf '%s\n' 'Usage: herdr pane run PANE COMMAND'; return 0 ;
+  esac
+}
+
+if [ "${1:-}" = "--version" ]; then
+  case "${HERDR_VERSION_MODE:-default}" in
+    empty) exit 0 ;;
+    garbage) printf '%s\n' 'herdr version unknown'; exit 0 ;;
+    *) printf '%s\n' "${HERDR_VERSION:-0.8.0}"; exit 0 ;;
+  esac
+fi
+
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "--help" ]; then
+  workspace_help
+  exit $?
+fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  workspace_create_help
+  exit $?
+fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "get" ] && [ "${3:-}" = "--help" ]; then
+  printf '%s\n' 'Usage: herdr workspace get ID'
+  exit 0
+fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "close" ] && [ "${3:-}" = "--help" ]; then
+  printf '%s\n' 'Usage: herdr workspace close ID'
+  exit 0
+fi
+if [ "${1:-}" = "pane" ] && [ "${2:-}" = "--help" ]; then
+  pane_help
+  exit $?
+fi
+if [ "${1:-}" = "pane" ] && [ "${2:-}" = "run" ] && [ "${3:-}" = "--help" ]; then
+  pane_run_help
+  exit $?
+fi
+
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ]; then
+  case "${HERDR_LIST_MODE:-valid}" in
+    valid) printf '%s\n' '{"result":{"type":"workspace_list","workspaces":[{"workspace_id":"decoy-workspace","label":"requested-label"}]}}'; exit 0 ;;
+    malformed) printf '%s\n' '{"result":'; exit 0 ;;
+    wrong_shape) printf '%s\n' '{"result":{"type":"workspace_list","workspaces":{}}}'; exit 0 ;;
+    fail) printf '%s\n' 'workspace list failed' >&2; exit 7 ;;
+    *) printf '%s\n' ''; exit 0 ;;
+  esac
+fi
+
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ]; then
+  log_args "$CREATE_LOG" create "$@"
+  cwd=""; label=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --cwd) cwd="$2"; shift 2 ;;
+      --label) label="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  case "${HERDR_CREATE_MODE:-success}" in
+    fail) printf '%s\n' 'workspace create failed' >&2; exit "${HERDR_CREATE_STATUS:-7}" ;;
+    timeout) exit 124 ;;
+    malformed) printf '%s\n' 'not json'; exit 0 ;;
+  esac
+  workspace_id="${HERDR_WORKSPACE_ID:-workspace-created}"
+  pane_id="${HERDR_PANE_ID:-pane-created}"
+  request_id="${HERDR_REQUEST_ID:-request-created}"
+  root_workspace_id="${HERDR_ROOT_WORKSPACE_ID:-$workspace_id}"
+  root_cwd="${HERDR_ROOT_PANE_CWD:-$cwd}"
+  case "${HERDR_CREATE_MODE:-success}" in
+    wrong_type) result_type="workspace_info" ;;
+    missing_workspace_id) workspace_id=""; result_type="workspace_created" ;;
+    missing_pane_id) pane_id=""; result_type="workspace_created" ;;
+    cross_wired) root_workspace_id="other-workspace"; result_type="workspace_created" ;;
+    wrong_cwd) root_cwd="${HERDR_WRONG_CWD:-$cwd/nonexistent}"; result_type="workspace_created" ;;
+    *) result_type="workspace_created" ;;
+  esac
+  if [ "${HERDR_SEED_DECOY:-0}" -eq 1 ]; then
+    printf '%s\n' 'requested-label' > "$STATE_DIR/decoy-workspace.label"
+  fi
+  if [ -n "$workspace_id" ] && [ -n "$pane_id" ]; then
+    printf '%s\n' "$workspace_id" > "$STATE_DIR/pane-$pane_id.workspace"
+    printf '%s\n' "$root_cwd" > "$STATE_DIR/pane-$pane_id.cwd"
+  fi
+  node - "$result_type" "$workspace_id" "$label" "$root_workspace_id" "$pane_id" "$root_cwd" "$request_id" <<'NODE'
+const [type, workspaceId, label, rootWorkspaceId, paneId, cwd, requestId] = process.argv.slice(2);
+process.stdout.write(JSON.stringify({ id: requestId, result: {
+  type,
+  workspace: { workspace_id: workspaceId, label },
+  root_pane: { pane_id: paneId, workspace_id: rootWorkspaceId, cwd }
+} }) + "\n");
+NODE
+  exit 0
+fi
+
+if [ "${1:-}" = "pane" ] && [ "${2:-}" = "run" ]; then
+  pane_id="${3:-}"
+  run_command="${4:-}"
+  log_args "$RUN_LOG" run "$@"
+  pane_cwd_file="$STATE_DIR/pane-$pane_id.cwd"
+  if [ ! -r "$pane_cwd_file" ]; then
+    printf '%s\n' '{"error":{"code":"pane_not_found","message":"pane was not found"}}' >&2
+    exit 1
+  fi
+  pane_cwd="$(sed -n '1p' "$pane_cwd_file")"
+  run_mode="${HERDR_RUN_MODE:-success}"
+  case "$run_mode" in
+    success)
+      write_run "$pane_cwd" "$run_command"
+      exit 0
+      ;;
+    pane_not_found|invalid_key|pane_send_failed)
+      printf '%s\n' "{\"error\":{\"code\":\"$run_mode\",\"message\":\"run rejected\"}}" >&2
+      exit "${HERDR_RUN_STATUS:-1}"
+      ;;
+    ambiguous_empty|ambiguous_multiple|ambiguous_malformed|ambiguous_other)
+      if [ "${HERDR_WRITE_RUN_ON_AMBIGUOUS:-0}" -eq 1 ]; then write_run "$pane_cwd" "$run_command"; fi
+      case "$run_mode" in
+        ambiguous_multiple) printf '%s\n%s\n' '{"error":{"code":"server_error","message":"first"}}' '{"error":{"code":"server_error","message":"second"}}' >&2 ;;
+        ambiguous_malformed) printf '%s\n' 'not json' >&2 ;;
+        ambiguous_other) printf '%s\n' '{"error":{"code":"server_error","message":"unknown"}}' >&2 ;;
+        *) : ;;
+      esac
+      exit "${HERDR_RUN_STATUS:-7}"
+      ;;
+    *) printf '%s\n' 'unrecognized run mode' >&2; exit 9 ;;
+  esac
+fi
+
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "close" ]; then
+  workspace_id="${3:-}"
+  log_args "$CLOSE_LOG" close "$@"
+  if [ -n "${HERDR_CLOSE_STDOUT:-}" ]; then printf '%s\n' "$HERDR_CLOSE_STDOUT"; fi
+  if [ "${HERDR_CLOSE_MODE:-success}" = "fail" ]; then exit "${HERDR_CLOSE_STATUS:-9}"; fi
+  exit 0
+fi
+
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "get" ]; then
+  handle="${3:-}"
+  log_args "$GET_LOG" get "$@"
+  case "${HERDR_GET_MODE:-live}" in
+    live) get_workspace_id="${HERDR_GET_WORKSPACE_ID:-$handle}"; node - "$get_workspace_id" <<'NODE'
+const id = process.argv[2];
+process.stdout.write(JSON.stringify({ result: { type: "workspace_info", workspace: { workspace_id: id, label: "requested-label" } } }) + "\n");
+NODE
+      exit 0 ;;
+    live_other) node - "other-workspace" <<'NODE'
+const id = process.argv[2];
+process.stdout.write(JSON.stringify({ result: { type: "workspace_info", workspace: { workspace_id: id, label: "requested-label" } } }) + "\n");
+NODE
+      exit 0 ;;
+    stale) printf '%s\n' '{"error":{"code":"workspace_not_found","message":"workspace was not found"}}' >&2; exit 1 ;;
+    stale_nonzero) printf '%s\n' '{"error":{"code":"workspace_not_found","message":"workspace was not found"}}' >&2; exit 7 ;;
+    malformed_success) printf '%s\n' '{"result":'; exit 0 ;;
+    malformed_error) printf '%s\n' 'not json' >&2; exit 1 ;;
+    multiple_error) printf '%s\n%s\n' '{"error":{"code":"workspace_not_found","message":"first"}}' '{"error":{"code":"workspace_not_found","message":"second"}}' >&2; exit 1 ;;
+    other_error) printf '%s\n' '{"error":{"code":"server_error","message":"unknown"}}' >&2; exit 1 ;;
+    empty_error) exit 1 ;;
+    *) exit 9 ;;
+  esac
+fi
+
+exit 9
+EOF
+chmod +x "$BIN/cmux" "$BIN/orca" "$BIN/herdr"
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'codex-cli 0.test'; exit 0; fi
@@ -146,6 +382,20 @@ if grep -q 'orchestrator=cmux source=environment' "$choice_out"; then pass "envi
 env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
 if grep -q 'orchestrator=orca source=config' "$choice_out"; then pass "product-home config supplies explicit selection"; else fail "config selection"; fi
 
+AGENT_WORKFLOW_ORCHESTRATOR=orca bash "$CLI" dispatch --orchestrator herdr --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
+if grep -q 'orchestrator=herdr source=cli' "$choice_out" && grep -q '^herdr launch ' "$choice_out"; then
+  pass "Herdr CLI selection outranks environment and config"
+else fail "Herdr CLI selection"; fi
+AGENT_WORKFLOW_ORCHESTRATOR=herdr bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
+if grep -q 'orchestrator=herdr source=environment' "$choice_out"; then
+  pass "Herdr environment selection is explicit"
+else fail "Herdr environment selection"; fi
+printf '%s\n' '{"orchestrator":"herdr"}' > "$PRODUCT_HOME/workflow-config.json"
+env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
+if grep -q 'orchestrator=herdr source=config' "$choice_out"; then
+  pass "Herdr product-home config selection is explicit"
+else fail "Herdr config selection"; fi
+
 rm "$PRODUCT_HOME/workflow-config.json"
 missing_out="$TMP_ROOT/missing.out"
 env -u AGENT_WORKFLOW_ORCHESTRATOR bash "$CLI" dispatch --issue 501 --worktree "$WT" --read-only --dry-run >"$missing_out" 2>&1
@@ -155,6 +405,109 @@ unknown_out="$TMP_ROOT/unknown.out"
 bash "$CLI" dispatch --orchestrator auto --issue 501 --worktree "$WT" --read-only --dry-run >"$unknown_out" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q 'unknown_orchestrator' "$unknown_out"; then pass "unknown selection is rejected"; else fail "unknown selection refusal"; fi
+
+# Herdr is inherited from the current session only. A selected adapter that
+# lacks that context must refuse before admission, runners, receipts, or any
+# other transport are touched.
+HERDR_REFUSAL_WT="$TMP_ROOT/herdr-session-refusal-wt"
+make_worktree "$HERDR_REFUSAL_WT" 509
+HERDR_REFUSAL_OUT="$TMP_ROOT/herdr-session-refusal.out"
+env -u HERDR_ENV -u HERDR_SOCKET_PATH TRANSPORT_USED="$TMP_ROOT/herdr-session-refusal-transport" \
+PATH="$BIN:$PATH" bash "$CLI" dispatch --orchestrator herdr --issue 509 --worktree "$HERDR_REFUSAL_WT" --read-only --poll-timeout 1 >"$HERDR_REFUSAL_OUT" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q 'session_context_missing' "$HERDR_REFUSAL_OUT" \
+  && [ ! -e "$HERDR_REFUSAL_WT/.review/ISSUE-509-TRANSPORT.json" ] \
+  && ! find "$HERDR_REFUSAL_WT/.review" -type d -name 'ISSUE-509-launch.*' | grep -q . \
+  && [ ! -e "$TMP_ROOT/herdr-session-refusal-transport" ]; then
+  pass "Herdr session context refusal precedes admission and never falls back"
+else fail "Herdr session context refusal ($(cat "$HERDR_REFUSAL_OUT"))"; fi
+
+HERDR_CAP_SCRIPT="$ROOT/scripts/adapters/herdr.sh"
+herdr_capability_expectation() {
+  case_name="$1"
+  expected_reason="$2"
+  shift 2
+  output_file="$TMP_ROOT/herdr-capability-$case_name.json"
+  HERDR_STATE_DIR="$TMP_ROOT/herdr-capability-$case_name-state" "$@" >"$output_file" 2>&1
+  status=$?
+  if [ "$status" -eq 0 ] && node - "$output_file" "$expected_reason" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (value.available !== false || value.reason_code !== process.argv[3]) process.exit(1);
+} catch (error) { process.exit(1); }
+NODE
+  then pass "Herdr capability $case_name returns $expected_reason with exit 0"
+  else fail "Herdr capability $case_name ($(cat "$output_file"))"; fi
+}
+
+herdr_capability_expectation session-unset session_context_missing env -u HERDR_ENV -u HERDR_SOCKET_PATH \
+  PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT"
+herdr_capability_expectation session-empty-socket session_context_missing \
+  env HERDR_ENV=1 HERDR_SOCKET_PATH= PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT"
+
+herdr_capability_matrix() {
+  case_name="$1"
+  version_value="$2"
+  expected_available="$3"
+  output_file="$TMP_ROOT/herdr-version-$case_name.json"
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_VERSION_MODE=default HERDR_VERSION="$version_value" \
+  HERDR_STATE_DIR="$TMP_ROOT/herdr-version-$case_name-state" PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT" >"$output_file" 2>&1
+  status=$?
+  if [ "$status" -eq 0 ] && node - "$output_file" "$expected_available" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (value.available !== (process.argv[3] === "true")) process.exit(1);
+  if (!value.available && value.reason_code !== "required_capability_missing") process.exit(1);
+} catch (error) { process.exit(1); }
+NODE
+  then pass "Herdr semver $case_name is classified correctly"
+  else fail "Herdr semver $case_name ($(cat "$output_file"))"; fi
+}
+herdr_capability_matrix below-floor 0.7.9 false
+herdr_capability_matrix floor 0.8.0 true
+herdr_capability_matrix floor-prerelease 0.8.0-rc.1 false
+herdr_capability_matrix prefixed-floor v0.8.0 true
+herdr_capability_matrix double-digit-minor 0.10.0 true
+herdr_capability_matrix later-prerelease 0.9.0-rc.1 true
+herdr_capability_matrix garbage 'not-a-version' false
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_VERSION=0.8.0 HERDR_STATE_DIR="$TMP_ROOT/herdr-version-digest-state" \
+PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT" >"$TMP_ROOT/herdr-version-digest.json" 2>&1
+if node - "$TMP_ROOT/herdr-version-digest.json" <<'NODE'
+const value = require(process.argv[2]);
+if (!value.available || !/^0\.8\.0;binary-sha256:[a-f0-9]{64}$/.test(value.version)) process.exit(1);
+NODE
+then pass "Herdr capabilities record parsed semver and resolved binary digest"; else fail "Herdr capability provenance ($(cat "$TMP_ROOT/herdr-version-digest.json"))"; fi
+HERDR_VERSION_MODE=empty HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$TMP_ROOT/herdr-version-empty-state" \
+PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT" >"$TMP_ROOT/herdr-version-empty.json" 2>&1
+ec=$?
+if [ "$ec" -eq 0 ] && node - "$TMP_ROOT/herdr-version-empty.json" <<'NODE'
+const value = require(process.argv[2]);
+if (value.available || value.reason_code !== "required_capability_missing") process.exit(1);
+NODE
+then pass "Herdr empty semver is rejected as required_capability_missing"; else fail "Herdr empty semver ($(cat "$TMP_ROOT/herdr-version-empty.json"))"; fi
+
+for help_mode in workspace_fail missing_cwd missing_label missing_focus missing_get missing_close pane_fail missing_pane_run; do
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_HELP_MODE="$help_mode" HERDR_STATE_DIR="$TMP_ROOT/herdr-help-$help_mode-state" \
+  PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT" >"$TMP_ROOT/herdr-help-$help_mode.json" 2>&1
+  ec=$?
+  if [ "$ec" -eq 0 ] && node - "$TMP_ROOT/herdr-help-$help_mode.json" <<'NODE'
+const value = require(process.argv[2]);
+if (value.available || value.reason_code !== "required_capability_missing") process.exit(1);
+NODE
+  then pass "Herdr $help_mode help surface is required"; else fail "Herdr $help_mode help surface ($(cat "$TMP_ROOT/herdr-help-$help_mode.json"))"; fi
+done
+for list_mode in malformed wrong_shape fail; do
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_LIST_MODE="$list_mode" HERDR_STATE_DIR="$TMP_ROOT/herdr-list-$list_mode-state" \
+  PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT" >"$TMP_ROOT/herdr-list-$list_mode.json" 2>&1
+  ec=$?
+  if [ "$ec" -eq 0 ] && node - "$TMP_ROOT/herdr-list-$list_mode.json" <<'NODE'
+const value = require(process.argv[2]);
+if (value.available || value.reason_code !== "required_capability_missing") process.exit(1);
+NODE
+  then pass "Herdr workspace list $list_mode is required"; else fail "Herdr workspace list $list_mode ($(cat "$TMP_ROOT/herdr-list-$list_mode.json"))"; fi
+done
 
 # An unavailable selected adapter must fail before the initial-write marker and
 # must never call the other adapter.
@@ -223,6 +576,273 @@ if [ "$ec" -eq 2 ] && grep -q 'required_capability_missing' "$TMP_ROOT/orca-bad.
   pass "Orca missing-title capability is rejected before admission"
 else fail "Orca title capability refusal (ec=$ec: $(cat "$TMP_ROOT/orca-bad.out"))"; fi
 
+# Herdr's public adapter seam is deliberately exercised with a stateful fake:
+# create records only the workspace, pane run owns the fresh RUN fixture, and
+# every identity used by the assertions is distinct from the requested label.
+HERDR_DIRECT_WT="$TMP_ROOT/herdr-direct-wt"
+make_worktree "$HERDR_DIRECT_WT" 601
+HERDR_DIRECT_STATE="$TMP_ROOT/herdr-direct-state"
+HERDR_DIRECT_CREATE_LOG="$HERDR_DIRECT_STATE/create.log"
+HERDR_DIRECT_RUN_LOG="$HERDR_DIRECT_STATE/run.log"
+HERDR_DIRECT_CLOSE_LOG="$HERDR_DIRECT_STATE/close.log"
+HERDR_DIRECT_SUCCESS_OUT="$TMP_ROOT/herdr-direct-success.json"
+HERDR_DIRECT_SUCCESS_ERR="$TMP_ROOT/herdr-direct-success.err"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DIRECT_STATE" \
+HERDR_CREATE_LOG="$HERDR_DIRECT_CREATE_LOG" HERDR_RUN_LOG="$HERDR_DIRECT_RUN_LOG" HERDR_CLOSE_LOG="$HERDR_DIRECT_CLOSE_LOG" \
+HERDR_WORKSPACE_ID=herdr-workspace-601 HERDR_PANE_ID=herdr-pane-601 HERDR_RUN_ISSUE=601 HERDR_SEED_DECOY=1 \
+HERDR_REQUEST_ID=herdr-request-601 \
+PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" launch --name requested-label-601 --worktree "$HERDR_DIRECT_WT" \
+  --runner-relative .review/ISSUE-601-launch.fixture/launch.sh >"$HERDR_DIRECT_SUCCESS_OUT" 2>"$HERDR_DIRECT_SUCCESS_ERR"
+herdr_direct_success_ec=$?
+node - "$HERDR_DIRECT_SUCCESS_OUT" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (value.external_handle !== "herdr-workspace-601" || value.lifecycle !== "launched") process.exit(1);
+NODE
+herdr_direct_json_ec=$?
+if [ "$herdr_direct_success_ec" -eq 0 ] && [ "$herdr_direct_json_ec" -eq 0 ] \
+  && grep -Fx -- '--cwd' "$HERDR_DIRECT_CREATE_LOG" >/dev/null \
+  && grep -Fx -- "$HERDR_DIRECT_WT" "$HERDR_DIRECT_CREATE_LOG" >/dev/null \
+  && grep -Fx -- '--label' "$HERDR_DIRECT_CREATE_LOG" >/dev/null \
+  && grep -Fx -- 'requested-label-601' "$HERDR_DIRECT_CREATE_LOG" >/dev/null \
+  && grep -Fx -- '--no-focus' "$HERDR_DIRECT_CREATE_LOG" >/dev/null \
+  && grep -Fx -- 'herdr-pane-601' "$HERDR_DIRECT_RUN_LOG" >/dev/null \
+  && grep -Fx -- 'bash .review/ISSUE-601-launch.fixture/launch.sh' "$HERDR_DIRECT_RUN_LOG" >/dev/null \
+  && [ -f "$HERDR_DIRECT_WT/.review/ISSUE-601-RUN.json" ] \
+  && [ ! -e "$HERDR_DIRECT_CLOSE_LOG" ]; then
+  pass "Herdr launch proves exact cwd, label, no-focus, root pane, and empty-stdout success"
+else fail "Herdr successful launch seam (ec=$herdr_direct_success_ec out=$(cat "$HERDR_DIRECT_SUCCESS_OUT") err=$(cat "$HERDR_DIRECT_SUCCESS_ERR"))"; fi
+
+HERDR_WRONG_CWD="$TMP_ROOT/herdr-wrong-cwd"
+mkdir -p "$HERDR_WRONG_CWD"
+for create_mode in fail timeout malformed wrong_type missing_workspace_id missing_pane_id cross_wired wrong_cwd; do
+  create_state="$TMP_ROOT/herdr-create-$create_mode-state"
+  create_out="$TMP_ROOT/herdr-create-$create_mode.out"
+  create_err="$TMP_ROOT/herdr-create-$create_mode.err"
+  create_workspace="herdr-workspace-$create_mode"
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$create_state" \
+  HERDR_CREATE_LOG="$create_state/create.log" HERDR_RUN_LOG="$create_state/run.log" HERDR_CLOSE_LOG="$create_state/close.log" \
+  HERDR_CREATE_MODE="$create_mode" HERDR_WRONG_CWD="$HERDR_WRONG_CWD" HERDR_WORKSPACE_ID="$create_workspace" HERDR_PANE_ID="herdr-pane-$create_mode" \
+  PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" launch --name "requested-$create_mode" --worktree "$HERDR_DIRECT_WT" \
+    --runner-relative .review/ISSUE-601-launch.fixture/launch.sh >"$create_out" 2>"$create_err"
+  create_ec=$?
+  expected_create_ec=2
+  [ "$create_mode" = "fail" ] && expected_create_ec=7
+  [ "$create_mode" = "timeout" ] && expected_create_ec=124
+  if [ "$create_ec" -eq "$expected_create_ec" ] && [ ! -s "$create_out" ] \
+    && [ ! -e "$create_state/run.log" ] && [ ! -e "$create_state/close.log" ]; then
+    pass "Herdr $create_mode create rejection precedes pane run and cleanup"
+  else fail "Herdr $create_mode create rejection (ec=$create_ec out=$(cat "$create_out") err=$(cat "$create_err"))"; fi
+done
+
+for run_mode in pane_not_found invalid_key pane_send_failed; do
+  run_state="$TMP_ROOT/herdr-definite-$run_mode-state"
+  run_out="$TMP_ROOT/herdr-definite-$run_mode.out"
+  run_err="$TMP_ROOT/herdr-definite-$run_mode.err"
+  run_workspace="herdr-workspace-$run_mode"
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$run_state" \
+  HERDR_CREATE_LOG="$run_state/create.log" HERDR_RUN_LOG="$run_state/run.log" HERDR_CLOSE_LOG="$run_state/close.log" \
+  HERDR_WORKSPACE_ID="$run_workspace" HERDR_PANE_ID="herdr-pane-$run_mode" HERDR_REQUEST_ID="herdr-request-$run_mode" HERDR_RUN_MODE="$run_mode" HERDR_RUN_STATUS=1 HERDR_SEED_DECOY=1 \
+  PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" launch --name "requested-$run_mode" --worktree "$HERDR_DIRECT_WT" \
+    --runner-relative .review/ISSUE-601-launch.fixture/launch.sh >"$run_out" 2>"$run_err"
+  run_ec=$?
+  close_count="$(grep -Fx -- "$run_workspace" "$run_state/close.log" 2>/dev/null | wc -l | tr -d ' ')"
+  if [ "$run_ec" -eq 1 ] && [ ! -s "$run_out" ] && [ "$close_count" = "1" ] \
+    && ! grep -Fx -- 'decoy-workspace' "$run_state/close.log" >/dev/null 2>&1; then
+    pass "Herdr definite $run_mode rejection closes only its created workspace"
+  else fail "Herdr definite $run_mode rejection (ec=$run_ec out=$(cat "$run_out") err=$(cat "$run_err"))"; fi
+done
+
+HERDR_CLOSE_NOISY_STATE="$TMP_ROOT/herdr-close-noisy-state"
+HERDR_CLOSE_NOISY_OUT="$TMP_ROOT/herdr-close-noisy.out"
+HERDR_CLOSE_NOISY_ERR="$TMP_ROOT/herdr-close-noisy.err"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_CLOSE_NOISY_STATE" \
+HERDR_CREATE_LOG="$HERDR_CLOSE_NOISY_STATE/create.log" HERDR_RUN_LOG="$HERDR_CLOSE_NOISY_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_CLOSE_NOISY_STATE/close.log" \
+HERDR_WORKSPACE_ID=herdr-workspace-close-noisy HERDR_PANE_ID=herdr-pane-close-noisy HERDR_REQUEST_ID=herdr-request-close-noisy HERDR_RUN_MODE=pane_not_found HERDR_RUN_STATUS=1 HERDR_SEED_DECOY=1 \
+HERDR_CLOSE_MODE=fail HERDR_CLOSE_STATUS=9 HERDR_CLOSE_STDOUT=noisy-close-output \
+PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" launch --name requested-close-noisy --worktree "$HERDR_DIRECT_WT" \
+  --runner-relative .review/ISSUE-601-launch.fixture/launch.sh >"$HERDR_CLOSE_NOISY_OUT" 2>"$HERDR_CLOSE_NOISY_ERR"
+close_noisy_ec=$?
+if [ "$close_noisy_ec" -eq 1 ] && [ ! -s "$HERDR_CLOSE_NOISY_OUT" ] \
+  && ! grep -q 'noisy-close-output' "$HERDR_CLOSE_NOISY_OUT" "$HERDR_CLOSE_NOISY_ERR"; then
+  pass "Herdr cleanup output cannot replace the original pane rejection"
+else fail "Herdr cleanup status/output preservation (ec=$close_noisy_ec out=$(cat "$HERDR_CLOSE_NOISY_OUT") err=$(cat "$HERDR_CLOSE_NOISY_ERR"))"; fi
+
+for run_mode in ambiguous_empty ambiguous_multiple ambiguous_malformed ambiguous_other; do
+  ambiguous_state="$TMP_ROOT/herdr-ambiguous-$run_mode-state"
+  ambiguous_out="$TMP_ROOT/herdr-ambiguous-$run_mode.out"
+  ambiguous_err="$TMP_ROOT/herdr-ambiguous-$run_mode.err"
+  ambiguous_workspace="herdr-workspace-$run_mode"
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$ambiguous_state" \
+  HERDR_CREATE_LOG="$ambiguous_state/create.log" HERDR_RUN_LOG="$ambiguous_state/run.log" HERDR_CLOSE_LOG="$ambiguous_state/close.log" \
+  HERDR_WORKSPACE_ID="$ambiguous_workspace" HERDR_PANE_ID="herdr-pane-$run_mode" HERDR_RUN_MODE="$run_mode" HERDR_RUN_STATUS=7 \
+  PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" launch --name "requested-$run_mode" --worktree "$HERDR_DIRECT_WT" \
+    --runner-relative .review/ISSUE-601-launch.fixture/launch.sh >"$ambiguous_out" 2>"$ambiguous_err"
+  ambiguous_ec=$?
+  if [ "$ambiguous_ec" -eq 7 ] && node - "$ambiguous_out" "$ambiguous_workspace" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (value.external_handle !== process.argv[3] || value.lifecycle !== "command_unconfirmed") process.exit(1);
+NODE
+  then
+    if [ ! -e "$ambiguous_state/close.log" ]; then pass "Herdr $run_mode preserves handle/status without cleanup"; else fail "Herdr $run_mode performed ambiguous cleanup"; fi
+  else fail "Herdr $run_mode ambiguity (ec=$ambiguous_ec out=$(cat "$ambiguous_out") err=$(cat "$ambiguous_err"))"; fi
+done
+
+herdr_inspect_case() {
+  inspect_mode="$1"
+  expected_lifecycle="$2"
+  expected_reason="$3"
+  inspect_out_file="$TMP_ROOT/herdr-inspect-$inspect_mode.json"
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DIRECT_STATE" HERDR_GET_MODE="$inspect_mode" \
+  PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" inspect --worktree "$HERDR_DIRECT_WT" --external-handle herdr-workspace-601 >"$inspect_out_file" 2>&1
+  inspect_ec=$?
+  if [ "$inspect_ec" -eq 0 ] && node - "$inspect_out_file" "$expected_lifecycle" "$expected_reason" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (value.lifecycle !== process.argv[3] || value.reason !== process.argv[4]) process.exit(1);
+NODE
+  then pass "Herdr inspect $inspect_mode normalizes to $expected_lifecycle"; else fail "Herdr inspect $inspect_mode (ec=$inspect_ec out=$(cat "$inspect_out_file"))"; fi
+}
+herdr_inspect_case live live 'exact workspace handle is present'
+herdr_inspect_case live_other handle_unverifiable 'workspace handle identity is mismatched'
+herdr_inspect_case stale stale 'workspace handle is not found'
+herdr_inspect_case malformed_success handle_unverifiable 'workspace response is malformed'
+for inspect_mode in malformed_success malformed_error multiple_error other_error empty_error stale_nonzero; do
+  [ "$inspect_mode" = "malformed_success" ] && continue
+  herdr_inspect_case "$inspect_mode" handle_unverifiable 'workspace handle cannot be verified'
+done
+
+for run_mode in pane_not_found invalid_key pane_send_failed; do
+  unconfirmed_state="$TMP_ROOT/herdr-unconfirmed-$run_mode-state"
+  unconfirmed_out="$TMP_ROOT/herdr-unconfirmed-$run_mode.out"
+  unconfirmed_err="$TMP_ROOT/herdr-unconfirmed-$run_mode.err"
+  unconfirmed_workspace="herdr-workspace-unconfirmed-$run_mode"
+  HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$unconfirmed_state" \
+  HERDR_CREATE_LOG="$unconfirmed_state/create.log" HERDR_RUN_LOG="$unconfirmed_state/run.log" HERDR_CLOSE_LOG="$unconfirmed_state/close.log" \
+  HERDR_WORKSPACE_ID="$unconfirmed_workspace" HERDR_PANE_ID="herdr-pane-unconfirmed-$run_mode" HERDR_REQUEST_ID="herdr-request-unconfirmed-$run_mode" HERDR_RUN_MODE="$run_mode" HERDR_RUN_STATUS=7 \
+  PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/herdr.sh" launch --name "requested-unconfirmed-$run_mode" --worktree "$HERDR_DIRECT_WT" \
+    --runner-relative .review/ISSUE-601-launch.fixture/launch.sh >"$unconfirmed_out" 2>"$unconfirmed_err"
+  unconfirmed_ec=$?
+  if [ "$unconfirmed_ec" -eq 7 ] && node - "$unconfirmed_out" "$unconfirmed_workspace" <<'NODE'
+const fs = require("fs");
+const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (value.external_handle !== process.argv[3] || value.lifecycle !== "command_unconfirmed") process.exit(1);
+NODE
+  then
+    if [ ! -e "$unconfirmed_state/close.log" ]; then pass "Herdr non-1 $run_mode preserves handle/status without cleanup"; else fail "Herdr non-1 $run_mode performed cleanup"; fi
+  else fail "Herdr non-1 $run_mode ambiguity (ec=$unconfirmed_ec out=$(cat "$unconfirmed_out") err=$(cat "$unconfirmed_err"))"; fi
+done
+
+HERDR_INSPECT_SESSION_OUT="$TMP_ROOT/herdr-inspect-session-missing.json"
+env -u HERDR_ENV -u HERDR_SOCKET_PATH HERDR_STATE_DIR="$HERDR_DIRECT_STATE" PATH="$BIN:$PATH" \
+bash "$ROOT/scripts/adapters/herdr.sh" inspect --worktree "$HERDR_DIRECT_WT" --external-handle herdr-workspace-601 >"$HERDR_INSPECT_SESSION_OUT" 2>&1
+herdr_inspect_session_ec=$?
+if [ "$herdr_inspect_session_ec" -eq 0 ] && node - "$HERDR_INSPECT_SESSION_OUT" <<'NODE'
+const value = require(process.argv[2]);
+if (value.lifecycle !== "handle_unverifiable" || value.reason !== "session_context_missing") process.exit(1);
+NODE
+then pass "Herdr inspect reports missing session context as typed JSON"; else fail "Herdr inspect session context ($(cat "$HERDR_INSPECT_SESSION_OUT"))"; fi
+
+HERDR_DISPATCH_WT="$TMP_ROOT/herdr-dispatch-wt"
+make_worktree "$HERDR_DISPATCH_WT" 602
+HERDR_DISPATCH_STATE="$TMP_ROOT/herdr-dispatch-state"
+HERDR_DISPATCH_OUT="$TMP_ROOT/herdr-dispatch.out"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" \
+HERDR_CREATE_LOG="$HERDR_DISPATCH_STATE/create.log" HERDR_RUN_LOG="$HERDR_DISPATCH_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_DISPATCH_STATE/close.log" \
+HERDR_WORKSPACE_ID=herdr-workspace-602 HERDR_PANE_ID=herdr-pane-602 HERDR_RUN_MODE=success HERDR_SEED_DECOY=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+bash "$CLI" dispatch --orchestrator herdr --issue 602 --worktree "$HERDR_DISPATCH_WT" --name requested-label-602 --read-only --poll-timeout 3 >"$HERDR_DISPATCH_OUT" 2>&1
+herdr_dispatch_ec=$?
+HERDR_DISPATCH_RECEIPT="$HERDR_DISPATCH_WT/.review/ISSUE-602-TRANSPORT.json"
+if [ "$herdr_dispatch_ec" -eq 0 ] && [ -f "$HERDR_DISPATCH_RECEIPT" ] \
+  && grep -Fx -- '--cwd' "$HERDR_DISPATCH_STATE/create.log" >/dev/null \
+  && grep -Fx -- "$HERDR_DISPATCH_WT" "$HERDR_DISPATCH_STATE/create.log" >/dev/null \
+  && grep -Fx -- '--label' "$HERDR_DISPATCH_STATE/create.log" >/dev/null \
+  && grep -Fx -- 'requested-label-602' "$HERDR_DISPATCH_STATE/create.log" >/dev/null \
+  && grep -Fx -- '--no-focus' "$HERDR_DISPATCH_STATE/create.log" >/dev/null \
+  && grep -Fx -- 'herdr-pane-602' "$HERDR_DISPATCH_STATE/run.log" >/dev/null \
+  && grep -E '^bash \.review/ISSUE-602-launch\..*/launch\.sh$' "$HERDR_DISPATCH_STATE/run.log" >/dev/null \
+  && node - "$HERDR_DISPATCH_RECEIPT" <<'NODE'
+const value = require(process.argv[2]);
+if (value.adapter !== "herdr" || value.external_handle !== "herdr-workspace-602") process.exit(1);
+NODE
+then pass "Herdr public dispatch publishes the returned workspace receipt"; else fail "Herdr public dispatch (ec=$herdr_dispatch_ec out=$(cat "$HERDR_DISPATCH_OUT"))"; fi
+
+HERDR_INSPECT_OUT="$TMP_ROOT/herdr-inspect-live.out"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=live \
+PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
+if grep -q '"adapter":"herdr"' "$HERDR_INSPECT_OUT" && grep -q '"lifecycle":"live"' "$HERDR_INSPECT_OUT"; then
+  pass "Herdr CLI inspect reports the exact returned workspace as live"
+else fail "Herdr CLI live inspect ($(cat "$HERDR_INSPECT_OUT"))"; fi
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=stale \
+PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
+if grep -q '"lifecycle":"stale"' "$HERDR_INSPECT_OUT" && grep -q 'workspace handle is not found' "$HERDR_INSPECT_OUT"; then
+  pass "Herdr CLI inspect classifies exact workspace_not_found as stale"
+else fail "Herdr CLI stale inspect ($(cat "$HERDR_INSPECT_OUT"))"; fi
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=live_other \
+PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
+if grep -q '"lifecycle":"handle_unverifiable"' "$HERDR_INSPECT_OUT" && grep -q 'workspace handle identity is mismatched' "$HERDR_INSPECT_OUT"; then
+  pass "Herdr CLI inspect rejects a mismatched workspace identity"
+else fail "Herdr CLI mismatched inspect ($(cat "$HERDR_INSPECT_OUT"))"; fi
+
+node - "$VALIDATOR" "$SCHEMA" "$HERDR_DISPATCH_RECEIPT" <<'NODE'
+const { validate } = require(process.argv[2]);
+const fs = require("fs");
+const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const value = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+if (validate(schema, value).length) process.exit(1);
+NODE
+if [ "$?" -eq 0 ]; then pass "Herdr public receipt remains schema-valid"; else fail "Herdr public receipt schema"; fi
+
+HERDR_AMBIGUOUS_WT="$TMP_ROOT/herdr-ambiguous-dispatch-wt"
+make_worktree "$HERDR_AMBIGUOUS_WT" 603
+HERDR_AMBIGUOUS_STATE="$TMP_ROOT/herdr-ambiguous-dispatch-state"
+HERDR_AMBIGUOUS_OUT="$TMP_ROOT/herdr-ambiguous-dispatch.out"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_STATE" \
+HERDR_CREATE_LOG="$HERDR_AMBIGUOUS_STATE/create.log" HERDR_RUN_LOG="$HERDR_AMBIGUOUS_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_AMBIGUOUS_STATE/close.log" \
+HERDR_WORKSPACE_ID=herdr-workspace-603 HERDR_PANE_ID=herdr-pane-603 HERDR_RUN_MODE=ambiguous_malformed HERDR_RUN_STATUS=7 HERDR_WRITE_RUN_ON_AMBIGUOUS=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+bash "$CLI" dispatch --orchestrator herdr --issue 603 --worktree "$HERDR_AMBIGUOUS_WT" --read-only --poll-timeout 3 >"$HERDR_AMBIGUOUS_OUT" 2>&1
+herdr_ambiguous_ec=$?
+if [ "$herdr_ambiguous_ec" -eq 0 ] && [ -f "$HERDR_AMBIGUOUS_WT/.review/ISSUE-603-TRANSPORT.json" ] \
+  && grep -q 'adapter launch returned 7' "$HERDR_AMBIGUOUS_OUT" \
+  && [ ! -e "$HERDR_AMBIGUOUS_STATE/close.log" ]; then
+  pass "Herdr ambiguous run preserves handle and lets fresh RUN evidence classify success"
+else fail "Herdr ambiguous fresh-evidence dispatch (ec=$herdr_ambiguous_ec out=$(cat "$HERDR_AMBIGUOUS_OUT"))"; fi
+
+HERDR_AMBIGUOUS_ABSENT_WT="$TMP_ROOT/herdr-ambiguous-absent-wt"
+make_worktree "$HERDR_AMBIGUOUS_ABSENT_WT" 604
+HERDR_AMBIGUOUS_ABSENT_STATE="$TMP_ROOT/herdr-ambiguous-absent-state"
+HERDR_AMBIGUOUS_ABSENT_OUT="$TMP_ROOT/herdr-ambiguous-absent.out"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_ABSENT_STATE" \
+HERDR_CREATE_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/create.log" HERDR_RUN_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/close.log" \
+HERDR_WORKSPACE_ID=herdr-workspace-604 HERDR_PANE_ID=herdr-pane-604 HERDR_RUN_MODE=ambiguous_empty HERDR_RUN_STATUS=7 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+bash "$CLI" dispatch --orchestrator herdr --issue 604 --worktree "$HERDR_AMBIGUOUS_ABSENT_WT" --read-only --poll-timeout 1 >"$HERDR_AMBIGUOUS_ABSENT_OUT" 2>&1
+herdr_ambiguous_absent_ec=$?
+if [ "$herdr_ambiguous_absent_ec" -eq 7 ] && [ -f "$HERDR_AMBIGUOUS_ABSENT_WT/.review/ISSUE-604-TRANSPORT.json" ] \
+  && grep -q 'adapter launch returned 7' "$HERDR_AMBIGUOUS_ABSENT_OUT" \
+  && [ ! -e "$HERDR_AMBIGUOUS_ABSENT_STATE/close.log" ]; then
+  pass "Herdr ambiguous run preserves handle and original status without evidence"
+else fail "Herdr ambiguous absent-evidence dispatch (ec=$herdr_ambiguous_absent_ec out=$(cat "$HERDR_AMBIGUOUS_ABSENT_OUT"))"; fi
+
+HERDR_DEFINITE_WT="$TMP_ROOT/herdr-definite-dispatch-wt"
+make_worktree "$HERDR_DEFINITE_WT" 605
+HERDR_DEFINITE_STATE="$TMP_ROOT/herdr-definite-dispatch-state"
+HERDR_DEFINITE_OUT="$TMP_ROOT/herdr-definite-dispatch.out"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DEFINITE_STATE" \
+HERDR_CREATE_LOG="$HERDR_DEFINITE_STATE/create.log" HERDR_RUN_LOG="$HERDR_DEFINITE_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_DEFINITE_STATE/close.log" \
+HERDR_WORKSPACE_ID=herdr-workspace-605 HERDR_PANE_ID=herdr-pane-605 HERDR_RUN_MODE=pane_not_found HERDR_RUN_STATUS=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+bash "$CLI" dispatch --orchestrator herdr --issue 605 --worktree "$HERDR_DEFINITE_WT" --read-only --poll-timeout 1 >"$HERDR_DEFINITE_OUT" 2>&1
+herdr_definite_ec=$?
+if [ "$herdr_definite_ec" -eq 1 ] && [ ! -e "$HERDR_DEFINITE_WT/.review/ISSUE-605-TRANSPORT.json" ] \
+  && [ "$(grep -Fx -- herdr-workspace-605 "$HERDR_DEFINITE_STATE/close.log" | wc -l | tr -d ' ')" = "1" ] \
+  && [ ! -e "$HERDR_DEFINITE_STATE/close.log.decoy" ]; then
+  pass "Herdr definite public rejection publishes no receipt and closes its handle"
+else fail "Herdr definite public rejection (ec=$herdr_definite_ec out=$(cat "$HERDR_DEFINITE_OUT"))"; fi
+
 # Both adapters cross the same typed boundary and therefore inherit the same
 # initial admission marker, runner identity, receipt, and freshness polling.
 CMUX_WT="$TMP_ROOT/cmux-wt"
@@ -273,7 +893,7 @@ if [ "$pin_ec" -eq 2 ] && grep -q 'required_runtime_capability_missing' "$TMP_RO
   pass "invalid Codex executable pin fails before admission"
 else fail "Codex executable pin pre-admission validation"; fi
 
-for pair in "$CMUX_WT:502" "$ORCA_WT:503"; do
+for pair in "$CMUX_WT:502" "$ORCA_WT:503" "$HERDR_DISPATCH_WT:602"; do
   path="${pair%:*}"; issue="${pair#*:}"
   node - "$VALIDATOR" "$SCHEMA" "$path/.review/ISSUE-${issue}-TRANSPORT.json" <<'NODE'
 const { validate } = require(process.argv[2]);
@@ -413,9 +1033,10 @@ if [ "$?" -eq 0 ]; then pass "transport receipt valid and invalid fixtures enfor
 
 capabilities_out="$TMP_ROOT/capabilities.json"
 TRANSPORT_USED="$TMP_ROOT/capability-unused" CMUX_ARGV="$TMP_ROOT/capability-cmux" ORCA_ARGV="$TMP_ROOT/capability-orca" \
-PATH="$BIN:$PATH" bash "$CLI" capabilities --worktree "$WT" > "$capabilities_out"
-if node -e 'const v=require(process.argv[1]); if(v.adapters.length!==2 || !v.adapters.every(x=>x.available===true)) process.exit(1)' "$capabilities_out"; then
-  pass "capabilities reports both adapters and their reasons"
+HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$TMP_ROOT/capability-herdr-state" PATH="$BIN:$PATH" \
+bash "$CLI" capabilities --worktree "$WT" > "$capabilities_out"
+if node -e 'const v=require(process.argv[1]); const names=v.adapters.map(x=>x.adapter).sort().join(","); if(names!=="cmux,herdr,orca" || !v.adapters.every(x=>x.available===true)) process.exit(1)' "$capabilities_out"; then
+  pass "capabilities reports cmux, Orca, and Herdr independently"
 else fail "capabilities report"; fi
 
 echo "---"
