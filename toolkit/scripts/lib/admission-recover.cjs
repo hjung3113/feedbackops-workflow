@@ -45,7 +45,7 @@ const safeRouteBinding = value => {
       || !["codex", "claude", "opencode"].includes(value.runtime)
       || !["implementation", "reviewer", "verifier"].includes(value.role)
       || !["trivial", "standard", "full_cluster"].includes(value.tier)
-      || !["cmux", "orca"].includes(value.transport)
+      || !["cmux", "orca", "herdr"].includes(value.transport)
       || value.selection_basis !== "ordered_policy"
       || !Array.isArray(value.decision_reason_codes) || value.decision_reason_codes.length < 1
       || !value.decision_reason_codes.every(code => ["model_alloc", "ordered_policy"].includes(code))
