@@ -685,7 +685,10 @@ const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 if (value.external_handle !== process.argv[3] || value.lifecycle !== "command_unconfirmed") process.exit(1);
 NODE
   then
-    if [ ! -e "$ambiguous_state/close.log" ]; then pass "Herdr $run_mode preserves handle/status without cleanup"; else fail "Herdr $run_mode performed ambiguous cleanup"; fi
+    if [ ! -e "$ambiguous_state/close.log" ] \
+      && { [ "$run_mode" != ambiguous_other ] || grep -F -q '"server_error"' "$ambiguous_err"; }; then
+      pass "Herdr $run_mode preserves handle/status without cleanup"
+    else fail "Herdr $run_mode performed ambiguous cleanup or lost stderr"; fi
   else fail "Herdr $run_mode ambiguity (ec=$ambiguous_ec out=$(cat "$ambiguous_out") err=$(cat "$ambiguous_err"))"; fi
 done
 

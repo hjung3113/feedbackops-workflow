@@ -284,6 +284,7 @@ NODE
       fi
       ;;
   esac
+  if [ -s "$run_stderr" ]; then cat "$run_stderr" >&2; fi
   node - "$workspace_id" <<'NODE'
 const id = process.argv[2];
 process.stdout.write(JSON.stringify({ external_handle: id, lifecycle: "command_unconfirmed" }) + "\n");

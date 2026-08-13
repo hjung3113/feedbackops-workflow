@@ -8,7 +8,15 @@
   "runtime_version": "0.147.0",
   "adapter": "herdr",
   "adapter_version": "herdr 0.8.0",
-  "capabilities": ["workspace.create", "workspace.get.read_only"],
+  "capabilities": [
+    "session.inherited",
+    "workspace.create.cwd",
+    "workspace.create.label",
+    "workspace.create.no_focus",
+    "workspace.get.read_only",
+    "workspace.close",
+    "pane.run"
+  ],
   "external_handle": "workspace-42",
   "worktree_path": "/tmp/example",
   "runner": {
