@@ -446,11 +446,23 @@ mkdir -p "$empty_installed"
 assert_rejects "missing installed authorities fail" 'missing product docs or the canonical skill' \
   node "$SCRIPT_DIR/release-contract-check.cjs" installed "$empty_installed"
 
-if bash "$PRODUCT_ROOT/scripts/__tests__/run-all.sh" --list | grep -F -x -q 'install-into.smoke.sh'; then
-  ok "full product suite includes installer contract"
-else
-  not_ok "full product suite includes installer contract"
-fi
+smoke_inventory_matches() {
+  manifest_file="$1"
+  if [ "$(sort "$manifest_file" | uniq -d | wc -l | tr -d ' ')" -ne 0 ]; then
+    return 1
+  fi
+  diff -q <(bash "$PRODUCT_ROOT/scripts/__tests__/run-all.sh" --list | sort) \
+    <(sort "$manifest_file") >/dev/null 2>&1
+}
+
+SMOKE_INVENTORY_MANIFEST="$PRODUCT_ROOT/scripts/__tests__/smoke-inventory.manifest"
+assert_exists "smoke inventory manifest" "$SMOKE_INVENTORY_MANIFEST"
+assert_command "full product suite matches the closed-set smoke inventory manifest" \
+  smoke_inventory_matches "$SMOKE_INVENTORY_MANIFEST"
+manifest_missing_entry="$TMP_DIR/smoke-inventory-missing.manifest"
+grep -v -F -x -- 'telemetry.smoke.sh' "$SMOKE_INVENTORY_MANIFEST" > "$manifest_missing_entry"
+assert_fails "manifest missing a real smoke entry fails inventory parity" \
+  smoke_inventory_matches "$manifest_missing_entry"
 
 # The runner's own contract test must stay outside the live inventory: the
 # runner discovers work by the *.smoke.sh suffix and would otherwise re-enter
