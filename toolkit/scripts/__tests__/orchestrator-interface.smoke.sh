@@ -391,6 +391,9 @@ exit 0
 EOF
 chmod +x "$BIN/codex"
 export AGENT_WORKFLOW_CODEX_BIN="$BIN/codex"
+# The generic runtime pin outranks the per-runtime pin, so a value inherited
+# from a dispatching session would bypass the fake codex binary above.
+unset AGENT_WORKFLOW_RUNTIME_BIN
 
 WT="$TMP_ROOT/choice"
 make_worktree "$WT" 501
@@ -824,12 +827,9 @@ if (value.adapter !== "herdr" || value.external_handle !== "herdr-workspace-602"
 NODE
 then pass "Herdr public dispatch publishes the returned workspace receipt"; else fail "Herdr public dispatch (ec=$herdr_dispatch_ec out=$(cat "$HERDR_DISPATCH_OUT"))"; fi
 
-HERDR_INSPECT_OUT="$TMP_ROOT/herdr-inspect-live.out"
-HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=live \
-PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
-if grep -q '"adapter":"herdr"' "$HERDR_INSPECT_OUT" && grep -q '"lifecycle":"live"' "$HERDR_INSPECT_OUT"; then
-  pass "Herdr CLI inspect reports the exact returned workspace as live"
-else fail "Herdr CLI live inspect ($(cat "$HERDR_INSPECT_OUT"))"; fi
+# The live inspection of this receipt is proven for every registry adapter by
+# the shared AC-116-1 loop below; only Herdr-specific error mappings remain.
+HERDR_INSPECT_OUT="$TMP_ROOT/herdr-inspect.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=stale \
 PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
 if grep -q '"lifecycle":"stale"' "$HERDR_INSPECT_OUT" && grep -q 'workspace handle is not found' "$HERDR_INSPECT_OUT"; then
@@ -966,11 +966,29 @@ NODE
 done
 if [ "$FAILURES" -eq 0 ]; then pass "dispatch publishes schema-valid non-authoritative receipts"; fi
 
+# AC-116-1: every registry adapter's dispatched receipt crosses the same CLI
+# inspect boundary with the same evidence shape — its own adapter identity, a
+# live probe of the handle dispatch returned, and the non-authoritative
+# completion note. Only the receipt fixture and the inherited-session env
+# needed to reach Herdr's probe differ.
 inspect_out="$TMP_ROOT/inspect.out"
-PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" > "$inspect_out"
-if grep -q '"adapter":"cmux"' "$inspect_out" && grep -q '"lifecycle":"live"' "$inspect_out"; then
-  pass "inspect queries the cmux external workspace handle read-only"
-else fail "cmux external handle inspection"; fi
+for adapter in $(node "$PRODUCT_HOME/scripts/lib/transport-registry.cjs" lines); do
+  case "$adapter" in
+    cmux) live_receipt="$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" ;;
+    orca) live_receipt="$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" ;;
+    herdr) live_receipt="$HERDR_DISPATCH_WT/.review/ISSUE-602-TRANSPORT.json" ;;
+  esac
+  if [ "$adapter" = herdr ]; then
+    HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=live \
+      PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$live_receipt" > "$inspect_out" 2>&1
+  else
+    PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$live_receipt" > "$inspect_out" 2>&1
+  fi
+  if grep -q "\"adapter\":\"$adapter\"" "$inspect_out" && grep -q '"lifecycle":"live"' "$inspect_out" \
+    && grep -q '"authoritative":false' "$inspect_out" && grep -q 'canonical REVIEW and VERIFY' "$inspect_out"; then
+    pass "AC-116-1 $adapter receipt inspects live through the shared boundary without completion authority"
+  else fail "AC-116-1 $adapter live inspect ($(cat "$inspect_out"))"; fi
+done
 cmux_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_handle)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
 if [ "$cmux_handle" = "workspace:11" ]; then
   pass "cmux receipt normalizes the plain-text create workspace ref rather than the requested name"
@@ -1049,10 +1067,6 @@ if [ "$unprovable_ec" -eq 2 ] && grep -q 'did not return one provable workspace 
   && [ ! -e "$CMUX_UNPROVABLE_WT/.review/ISSUE-507-TRANSPORT.json" ]; then
   pass "cmux launch without a provable id/ref fails before receipt publication"
 else fail "cmux unprovable create identity (ec=$unprovable_ec)"; fi
-PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
-if grep -q '"lifecycle":"live"' "$inspect_out" && grep -q '"authoritative":false' "$inspect_out" && grep -q 'canonical REVIEW and VERIFY' "$inspect_out"; then
-  pass "inspect refuses to equate transport lifecycle with completion"
-else fail "inspect authority boundary"; fi
 orca_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_handle)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
 if [ "$orca_handle" = "term-503" ]; then
   pass "Orca receipt uses nested terminal handle rather than create request id"
