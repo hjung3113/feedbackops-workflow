@@ -64,6 +64,8 @@ fs.writeFileSync(process.argv[3],JSON.stringify(value));
 NODE
 assert_json "opencode-reviewer-uses-target-runtime-allocation" '{"review_model":"local/reviewer","review_effort":"high"}' --role reviewer --runner opencode --config "$TMP_DIR/opencode-reviewer.json"
 
+assert_json "opencode-implementation-uses-runtime-allocation" '{"impl_model":"zai-coding-plan/glm-5.2","impl_effort":"low"}' --role implementation --runner opencode --config "$DEFAULT_CONFIG"
+
 "$ALLOC" --role implementation --config "$DEFAULT_CONFIG" --runner claude >/dev/null 2>"$TMP_DIR/runtime-mismatch.err"
 if [ "$?" -eq 2 ] && grep -q 'unavailable via claude' "$TMP_DIR/runtime-mismatch.err"; then
   pass "allocation derives availability from selected runtime"
@@ -75,6 +77,8 @@ fi
 # names migrate deterministically; unknown names still fail closed.
 node - "$DEFAULT_CONFIG" "$TMP_DIR/legacy-v1.json" <<'NODE'
 const fs=require("fs"), v=JSON.parse(fs.readFileSync(process.argv[2]));
+delete v.implementation_by_runtime;
+delete v.capabilities["zai-coding-plan/glm-5.2"];
 for (const capability of Object.values(v.capabilities)) delete capability.available_via;
 fs.writeFileSync(process.argv[3], JSON.stringify(v));
 NODE
@@ -139,6 +143,8 @@ cat > "$TMP_DIR/trivial.json" <<'EOF'
 {"changed_lines":1,"file_count":1,"review_round":0,"consecutive_finding_rounds":[],"blocker":false,"touch_set":["src/a.ts"]}
 EOF
 if "$ALLOC" --role implementation --config "$TMP_DIR/final-unavailable.json" --runner codex --evidence "$TMP_DIR/trivial.json" >/dev/null 2>&1; then fail "adapted final model is revalidated"; else pass "adapted final model is revalidated"; fi
+
+assert_json "opencode-implementation-trivial-keeps-runtime-override" '{"impl_model":"zai-coding-plan/glm-5.2","impl_effort":"low"}' --role implementation --runner opencode --config "$DEFAULT_CONFIG" --evidence "$TMP_DIR/trivial.json"
 
 cat > "$TMP_DIR/large-blocker.json" <<'EOF'
 {"changed_lines":401,"file_count":3,"review_round":2,"consecutive_finding_rounds":[1,2],"blocker":true,"touch_set":["src/a.ts"]}

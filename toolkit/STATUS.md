@@ -28,6 +28,11 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
   Claude entry uses `sonnet`, while OpenCode remains target-provider-configured
   and refuses before admission when no `reviewer_by_runtime.opencode` tuple is
   supplied.
+- Implementation allocation is runtime-aware: `implementation_by_runtime.<runtime>`
+  is used when configured (skipping the `trivial_implementation` swap, adjusting
+  effort only), otherwise the default `implementation` entry; a default model
+  whose `available_via` excludes the selected runtime fails closed before
+  admission.
 - GPT-5.6 allocations accept the official `none`, `low`, `medium`, `high`,
   `xhigh`, and `max` efforts for Sol, Terra, and Luna and preserve them through
   routing, receipts, recovery, and telemetry. The scorecard retains its

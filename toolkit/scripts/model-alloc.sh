@@ -60,9 +60,11 @@ const stepDown = allocation => {
 const defaultReview = clone("reviewer");
 const runtimeReview = role === "reviewer" && config.reviewer_by_runtime && config.reviewer_by_runtime[runner];
 if (role === "reviewer" && runner !== "codex" && !runtimeReview) fail(`reviewer allocation is not configured for ${runner}; set reviewer_by_runtime.${runner} to a preflightable model`);
-let impl = clone("implementation"), review = runtimeReview ? { model: runtimeReview.model, effort: runtimeReview.effort } : defaultReview, contract = clone("contract_gate");
+const runtimeImpl = config.implementation_by_runtime && config.implementation_by_runtime[runner];
+let impl = runtimeImpl ? { model: runtimeImpl.model, effort: runtimeImpl.effort } : clone("implementation"), review = runtimeReview ? { model: runtimeReview.model, effort: runtimeReview.effort } : defaultReview, contract = clone("contract_gate");
 const rationale = [`config:${config.source}@${config.release}`, `role:${role}`];
 if (runtimeReview) rationale.push(`runtime_reviewer:${runner}`);
+if (runtimeImpl) rationale.push(`runtime_implementation:${runner}`);
 if (!evidenceFile) {
   rationale.push("no_canonical_evidence: default allocation retained");
 } else {
@@ -74,7 +76,7 @@ if (!evidenceFile) {
   const contractTouch = evidence.touch_set.some(path => path === "packages/shared" || path.indexOf("packages/shared/") === 0 || /(^|\/)shared\//.test(path) || /contract/i.test(path));
   const large = evidence.changed_lines > config.signals.large_changed_lines || evidence.file_count > config.signals.large_file_count;
   if (contractTouch) { promote(impl, "medium"); rationale.push("exported_contract: implementation promoted; sol contract gate selected"); }
-  else if (evidence.changed_lines <= config.signals.trivial_changed_lines && evidence.file_count <= 1) { impl = clone("trivial_implementation"); rationale.push("small_touch_set: trivial implementation allocation"); }
+  else if (!runtimeImpl && evidence.changed_lines <= config.signals.trivial_changed_lines && evidence.file_count <= 1) { impl = clone("trivial_implementation"); rationale.push("small_touch_set: trivial implementation allocation"); }
   else if (large) { promote(impl, "high"); rationale.push("large_touch_set: implementation effort promoted"); }
   if (evidence.blocker || findingRounds.length >= 2) {
     promote(impl, "medium");
@@ -87,7 +89,8 @@ const output = { impl_model: impl.model, impl_effort: impl.effort, review_model:
 // (for example with trivial_implementation). Revalidate the final tuple, not
 // merely the pre-adaptation role entry, before it reaches dispatch.
 const finalSeat = role === "reviewer" ? review : impl;
-if (!runtimeReview && (!config.capabilities[finalSeat.model] || !config.capabilities[finalSeat.model].available_via.includes(runner))) {
+const seatOverride = role === "reviewer" ? runtimeReview : runtimeImpl;
+if (!seatOverride && (!config.capabilities[finalSeat.model] || !config.capabilities[finalSeat.model].available_via.includes(runner))) {
   fail(`final model ${finalSeat.model} is unavailable via ${runner} for role ${role}`);
 }
 const reviewScore = config.capabilities[defaultReview.model].static_coding + config.capabilities[defaultReview.model].reasoning;

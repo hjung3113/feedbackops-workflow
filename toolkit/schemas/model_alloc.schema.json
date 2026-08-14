@@ -21,6 +21,15 @@
       },
       "additionalProperties": false
     },
+    "implementation_by_runtime": {
+      "type": "object",
+      "properties": {
+        "codex": { "$ref": "#/definitions/allocation" },
+        "claude": { "$ref": "#/definitions/allocation" },
+        "opencode": { "$ref": "#/definitions/allocation" }
+      },
+      "additionalProperties": false
+    },
     "capabilities": { "type": "object", "minProperties": 1, "additionalProperties": { "$ref": "#/definitions/capability" } },
     "signals": {
       "type": "object",
