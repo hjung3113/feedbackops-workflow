@@ -29,7 +29,21 @@ capabilities() {
   for adapter in cmux orca herdr; do
     script="$(adapter_script "$adapter")"
     result="$(bash "$script" capabilities --worktree "$worktree" 2>/dev/null)"
-    [ -n "$result" ] || result="{\"adapter\":\"$adapter\",\"available\":false,\"reason_code\":\"capability_probe_failed\",\"version\":\"unknown\",\"capabilities\":[]}"
+    probe_status=$?
+    # A child probe that fails or emits anything other than the shared
+    # capability-result shape is folded into the synthetic unavailable
+    # fallback; a child being unavailable is not a fatal aggregate failure.
+    if [ "$probe_status" -ne 0 ] || ! node - "$result" "$adapter" <<'NODE'
+try {
+  const value = JSON.parse(process.argv[2]);
+  if (value.adapter !== process.argv[3] || typeof value.available !== "boolean"
+      || typeof value.version !== "string" || !Array.isArray(value.capabilities)
+      || value.capabilities.some(entry => typeof entry !== "string")) process.exit(2);
+} catch (error) { process.exit(2); }
+NODE
+    then
+      result="{\"adapter\":\"$adapter\",\"available\":false,\"reason_code\":\"capability_probe_failed\",\"version\":\"unknown\",\"capabilities\":[]}"
+    fi
     [ "$first" -eq 1 ] || printf ','
     printf '%s' "$result"
     first=0
@@ -238,7 +252,7 @@ try {
   if (errors.length) throw new Error(errors.join("; "));
   const inspection = JSON.parse(adapterInspectionJson);
   if (!["live", "stale", "handle_unverifiable"].includes(inspection.lifecycle)
-      || typeof inspection.reason !== "string" || !inspection.reason) throw new Error("invalid adapter inspection");
+      || typeof inspection.reason !== "string" || !inspection.reason.trim()) throw new Error("invalid adapter inspection");
   let lifecycle = inspection.lifecycle;
   let reason = inspection.reason;
   try {

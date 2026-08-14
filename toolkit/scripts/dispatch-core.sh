@@ -722,6 +722,16 @@ try {
   const value = JSON.parse(process.argv[2]);
   const expected = process.argv[3];
   if (value.adapter !== expected || value.available !== true || typeof value.version !== "string" || !Array.isArray(value.capabilities)) process.exit(2);
+  // An "available" claim must carry a provable version and a non-empty,
+  // duplicate-free list of non-blank capability strings. Anything less is
+  // treated exactly like an unavailable adapter.
+  if (!value.version.trim()) process.exit(2);
+  if (!value.capabilities.length) process.exit(2);
+  const seen = new Set();
+  for (const entry of value.capabilities) {
+    if (typeof entry !== "string" || !entry.trim() || seen.has(entry)) process.exit(2);
+    seen.add(entry);
+  }
   process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities));
 } catch (error) { process.exit(2); }
 NODE
@@ -1247,8 +1257,13 @@ fi
 LAUNCHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LAUNCH_JSON="$(bash "$ADAPTER_SCRIPT" launch --name "$WS_NAME" --worktree "$ABS_WORKTREE" --runner-relative "$RUNNER_RELATIVE")"
 launch_status=$?
-EXTERNAL_HANDLE="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.external_handle !== "string" || !v.external_handle) process.exit(2); process.stdout.write(v.external_handle); } catch(e) { process.exit(2); }' "$LAUNCH_JSON")" || {
-  echo "ERROR: $ADAPTER adapter returned an invalid or ambiguous external handle" >&2
+# A launch result is only acceptable when the adapter reports one of the two
+# legitimately observable lifecycles (launched, or Herdr's ambiguous
+# command_unconfirmed) together with a non-blank handle. Any other lifecycle
+# value or a whitespace-only handle is rejected exactly like a missing handle:
+# no receipt, no runner/admission progression from this point.
+EXTERNAL_HANDLE="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.external_handle !== "string" || !v.external_handle.trim() || (v.lifecycle !== "launched" && v.lifecycle !== "command_unconfirmed")) process.exit(2); process.stdout.write(v.external_handle); } catch(e) { process.exit(2); }' "$LAUNCH_JSON")" || {
+  echo "ERROR: $ADAPTER adapter returned an invalid or ambiguous external handle or launch lifecycle" >&2
   if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; else exit 2; fi
 }
 if [ "$launch_status" -ne 0 ]; then
