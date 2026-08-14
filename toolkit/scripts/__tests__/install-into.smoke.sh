@@ -363,7 +363,7 @@ EOF
   installed_dispatch_out="$TMP_DIR/installed-real-dispatch.out"
   INSTALLED_WATCHDOG_LOG="$TMP_DIR/installed-watchdog.log" \
   INSTALLED_CMUX_COMMAND="$TMP_DIR/installed-cmux-command.txt" \
-  CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$installed_cmux_bin:$PATH" \
+  AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$installed_cmux_bin:$PATH" \
   bash "$scripts/cmux-dispatch.sh" --issue 189 --worktree "$target" --read-only --poll-timeout 3 >"$installed_dispatch_out" 2>&1
   installed_dispatch_exit=$?
   installed_command="$(cat "$TMP_DIR/installed-cmux-command.txt" 2>/dev/null)"

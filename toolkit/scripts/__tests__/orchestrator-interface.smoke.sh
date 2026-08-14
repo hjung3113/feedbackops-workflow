@@ -809,7 +809,7 @@ HERDR_DISPATCH_OUT="$TMP_ROOT/herdr-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" \
 HERDR_CREATE_LOG="$HERDR_DISPATCH_STATE/create.log" HERDR_RUN_LOG="$HERDR_DISPATCH_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_DISPATCH_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-602 HERDR_PANE_ID=herdr-pane-602 HERDR_RUN_MODE=success HERDR_SEED_DECOY=1 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 602 --worktree "$HERDR_DISPATCH_WT" --name requested-label-602 --read-only --poll-timeout 3 >"$HERDR_DISPATCH_OUT" 2>&1
 herdr_dispatch_ec=$?
 HERDR_DISPATCH_RECEIPT="$HERDR_DISPATCH_WT/.review/ISSUE-602-TRANSPORT.json"
@@ -857,7 +857,7 @@ HERDR_AMBIGUOUS_OUT="$TMP_ROOT/herdr-ambiguous-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_STATE" \
 HERDR_CREATE_LOG="$HERDR_AMBIGUOUS_STATE/create.log" HERDR_RUN_LOG="$HERDR_AMBIGUOUS_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_AMBIGUOUS_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-603 HERDR_PANE_ID=herdr-pane-603 HERDR_RUN_MODE=ambiguous_malformed HERDR_RUN_STATUS=7 HERDR_WRITE_RUN_ON_AMBIGUOUS=1 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 603 --worktree "$HERDR_AMBIGUOUS_WT" --read-only --poll-timeout 3 >"$HERDR_AMBIGUOUS_OUT" 2>&1
 herdr_ambiguous_ec=$?
 if [ "$herdr_ambiguous_ec" -eq 0 ] && [ -f "$HERDR_AMBIGUOUS_WT/.review/ISSUE-603-TRANSPORT.json" ] \
@@ -873,7 +873,7 @@ HERDR_AMBIGUOUS_ABSENT_OUT="$TMP_ROOT/herdr-ambiguous-absent.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_ABSENT_STATE" \
 HERDR_CREATE_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/create.log" HERDR_RUN_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-604 HERDR_PANE_ID=herdr-pane-604 HERDR_RUN_MODE=ambiguous_empty HERDR_RUN_STATUS=7 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 604 --worktree "$HERDR_AMBIGUOUS_ABSENT_WT" --read-only --poll-timeout 1 >"$HERDR_AMBIGUOUS_ABSENT_OUT" 2>&1
 herdr_ambiguous_absent_ec=$?
 if [ "$herdr_ambiguous_absent_ec" -eq 7 ] && [ -f "$HERDR_AMBIGUOUS_ABSENT_WT/.review/ISSUE-604-TRANSPORT.json" ] \
@@ -889,7 +889,7 @@ HERDR_DEFINITE_OUT="$TMP_ROOT/herdr-definite-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DEFINITE_STATE" \
 HERDR_CREATE_LOG="$HERDR_DEFINITE_STATE/create.log" HERDR_RUN_LOG="$HERDR_DEFINITE_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_DEFINITE_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-605 HERDR_PANE_ID=herdr-pane-605 HERDR_RUN_MODE=pane_not_found HERDR_RUN_STATUS=1 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 605 --worktree "$HERDR_DEFINITE_WT" --read-only --poll-timeout 1 >"$HERDR_DEFINITE_OUT" 2>&1
 herdr_definite_ec=$?
 if [ "$herdr_definite_ec" -eq 1 ] && [ ! -e "$HERDR_DEFINITE_WT/.review/ISSUE-605-TRANSPORT.json" ] \
@@ -905,10 +905,10 @@ ORCA_WT="$TMP_ROOT/orca-wt"
 make_worktree "$CMUX_WT" 502
 make_worktree "$ORCA_WT" 503
 TRANSPORT_USED="$TMP_ROOT/cmux-used" CMUX_ARGV="$TMP_ROOT/cmux-argv" ORCA_ARGV="$TMP_ROOT/unused-orca" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/cmux.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/cmux.out" 2>&1
 cmux_ec=$?
 TRANSPORT_USED="$TMP_ROOT/orca-used" CMUX_ARGV="$TMP_ROOT/unused-cmux" ORCA_ARGV="$TMP_ROOT/orca-argv" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator orca --issue 503 --worktree "$ORCA_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/orca.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator orca --issue 503 --worktree "$ORCA_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/orca.out" 2>&1
 orca_ec=$?
 if [ "$cmux_ec" -eq 0 ] && [ "$orca_ec" -eq 0 ] \
   && [ -d "$CMUX_WT/.review/.write-dispatch-issue-502-started" ] \
@@ -1007,7 +1007,7 @@ old_cmux_runner="$cmux_runner"
 # the now-superseded receipt runner without touching the pending runner.
 rm -f "${old_cmux_runner%/launch.sh}/.receipt-published"
 TRANSPORT_USED="$TMP_ROOT/cmux-redispatch-used" CMUX_ARGV="$TMP_ROOT/cmux-redispatch-argv" ORCA_ARGV="$TMP_ROOT/unused-orca" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --read-only --poll-timeout 3 >"$TMP_ROOT/cmux-redispatch.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --read-only --poll-timeout 3 >"$TMP_ROOT/cmux-redispatch.out" 2>&1
 cmux_redispatch_ec=$?
 current_cmux_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
 if [ "$cmux_redispatch_ec" -eq 1 ] && [ "$current_cmux_runner" != "$old_cmux_runner" ] \
@@ -1060,7 +1060,7 @@ done
 
 CMUX_UNPROVABLE_WT="$TMP_ROOT/cmux-unprovable"
 make_worktree "$CMUX_UNPROVABLE_WT" 507
-CMUX_CREATE_SHAPE=name_only AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+CMUX_CREATE_SHAPE=name_only AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator cmux --issue 507 --worktree "$CMUX_UNPROVABLE_WT" --tier trivial --poll-timeout 1 > "$TMP_ROOT/cmux-unprovable.out" 2>&1
 unprovable_ec=$?
 if [ "$unprovable_ec" -eq 2 ] && grep -q 'did not return one provable workspace id/ref' "$TMP_ROOT/cmux-unprovable.out" \
@@ -1081,7 +1081,7 @@ for invalid_create_shape in missing ambiguous; do
 done
 ORCA_UNPROVABLE_WT="$TMP_ROOT/orca-unprovable"
 make_worktree "$ORCA_UNPROVABLE_WT" 508
-ORCA_CREATE_MODE=missing AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+ORCA_CREATE_MODE=missing AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator orca --issue 508 --worktree "$ORCA_UNPROVABLE_WT" --tier trivial --poll-timeout 1 > "$TMP_ROOT/orca-unprovable.out" 2>&1
 orca_unprovable_ec=$?
 if [ "$orca_unprovable_ec" -eq 2 ] && [ ! -e "$ORCA_UNPROVABLE_WT/.review/ISSUE-508-TRANSPORT.json" ]; then
@@ -1211,7 +1211,7 @@ strict_launch_case() {
   case_out="$TMP_ROOT/strict-launch-$case_name.out"
   FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
   FAKE_CMUX_LAUNCH_JSON="$launch_json" FAKE_CMUX_LAUNCH_STATUS="$launch_status" \
-  AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+  AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
     bash "$CLI" dispatch --orchestrator cmux --issue 611 --worktree "$case_wt" --read-only --poll-timeout 1 >"$case_out" 2>&1
   case_ec=$?
   if [ "$case_ec" -eq 2 ] && grep -q 'invalid or ambiguous external handle' "$case_out" \
@@ -1231,7 +1231,7 @@ make_worktree "$unconfirmed_wt" 613
 unconfirmed_out="$TMP_ROOT/strict-launch-unconfirmed.out"
 FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
 FAKE_CMUX_LAUNCH_JSON='{"external_handle":"cmux-613","lifecycle":"command_unconfirmed"}' FAKE_CMUX_LAUNCH_STATUS=7 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
   bash "$CLI" dispatch --orchestrator cmux --issue 613 --worktree "$unconfirmed_wt" --read-only --poll-timeout 1 >"$unconfirmed_out" 2>&1
 unconfirmed_ec=$?
 if [ "$unconfirmed_ec" -eq 7 ] && [ -f "$unconfirmed_wt/.review/ISSUE-613-TRANSPORT.json" ]; then
@@ -1326,6 +1326,49 @@ strict_aggregate_case AC-111-7-child-empty-stdout '' 0
 # Restore the real adapters so later consumers of the product copy are intact.
 cp "$ROOT/scripts/adapters/cmux.sh" "$PRODUCT_HOME/scripts/adapters/cmux.sh"
 cp "$ROOT/scripts/adapters/herdr.sh" "$PRODUCT_HOME/scripts/adapters/herdr.sh"
+
+# --- transport-neutral dispatch timing env names (ISSUE-119) ---
+# The shared poll/pre-marker test seam must accept the generic
+# AGENT_WORKFLOW_* names while CMUX_DISPATCH_* remains the legacy fallback;
+# when both are set the generic name wins. Each case dispatches through a
+# cmux stub that never runs the launch command, so no RUN.json can appear
+# and the dispatch can only end via the poll timeout: the wall-clock
+# duration therefore observes which env name supplied the timing.
+ENV_BIN="$TMP_ROOT/bin-env-cmux"
+mkdir -p "$ENV_BIN"
+cat > "$ENV_BIN/cmux" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  printf '%s\n' 'Usage: cmux workspace create [flags]' '  --cwd PATH       Working directory for the workspace' '  --command TEXT   Command the workspace runs'
+  exit 0
+fi
+printf '%s\n' '{"id":"cmux-env-precedence"}'
+EOF
+chmod +x "$ENV_BIN/cmux"
+env_precedence_case() {
+  case_id="$1"; case_issue="$2"; case_env="$3"; min_seconds="$4"; max_seconds="$5"
+  case_wt="$TMP_ROOT/env-precedence-$case_issue"
+  make_worktree "$case_wt" "$case_issue"
+  case_out="$TMP_ROOT/env-precedence-$case_issue.out"
+  case_start="$(date +%s)"
+  env $case_env AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$ENV_BIN:$PATH" \
+    bash "$CLI" dispatch --orchestrator cmux --issue "$case_issue" --worktree "$case_wt" --tier trivial --poll-timeout 2 >"$case_out" 2>&1
+  case_ec=$?
+  case_duration=$(( $(date +%s) - case_start ))
+  if [ "$case_ec" -ne 0 ] && grep -q 'dispatch-core: transport receipt=' "$case_out" \
+    && [ "$case_duration" -ge "$min_seconds" ] && [ "$case_duration" -lt "$max_seconds" ]; then
+    pass "$case_id"
+  else
+    fail "$case_id (ec=$case_ec duration=${case_duration}s $(cat "$case_out"))"
+  fi
+}
+env_precedence_case "AC-119-1 AGENT_WORKFLOW_POLL_INTERVAL alone sets the poll interval" 613 "AGENT_WORKFLOW_POLL_INTERVAL=1" 2 4
+env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone still sets the poll interval" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 2 4
+env_precedence_case "AC-119-3 AGENT_WORKFLOW_POLL_INTERVAL wins over a set CMUX_DISPATCH_POLL_INTERVAL" 615 "AGENT_WORKFLOW_POLL_INTERVAL=1 CMUX_DISPATCH_POLL_INTERVAL=5" 2 4
+env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the write marker" 616 "AGENT_WORKFLOW_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
+env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
+env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 5
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then echo "ALL CASES PASS"; exit 0; fi
