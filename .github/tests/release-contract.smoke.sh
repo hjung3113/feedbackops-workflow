@@ -130,8 +130,11 @@ assert_exists "candidate closure gate" "$PRODUCT_ROOT/scripts/candidate-close.sh
 assert_exists "shared RFC3339 parser" "$PRODUCT_ROOT/scripts/lib/rfc3339.cjs"
 assert_exists "shared cmux handle normalizer" "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
 assert_exists "telemetry sample semantic validator" "$PRODUCT_ROOT/scripts/lib/telemetry-sample.cjs"
-assert_contains "closure requires final review lifecycle" 'value.lifecycle !== "final"' "$PRODUCT_ROOT/scripts/lib/candidate-close.cjs"
-assert_contains "closure requires active PR draft lifecycle" 'value.lifecycle !== "active"' "$PRODUCT_ROOT/scripts/lib/candidate-close.cjs"
+# Lifecycle-guard behavior (final REVIEW / active PR-DRAFT closure evidence)
+# is owned by toolkit/scripts/__tests__/parallel-safety.smoke.sh's "only final
+# REVIEW and active PR-DRAFT lifecycles can close", which invokes
+# candidate-close.sh evaluate with inactive lifecycle artifacts and asserts the
+# refusal behavior.
 assert_exists "product smoke suite" "$PRODUCT_ROOT/scripts/__tests__/run-all.sh"
 assert_exists "product schemas" "$PRODUCT_ROOT/schemas/round_state.schema.json"
 assert_exists "execution plan schema" "$PRODUCT_ROOT/schemas/execution_plan.schema.json"
@@ -196,8 +199,28 @@ fs.writeFileSync(process.argv[3], JSON.stringify(schema) + "\n");
 NODE
 assert_fails "transport parity gate rejects a schema enum missing a registered adapter" \
   transport_registry_parity "$parity_negative_fixture" adapter ""
-assert_contains "shared core pins the selected capability-probed runtime executable" 'AGENT_WORKFLOW_RUNTIME_BIN=' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
-assert_contains "cmux create recognizes documented workspace id fields" '"id", "workspace_id", "workspaceId"' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+# Pinning the resolved runtime executable into the retained runner is
+# behavior owned by toolkit/scripts/__tests__/orchestrator-interface.smoke.sh's
+# "both transports pin the validated runtime executable in the common runner",
+# which greps the runner script a real dispatch generated (a runtime artifact,
+# not source text) for the resolved absolute executable.
+# cmux create handle recognition is behavior: each documented envelope id
+# field must normalize to the unique workspace handle, and a nested decoy id
+# must never be adopted. Nested-shape owners: orchestrator-interface.smoke.sh
+# AC-111-12 create/inspect decoy rejection.
+cmux_create_normalizes_handle() {
+  payload="$1"; expected="$2"
+  node "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs" create "$payload" 2>/dev/null \
+    | grep -F -q "\"external_handle\":\"$expected\""
+}
+assert_command "cmux create recognizes the envelope id field" \
+  cmux_create_normalizes_handle '{"id":"ws-release-1"}' 'ws-release-1'
+assert_command "cmux create recognizes the envelope workspace_id field" \
+  cmux_create_normalizes_handle '{"workspace_id":"ws-release-2"}' 'ws-release-2'
+assert_command "cmux create recognizes the envelope workspaceId field" \
+  cmux_create_normalizes_handle '{"workspaceId":"ws-release-3"}' 'ws-release-3'
+assert_command "cmux create never adopts a nested decoy id" \
+  cmux_create_normalizes_handle '{"request":{"id":"decoy"},"workspaceId":"ws-release-4"}' 'ws-release-4'
 assert_contains "cmux create/inspect recognize the documented ref field" 'WORKSPACE_REF_KEYS = ["ref"]' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
 assert_exists "product playbook" "$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
 assert_exists "product conductor persona" "$PRODUCT_ROOT/docs/agents/conductor-persona.md"
@@ -286,7 +309,11 @@ assert_contains "root README routes to product README" 'toolkit/README.md' "$REP
 assert_contains "trial log remains marked historical" 'Historical record' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "trial log preserves dated legacy evidence" 'feature/31-idem-audit-assertion' "$PRODUCT_ROOT/docs/agents/workflow-trial-log.md"
 assert_contains "product instructions forbid duplicate authority" 'Do not recreate an `agent-workflow` authority outside this product root.' "$PRODUCT_ROOT/AGENTS.md"
-assert_contains "shared dispatch core requires canonical initial state" 'initial write requires --round-state and --manifest-revision' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
+# Requiring --round-state/--manifest-revision on a non-trivial initial write
+# is behavior owned by toolkit/scripts/__tests__/cmux-dispatch.smoke.sh's
+# "initial write refuses dispatch without canonical ROUND-STATE", which
+# dispatches --tier standard without --round-state and asserts the refusal
+# exit before any launch.
 assert_exists "product Claude pointer" "$PRODUCT_ROOT/CLAUDE.md"
 assert_contains "root instructions identify Matt development skills" 'Matt Pocock skills under `.agents/skills/`' "$REPOSITORY_ROOT/AGENTS.md"
 
@@ -447,7 +474,42 @@ assert_transport_guidance_files "installed transport guidance" "$copy_target" \
   ".agent-workflow/docs/agents/conductor-persona.md" \
   ".claude/skills/agent-workflow/SKILL.md" \
   ".claude/skills/agent-workflow/references/adoption.md"
-assert_contains "copy preserves canonical initial-state admission" 'initial write requires --round-state and --manifest-revision' "$copy_target/.agent-workflow/scripts/dispatch-core.sh"
+# Installed-copy admission is behavior, not source text: with the same hermetic
+# fake runtime/transport shapes cmux-dispatch.smoke.sh uses, the installed
+# dispatch must complete a trivial dry-run yet refuse a full_cluster initial
+# write that omits --round-state/--manifest-revision, leaving no run state.
+release_gate_bin="$TMP_DIR/release gate bin"
+release_gate_wt="$TMP_DIR/release gate worktree"
+mkdir -p "$release_gate_bin" "$release_gate_wt/.review"
+cat > "$release_gate_bin/codex-release-fake" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'codex release gate 1.0'; exit 0 ;;
+  --help) echo 'Commands: exec'; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; }; exit 0 ;;
+  *) exit 0 ;;
+esac
+EOF
+cat > "$release_gate_bin/cmux" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]          Create a workspace (same flags as new-workspace)'; exit 0; fi
+if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then echo '{"workspaces":[]}'; exit 0; fi
+exit 0
+EOF
+chmod +x "$release_gate_bin/codex-release-fake" "$release_gate_bin/cmux"
+git init -q "$release_gate_wt"
+git -C "$release_gate_wt" -c user.name=gate -c user.email=gate@example.test commit --allow-empty -qm base
+printf '%s\n' 'release gate prompt' > "$release_gate_wt/.review/ISSUE-911-PROMPT.txt"
+assert_command "installed copy completes a trivial dry-run dispatch" \
+  env -u AGENT_WORKFLOW_RUNTIME_BIN AGENT_WORKFLOW_CODEX_BIN="$release_gate_bin/codex-release-fake" PATH="$release_gate_bin:$PATH" \
+  bash "$copy_target/.agent-workflow/scripts/cmux-dispatch.sh" --issue 911 --worktree "$release_gate_wt" --tier trivial --dry-run
+env -u AGENT_WORKFLOW_RUNTIME_BIN AGENT_WORKFLOW_CODEX_BIN="$release_gate_bin/codex-release-fake" PATH="$release_gate_bin:$PATH" \
+  bash "$copy_target/.agent-workflow/scripts/cmux-dispatch.sh" --issue 911 --worktree "$release_gate_wt" --tier full_cluster --dry-run >/dev/null 2>&1
+release_refusal_ec=$?
+assert_equals "installed copy refuses an initial write without ROUND-STATE" "2" "$release_refusal_ec"
+assert_absent "refused initial write leaves no run state" "$release_gate_wt/.review/ISSUE-911-RUN.json"
 printf '%s\n' '[source-only](../../../README.md)' \
   > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
 assert_rejects "installed target-owned Markdown link fails" 'escapes its documented context' \

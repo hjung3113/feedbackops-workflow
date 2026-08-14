@@ -133,13 +133,31 @@ assert_current_content() {
   assert_true "$label includes parallel planner" test -x "$target/.agent-workflow/scripts/parallel-plan.sh"
   assert_true "$label includes candidate integrator" test -x "$target/.agent-workflow/scripts/candidate-integrate.sh"
   assert_true "$label includes candidate closure" test -x "$target/.agent-workflow/scripts/candidate-close.sh"
-  assert_true "$label installs final review lifecycle guard" grep -F -q 'value.lifecycle !== "final"' "$target/.agent-workflow/scripts/lib/candidate-close.cjs"
-  assert_true "$label installs active PR draft lifecycle guard" grep -F -q 'value.lifecycle !== "active"' "$target/.agent-workflow/scripts/lib/candidate-close.cjs"
+  # Lifecycle-guard behavior (final REVIEW / active PR-DRAFT closure evidence)
+  # is owned by parallel-safety.smoke.sh's "only final REVIEW and active
+  # PR-DRAFT lifecycles can close"; the installed gate only needs to stay
+  # byte-identical to that behaviorally-tested source.
+  assert_true "$label installs the behaviorally-owned candidate closure gate" cmp -s "$PRODUCT_ROOT/scripts/lib/candidate-close.cjs" "$target/.agent-workflow/scripts/lib/candidate-close.cjs"
   assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
   assert_true "$label includes execution plan schema" test -e "$target/.agent-workflow/schemas/execution_plan.schema.json"
   assert_true "$label includes candidate closure schema" test -e "$target/.agent-workflow/schemas/candidate_closure.schema.json"
   assert_true "$label installs direct closure bindings" grep -q '"closure_binding"' "$target/.agent-workflow/schemas/review.schema.json"
-  assert_true "$label installs RFC3339 closure timestamps" grep -F -q '(?:Z|[+-]\\d{2}:\\d{2})' "$target/.agent-workflow/schemas/candidate_closure.schema.json"
+  # RFC3339 timestamp enforcement behavior is owned by telemetry.smoke.sh's
+  # "AC-TEL-3 canonical closure rejects non-RFC3339 timestamp"; prove the
+  # installed schema itself accepts the valid closure fixture and rejects the
+  # non-RFC3339-timestamp one.
+  assert_true "$label installs an RFC3339-enforcing closure schema" node - \
+    "$target/.agent-workflow/scripts/lib/json-schema-subset.cjs" \
+    "$target/.agent-workflow/schemas/candidate_closure.schema.json" \
+    "$target/.agent-workflow/schemas/fixtures/candidate_closure.valid.json" \
+    "$target/.agent-workflow/schemas/fixtures/candidate_closure.timestamp.invalid.json" <<'NODE'
+const fs = require("fs");
+const [validator, schemaFile, validFixture, invalidFixture] = process.argv.slice(2);
+const { validate } = require(validator);
+const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+if (validate(schema, JSON.parse(fs.readFileSync(validFixture, "utf8"))).length) process.exit(1);
+if (!validate(schema, JSON.parse(fs.readFileSync(invalidFixture, "utf8"))).length) process.exit(2);
+NODE
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"
   assert_transport_guidance_files "$label installed transport guidance" "$target" \
