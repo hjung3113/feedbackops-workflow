@@ -165,7 +165,8 @@ assert_exists "local telemetry command" "$PRODUCT_ROOT/scripts/telemetry.sh"
 assert_exists "product schema fixtures" "$PRODUCT_ROOT/schemas/fixtures/round_state.valid.json"
 assert_exists "invalid RUN schema fixture" "$PRODUCT_ROOT/schemas/fixtures/run.invalid.json"
 assert_contains "shared core pins the selected capability-probed runtime executable" 'AGENT_WORKFLOW_RUNTIME_BIN=' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
-assert_contains "cmux create and inspect share unique id fields" '"workspace_id", "workspaceId", "ref"' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+assert_contains "cmux create recognizes documented workspace id fields" '"id", "workspace_id", "workspaceId"' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+assert_contains "cmux create/inspect recognize the documented ref field" 'WORKSPACE_REF_KEYS = ["ref"]' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
 assert_exists "product playbook" "$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
 assert_exists "product conductor persona" "$PRODUCT_ROOT/docs/agents/conductor-persona.md"
 assert_exists "product visual reviewer persona" "$PRODUCT_ROOT/docs/agents/visual-reviewer-persona.md"
@@ -238,10 +239,15 @@ assert_command "CI actively runs release contract" ci_has_active_run \
   "$REPOSITORY_ROOT/.github/workflows/smoke.yml" 'bash .github/tests/release-contract.smoke.sh'
 assert_command "CI actively runs product smoke suite with clean NODE_OPTIONS" ci_has_active_run \
   "$REPOSITORY_ROOT/.github/workflows/smoke.yml" 'NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh'
+assert_command "CI actively runs the run-all runner contract test" ci_has_active_run \
+  "$REPOSITORY_ROOT/.github/workflows/smoke.yml" 'bash toolkit/scripts/__tests__/run-all-contract.test.sh'
 commented_workflow="$TMP_DIR/commented-smoke.yml"
 printf '%s\n' '# - run: bash .github/tests/release-contract.smoke.sh' > "$commented_workflow"
 assert_fails "commented CI command does not satisfy routing" ci_has_active_run \
   "$commented_workflow" 'bash .github/tests/release-contract.smoke.sh'
+printf '%s\n' '# - run: bash toolkit/scripts/__tests__/run-all-contract.test.sh' >> "$commented_workflow"
+assert_fails "commented CI command does not satisfy contract test routing" ci_has_active_run \
+  "$commented_workflow" 'bash toolkit/scripts/__tests__/run-all-contract.test.sh'
 assert_contains "hook routes to product rebase helper" 'toolkit/scripts/rebase-inflight.sh' "$REPOSITORY_ROOT/.githooks/post-merge"
 assert_contains "maintainer instructions route to product scripts" 'toolkit/scripts/' "$REPOSITORY_ROOT/AGENTS.md"
 assert_contains "root README routes to product README" 'toolkit/README.md' "$REPOSITORY_ROOT/README.md"
