@@ -39,7 +39,13 @@ fi
 CMUX_PROBE_HELPER="$TMP_ROOT/cmux-probe-helper.sh"
 cat > "$CMUX_PROBE_HELPER" <<'EOF'
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  case "${CMUX_HELP_MODE:-live}" in
+    direct) printf '%s\n' 'Usage: cmux workspace create --name NAME --cwd PATH --command TEXT'; exit 0 ;;
+    unrelated) printf '%s\n' 'Usage: cmux workspace create [flags]'; exit 0 ;;
+    *) printf '%s\n' '  create [flags]          Create a workspace (same flags as new-workspace)'; exit 0 ;;
+  esac
+fi
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then echo '{"workspaces":[]}'; exit 0; fi
 EOF
@@ -551,6 +557,44 @@ if [ "$ec" -eq 0 ] && [ -n "$runner_333" ] && [ -x "$runner_333" ] && grep -q "f
   pass "deep dispatch uses a short relative runner and preserves watchdog argv"
 else
   fail "deep dispatch uses a short relative runner and preserves watchdog argv (ec=$ec: $(cat "$runner_transport_out"))"
+fi
+
+# --- capability proof comes from workspace create --help itself (AC-112) ---
+# The dispatch seam admits a delegation-style help (live 0.64.22 wording) and
+# a direct --cwd/--command listing, and refuses an unrelated summary before
+# any runner is created, even though the legacy new-workspace surface in this
+# fake still advertises both flags.
+CAP_WT="$TMP_ROOT/capability-wt"
+mkdir -p "$CAP_WT/.review"
+git init -q "$CAP_WT"
+git -C "$CAP_WT" -c user.name="Smoke Test" -c user.email="smoke@example.test" commit --allow-empty -q -m "init"
+capability_issue=311
+for help_mode in live direct; do
+  printf '%s\n' "prompt body" > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
+  cap_mode_out="$TMP_ROOT/capability-$help_mode.out"
+  WATCHDOG_ARGV_FILE="$TMP_ROOT/capability-$help_mode-watchdog-argv.txt" \
+  CMUX_HELP_MODE="$help_mode" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+    bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue "$capability_issue" --worktree "$CAP_WT" \
+    --read-only --poll-timeout 3 >"$cap_mode_out" 2>&1
+  ec=$?
+  if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$cap_mode_out"; then
+    pass "AC-112 $help_mode workspace create --help proves --cwd/--command through dispatch"
+  else
+    fail "AC-112 $help_mode workspace create --help dispatch (ec=$ec: $(cat "$cap_mode_out"))"
+  fi
+  capability_issue=$((capability_issue + 1))
+done
+printf '%s\n' "prompt body" > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
+cap_refusal_out="$TMP_ROOT/capability-unrelated.out"
+CMUX_HELP_MODE=unrelated CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+  bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue "$capability_issue" --worktree "$CAP_WT" \
+  --read-only --poll-timeout 1 >"$cap_refusal_out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q 'required_capability_missing' "$cap_refusal_out" \
+  && ! find "$CAP_WT/.review" -type d -name "ISSUE-${capability_issue}-launch.*" | grep -q .; then
+  pass "AC-112 unrelated workspace create --help is refused before any launch runner"
+else
+  fail "AC-112 unrelated workspace create --help refusal (ec=$ec: $(cat "$cap_refusal_out"))"
 fi
 
 printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-334-PROMPT.txt"

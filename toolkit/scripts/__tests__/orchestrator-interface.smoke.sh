@@ -38,7 +38,26 @@ RESOLVED_BIN="$BIN"
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  case "${CMUX_HELP_MODE:-live}" in
+    direct)
+      printf '%s\n' 'Usage: cmux workspace create [flags]' '  --cwd PATH       Working directory for the workspace' '  --command TEXT   Command the workspace runs'
+      ;;
+    delegation)
+      printf '%s\n' 'Usage: cmux workspace create [flags]' '  create accepts the same flag set as new-workspace'
+      ;;
+    mention_only)
+      printf '%s\n' 'cmux workspace' 'Legacy verbs (new-workspace, list-workspaces) keep working.' 'All workspace verbs apply the same validation rules.'
+      ;;
+    unrelated)
+      printf '%s\n' 'Usage: cmux workspace create' 'create [flags]'
+      ;;
+    live)
+      printf '%s\n' 'cmux workspace' '' 'Usage: cmux workspace <subcommand> [flags]' '' 'Canonical noun for workspace operations. Legacy verbs' '(new-workspace, list-workspaces, close-workspace,' 'rename-workspace, select-workspace) keep working and print a' 'one-time deprecation hint pointing here.' '' 'Subcommands:' '  list                    List workspaces in a window' '  create [flags]          Create a workspace (same flags as new-workspace)' '  env [workspace] [--mask]' '  close <workspace>       Close a workspace' '  rename <workspace> --title <new>' '  select <workspace>      Make a workspace active' '' 'Examples:' '  cmux workspace list --json' '  cmux workspace create --name Build --cwd ~/projects/myapp' '  cmux workspace close workspace:3'
+      ;;
+  esac
+  exit 0
+fi
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then
   case "${CMUX_LIST_MODE:-live}" in
@@ -511,6 +530,37 @@ NODE
   then pass "Herdr workspace list $list_mode is required"; else fail "Herdr workspace list $list_mode ($(cat "$TMP_ROOT/herdr-list-$list_mode.json"))"; fi
 done
 
+# The cmux capability probe must prove --cwd/--command support from the same
+# help surface the launch command uses (`workspace create --help`): a direct
+# flag listing or an explicit same-line new-workspace delegation. The legacy
+# new-workspace help surface still answers in this fake, so the unrelated and
+# mention_only cases also prove the cross-command proof no longer admits.
+CMUX_CAP_SCRIPT="$ROOT/scripts/adapters/cmux.sh"
+cmux_capability_matrix() {
+  case_name="$1"
+  help_mode="$2"
+  expected_available="$3"
+  output_file="$TMP_ROOT/cmux-capability-$help_mode.json"
+  CMUX_HELP_MODE="$help_mode" PATH="$BIN:$PATH" bash "$CMUX_CAP_SCRIPT" capabilities --worktree "$WT" >"$output_file" 2>&1
+  status=$?
+  if [ "$status" -eq 0 ] && node - "$output_file" "$expected_available" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (value.adapter !== "cmux" || value.available !== (process.argv[3] === "true")) process.exit(1);
+  if (!value.available && value.reason_code !== "required_capability_missing") process.exit(1);
+  if (!value.available && (value.version !== "unknown" || value.capabilities.length)) process.exit(1);
+} catch (error) { process.exit(1); }
+NODE
+  then pass "$case_name"
+  else fail "$case_name ($(cat "$output_file"))"; fi
+}
+cmux_capability_matrix "AC-112-1 cmux workspace create --help directly listing --cwd/--command proves capability" direct true
+cmux_capability_matrix "AC-112-2 cmux workspace create --help explicit new-workspace delegation wording proves capability" delegation true
+cmux_capability_matrix "AC-112-3 cmux live 0.64.22 delegation help text still proves capability" live true
+cmux_capability_matrix "AC-112-4 cmux unrelated workspace create --help is rejected as required_capability_missing" unrelated false
+cmux_capability_matrix "AC-112-4 cmux scattered new-workspace mention without same-line delegation is rejected" mention_only false
+
 # An unavailable selected adapter must fail before the initial-write marker and
 # must never call the other adapter.
 BAD_BIN="$TMP_ROOT/bad-bin"
@@ -869,6 +919,11 @@ if [ "$cmux_ec" -eq 0 ] && [ "$orca_ec" -eq 0 ] \
   && grep -E '^bash \.review/ISSUE-503-launch\..*/launch\.sh$' "$TMP_ROOT/orca-argv" >/dev/null; then
   pass "cmux and Orca share exact cwd, runner, admission, and freshness behavior"
 else fail "adapter parity (cmux=$cmux_ec orca=$orca_ec)"; fi
+
+cmux_launch_argv="$(paste -s -d ' ' "$TMP_ROOT/cmux-argv")"
+if printf '%s\n' "$cmux_launch_argv" | grep -Eq '^workspace create --name codex-502 --cwd [^ ]+ --command bash \.review/ISSUE-502-launch\.[^ ]+/launch\.sh$'; then
+  pass "AC-112-5 cmux launch argv still uses workspace create --name/--cwd/--command"
+else fail "AC-112-5 cmux launch argv unchanged ($cmux_launch_argv)"; fi
 
 orca_version="$(node -e 'process.stdout.write(require(process.argv[1]).adapter_version)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
 if [ "$orca_version" = "1.4.161" ] && [ "$orca_version" != "orca" ]; then

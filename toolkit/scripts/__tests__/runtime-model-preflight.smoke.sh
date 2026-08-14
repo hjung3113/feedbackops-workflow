@@ -14,7 +14,13 @@ bad() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  case "${CMUX_HELP_MODE:-live}" in
+    direct) printf '%s\n' 'Usage: cmux workspace create --name NAME --cwd PATH --command TEXT'; exit 0 ;;
+    unrelated) printf '%s\n' 'Usage: cmux workspace create [flags]'; exit 0 ;;
+    *) printf '%s\n' '  create [flags]          Create a workspace (same flags as new-workspace)'; exit 0 ;;
+  esac
+fi
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 while [ "$#" -gt 0 ]; do
   case "$1" in --cwd) cwd="$2"; shift 2;; --command) command="$2"; shift 2;; *) shift;; esac
@@ -104,6 +110,42 @@ if RUNTIME_ARGS_LOG="$TMP/allocated-claude.args" CMUX_LOG="$TMP/allocated-claude
   fi
 else
   bad "Claude reviewer allocation did not reach preflight and launch: $(cat "$TMP/allocated-claude.out")"
+fi
+
+# The cmux capability probe must prove --cwd/--command from `workspace create
+# --help` itself (direct listing or explicit new-workspace delegation). The
+# legacy new-workspace surface still answers in this fake, so an unrelated
+# summary must be refused before any cmux side effect.
+CAP_WT="$TMP/capability-probe"
+mkdir -p "$CAP_WT/.review"
+git init -q "$CAP_WT"
+git -C "$CAP_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
+capability_issue=905
+for help_mode in live direct; do
+  echo 'review prompt' > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
+  : > "$TMP/capability-$help_mode.cmux.log"
+  if CMUX_HELP_MODE="$help_mode" CMUX_LOG="$TMP/capability-$help_mode.cmux.log" \
+    PATH="$BIN:$PATH" AGENT_WORKFLOW_CLAUDE_BIN="$BIN/claude" bash "$CORE" --adapter cmux --runtime claude \
+    --role reviewer --issue "$capability_issue" --worktree "$CAP_WT" --produce-review --model good-model --poll-timeout 1 \
+    >"$TMP/capability-$help_mode.out" 2>&1 && [ -s "$TMP/capability-$help_mode.cmux.log" ]; then
+    ok "AC-112 $help_mode workspace create --help proves --cwd/--command and reaches launch"
+  else
+    bad "AC-112 $help_mode workspace create --help did not reach launch: $(cat "$TMP/capability-$help_mode.out")"
+  fi
+  capability_issue=$((capability_issue + 1))
+done
+echo 'review prompt' > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
+: > "$TMP/capability-unrelated.cmux.log"
+CMUX_HELP_MODE=unrelated CMUX_LOG="$TMP/capability-unrelated.cmux.log" \
+  PATH="$BIN:$PATH" AGENT_WORKFLOW_CLAUDE_BIN="$BIN/claude" bash "$CORE" --adapter cmux --runtime claude \
+  --role reviewer --issue "$capability_issue" --worktree "$CAP_WT" --produce-review --model good-model --poll-timeout 1 \
+  >"$TMP/capability-unrelated.out" 2>&1
+capability_ec=$?
+if [ "$capability_ec" -eq 2 ] && grep -q 'required_capability_missing' "$TMP/capability-unrelated.out" \
+  && [ ! -s "$TMP/capability-unrelated.cmux.log" ]; then
+  ok "AC-112 unrelated workspace create --help is rejected before any cmux side effect"
+else
+  bad "AC-112 unrelated workspace create --help refusal (ec=$capability_ec: $(cat "$TMP/capability-unrelated.out"))"
 fi
 
 # Claude/OpenCode implementation seats must apply the same canonical BLOCKER

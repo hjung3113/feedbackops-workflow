@@ -324,7 +324,7 @@ EOF
   cat > "$installed_cmux_bin/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]          Create a workspace (same flags as new-workspace)'; exit 0; fi
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 cwd=""
 command=""
@@ -373,7 +373,7 @@ assert_product_home_worktree_contract() {
 #!/usr/bin/env bash
 case "${1:-}" in
   --version) echo 'cmux 0.64.0'; exit 0 ;;
-  workspace) [ "${2:-}" = create ] && [ "${3:-}" = --help ] && { echo 'create [flags]'; exit 0; } ;;
+  workspace) [ "${2:-}" = create ] && [ "${3:-}" = --help ] && { echo 'create [flags]          Create a workspace (same flags as new-workspace)'; exit 0; } ;;
   new-workspace) [ "${2:-}" = --help ] && { echo '--cwd PATH --command COMMAND'; exit 0; } ;;
 esac
 exit 2
