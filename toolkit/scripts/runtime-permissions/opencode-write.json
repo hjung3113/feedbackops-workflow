@@ -9,8 +9,8 @@
     "lsp": "allow",
     "edit": "allow",
     "external_directory": "deny",
-    "webfetch": "deny",
-    "websearch": "deny",
+    "webfetch": "allow",
+    "websearch": "allow",
     "task": "deny",
     "bash": "allow"
   },
@@ -27,8 +27,8 @@
         "lsp": "allow",
         "edit": "allow",
         "external_directory": "deny",
-        "webfetch": "deny",
-        "websearch": "deny",
+        "webfetch": "allow",
+        "websearch": "allow",
         "task": "deny",
         "bash": "allow"
       }

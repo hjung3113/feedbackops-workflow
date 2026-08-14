@@ -86,6 +86,12 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   wait "$pid" 2>/dev/null; ec=$?
   if [ "$ec" -ne 0 ]; then
     mkdir -p "$CWD/.review" || exit 1; attempt_stderr="$CWD/.review/ISSUE-${ISSUE_N}-agent-attempt${attempt}-stderr.log"; mv "$STDERR" "$attempt_stderr"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"
+    # codex stashes partial work itself inside codex-safe.sh; claude/opencode
+    # have no equivalent wrapper, so a stall-kill or crash here would otherwise
+    # leave the worktree dirty for the next retry with nothing preserved.
+    if [ "$MODE" = write ] && [ "$PRODUCE_REVIEW" -eq 0 ] && [ "$RUNTIME" != codex ]; then
+      "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$CWD" || true
+    fi
     if [ "$killed" -eq 1 ]; then continue; fi
     # Review runners own canonical-output validation. A non-zero review exit is
     # therefore a terminal refusal, not a transport failure worth retrying.

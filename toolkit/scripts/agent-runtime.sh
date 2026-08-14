@@ -42,15 +42,16 @@ const fs = require("fs"); try {
   const c=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), p=c.permission,
     m=process.argv[3], a=c.agent && c.agent["agent-workflow"], ap=a && a.permission;
   if (!p || p["*"] !== "deny") process.exit(10);
-  if (p.external_directory !== "deny" || p.webfetch !== "deny" || p.websearch !== "deny") process.exit(14);
+  if (p.external_directory !== "deny") process.exit(14);
   if (!a || a.mode !== "primary" || !ap || ap["*"] !== "deny") process.exit(15);
-  if (ap.external_directory !== "deny" || ap.webfetch !== "deny" || ap.websearch !== "deny") process.exit(14);
-  if (m === "write" && (p.edit !== "allow" || ap.edit !== "allow" || p.bash !== "allow" || ap.bash !== "allow")) process.exit(11);
-  if (m === "read" && (p.edit === "allow" || ap.edit === "allow" || p.bash !== "deny" || ap.bash !== "deny")) process.exit(12);
+  if (ap.external_directory !== "deny") process.exit(14);
+  // write (implementation) may fetch docs/packages; read (review/verify) stays fully deny-first.
+  if (m === "write" && (p.edit !== "allow" || ap.edit !== "allow" || p.bash !== "allow" || ap.bash !== "allow" || p.webfetch !== "allow" || ap.webfetch !== "allow" || p.websearch !== "allow" || ap.websearch !== "allow")) process.exit(11);
+  if (m === "read" && (p.edit === "allow" || ap.edit === "allow" || p.bash !== "deny" || ap.bash !== "deny" || p.webfetch !== "deny" || ap.webfetch !== "deny" || p.websearch !== "deny" || ap.websearch !== "deny")) process.exit(12);
 } catch (_) { process.exit(13); }
 NODE
   status=$?; set -e
-  case "$status" in 0) ;; 10) machine_error opencode_permission_not_deny_first 'permission.* must be deny';; 11) machine_error opencode_write_not_explicitly_allowed 'write requires permission.edit=allow and permission.bash=allow';; 12) machine_error opencode_read_allows_write_tools 'read requires edit denied and bash denied';; 14) machine_error opencode_dangerous_permissions_not_denied 'external_directory, webfetch, and websearch must be deny';; 15) machine_error opencode_explicit_agent_required 'config must define deny-first primary agent-workflow';; *) machine_error opencode_permission_config_invalid 'permission config must be JSON';; esac
+  case "$status" in 0) ;; 10) machine_error opencode_permission_not_deny_first 'permission.* must be deny';; 11) machine_error opencode_write_not_explicitly_allowed 'write requires permission.edit=allow, permission.bash=allow, permission.webfetch=allow, and permission.websearch=allow';; 12) machine_error opencode_read_allows_write_tools 'read requires edit, webfetch, and websearch denied, and bash denied';; 14) machine_error opencode_dangerous_permissions_not_denied 'external_directory must be deny';; 15) machine_error opencode_explicit_agent_required 'config must define deny-first primary agent-workflow';; *) machine_error opencode_permission_config_invalid 'permission config must be JSON';; esac
 }
 [ "$#" -ge 1 ] || { usage; exit 2; }; COMMAND="$1"; shift
 while [ "$#" -gt 0 ]; do case "$1" in --runtime) RUNTIME="$2"; shift 2;; --role) ROLE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --cwd) CWD="$2"; shift 2;; --prompt-file) PROMPT_FILE="$2"; shift 2;; --issue) ISSUE_N="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --effort) EFFORT="$2"; shift 2;; --opencode-permission-file) OPENCODE_PERMISSION_FILE="$2"; shift 2;; --produce-review) PRODUCE_REVIEW=1; shift;; *) usage; machine_error unknown_argument "$1";; esac; done

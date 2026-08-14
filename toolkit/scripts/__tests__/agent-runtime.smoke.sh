@@ -19,10 +19,11 @@ try {
   const agent=argv.indexOf('--agent'), auto=argv.indexOf('--auto');
   if (agent < 0 || argv[agent + 1] !== 'agent-workflow' || auto >= 0) process.exit(20);
   if (!p || !a || a.mode !== 'primary' || !a.permission) process.exit(21);
-  for (const key of ['*','external_directory','webfetch','websearch']) {
+  for (const key of ['*','external_directory']) {
     if (p[key] !== 'deny' || a.permission[key] !== 'deny') process.exit(22);
   }
   if (p.edit !== a.permission.edit) process.exit(23);
+  if (p.webfetch !== a.permission.webfetch || p.websearch !== a.permission.websearch) process.exit(26);
   const expectedBash=p.edit==='allow'?'allow':'deny';
   if (p.bash !== expectedBash || a.permission.bash !== expectedBash) process.exit(25);
 } catch (_) { process.exit(24); }
@@ -42,10 +43,10 @@ RUNTIME_ARGV="$TMP_DIR/opencode.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --ru
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode missing permission config refused'; else bad 'opencode missing permission config'; fi
 printf '{"permission":{"*":"deny","edit":"allow","external_directory":"deny","bash":"deny","webfetch":"deny"}}\n' > "$TMP_DIR/no-agent.json"
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/no-agent.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode config without explicit primary agent refused'; else bad 'opencode explicit primary agent'; fi
-node - "$TMP_DIR/write.json" "$TMP_DIR/websearch-allowed.json" <<'NODE'
-const fs=require('fs'), c=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); c.permission.websearch='allow'; fs.writeFileSync(process.argv[3],JSON.stringify(c));
+node - "$TMP_DIR/write.json" "$TMP_DIR/websearch-mismatch.json" <<'NODE'
+const fs=require('fs'), c=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); c.permission.websearch='deny'; fs.writeFileSync(process.argv[3],JSON.stringify(c));
 NODE
-PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/websearch-allowed.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode custom config cannot enable websearch'; else bad 'opencode websearch deny'; fi
+PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/websearch-mismatch.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode write requires webfetch/websearch allow on both scopes'; else bad 'opencode websearch allow required'; fi
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/read.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode write requires edit allow'; else bad 'opencode write permission'; fi
 RUNTIME_ARGV="$TMP_DIR/opencode-write.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role release --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/write.json"; if grep -Fx -- "$WT" "$TMP_DIR/opencode-write.argv" >/dev/null && grep -Fx -- agent-workflow "$TMP_DIR/opencode-write.argv" >/dev/null; then ok 'opencode write uses explicit cwd and configured agent'; else bad 'opencode write argv'; fi
 [ "$FAILURES" -eq 0 ] && { echo 'ALL CASES PASS'; exit 0; }; echo "$FAILURES CASE(S) FAILED"; exit 1
