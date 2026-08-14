@@ -164,6 +164,38 @@ assert_exists "candidate evidence schema" "$PRODUCT_ROOT/schemas/candidate_evide
 assert_exists "local telemetry command" "$PRODUCT_ROOT/scripts/telemetry.sh"
 assert_exists "product schema fixtures" "$PRODUCT_ROOT/schemas/fixtures/round_state.valid.json"
 assert_exists "invalid RUN schema fixture" "$PRODUCT_ROOT/schemas/fixtures/run.invalid.json"
+
+# The transport registry is the single runtime source of truth for the adapter
+# set; the hand-authored schema enums must stay in exact parity with it.
+transport_registry_parity() {
+  schema_file="$1"
+  property_name="$2"
+  allowed_extra="$3"
+  node - "$PRODUCT_ROOT/scripts/lib/transport-registry.cjs" "$schema_file" "$property_name" "$allowed_extra" <<'NODE'
+const { ADAPTERS } = require(process.argv[2]);
+const fs = require("fs");
+const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const enumValues = schema.properties[process.argv[4]].enum;
+const expected = new Set(ADAPTERS);
+if (process.argv[5]) expected.add(process.argv[5]);
+process.exit(enumValues.length === expected.size && enumValues.every(value => expected.has(value)) ? 0 : 1);
+NODE
+}
+
+assert_exists "transport registry module" "$PRODUCT_ROOT/scripts/lib/transport-registry.cjs"
+assert_command "transport registry matches the receipt schema adapter enum" \
+  transport_registry_parity "$PRODUCT_ROOT/schemas/transport_receipt.schema.json" adapter ""
+assert_command "transport registry matches the telemetry transport enum plus legacy local" \
+  transport_registry_parity "$PRODUCT_ROOT/schemas/telemetry_sample.schema.json" transport local
+parity_negative_fixture="$TMP_DIR/transport-receipt-missing-adapter.schema.json"
+node - "$PRODUCT_ROOT/schemas/transport_receipt.schema.json" "$parity_negative_fixture" <<'NODE'
+const fs = require("fs");
+const schema = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+schema.properties.adapter.enum = schema.properties.adapter.enum.filter(value => value !== "herdr");
+fs.writeFileSync(process.argv[3], JSON.stringify(schema) + "\n");
+NODE
+assert_fails "transport parity gate rejects a schema enum missing a registered adapter" \
+  transport_registry_parity "$parity_negative_fixture" adapter ""
 assert_contains "shared core pins the selected capability-probed runtime executable" 'AGENT_WORKFLOW_RUNTIME_BIN=' "$PRODUCT_ROOT/scripts/dispatch-core.sh"
 assert_contains "cmux create recognizes documented workspace id fields" '"id", "workspace_id", "workspaceId"' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
 assert_contains "cmux create/inspect recognize the documented ref field" 'WORKSPACE_REF_KEYS = ["ref"]' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"

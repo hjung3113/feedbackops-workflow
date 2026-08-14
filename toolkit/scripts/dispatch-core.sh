@@ -25,7 +25,7 @@
 #   RUN.json is a scoped abort — codex chose to stop, not crash.
 #
 # Usage:
-#   scripts/agent-workflow.sh dispatch --orchestrator cmux|orca|herdr --issue <N> --worktree <path> \
+#   scripts/agent-workflow.sh dispatch --orchestrator <registered adapter> --issue <N> --worktree <path> \
 #     [--prompt-file <p>] [--name <workspace-name>] \
 #     [--tier trivial|standard|full_cluster] \
 #     [--round-state <json> --manifest-revision <n>] \
@@ -60,6 +60,7 @@ PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
 PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
 TOUCH_ALLOWLIST_PREFLIGHT="$SCRIPT_DIR/lib/touch-allowlist-preflight.cjs"
 RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
@@ -96,7 +97,16 @@ POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter cmux|orca|herdr --runtime codex|claude|opencode --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime codex|claude|opencode --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+}
+
+# is_registered_adapter <name> — membership in the transport registry, which is
+# the single source of truth for the admitted adapter set.
+is_registered_adapter() {
+  for adapter in $(node "$TRANSPORT_REGISTRY" lines); do
+    [ "$1" = "$adapter" ] && return 0
+  done
+  return 1
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -329,7 +339,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$ADAPTER" ] || { echo "missing --adapter" >&2; usage; exit 2; }
-case "$ADAPTER" in cmux|orca|herdr) ;; *) echo "unknown adapter: $ADAPTER" >&2; exit 2 ;; esac
+is_registered_adapter "$ADAPTER" || { echo "unknown adapter: $ADAPTER" >&2; exit 2; }
 case "$RUNTIME" in codex|claude|opencode) ;; *) echo "unknown runtime: $RUNTIME" >&2; exit 2 ;; esac
 case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }

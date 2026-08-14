@@ -21,6 +21,13 @@ environment > target config applies independently to transport, runtime, and
 role. Legacy omitted runtime/role resolve to Codex/implementation only for
 compatibility.
 
+The admitted transport set is defined once in
+`scripts/lib/transport-registry.cjs`. CLI orchestrator selection, the shared
+dispatch core, and routed admission read that registry at runtime, and the
+repository release gate asserts the hand-authored receipt and telemetry
+schema enums stay in exact parity with it; the telemetry enum additionally
+keeps its legacy `local` value, which is not a registered adapter.
+
 Before admission, the public capability probe and shared core prove selected
 runtime/role/mode and selected transport. Missing capability, unsupported
 isolation, or invalid configuration fails before admission with a

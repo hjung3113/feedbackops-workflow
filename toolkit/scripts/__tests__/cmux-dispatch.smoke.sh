@@ -487,6 +487,7 @@ cp "$SCRIPT_DIR/../adapters/cmux.sh" "$RUNNER_FIXTURE/adapters/cmux.sh"
 cp "$ROOT/schemas/transport_receipt.schema.json" "$TMP_ROOT/schemas/transport_receipt.schema.json"
 cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-subset.cjs"
 cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
+cp "$SCRIPT_DIR/../lib/transport-registry.cjs" "$RUNNER_FIXTURE/lib/transport-registry.cjs"
 cat > "$RUNNER_FIXTURE/agent-watchdog.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"

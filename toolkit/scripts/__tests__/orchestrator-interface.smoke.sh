@@ -1107,9 +1107,10 @@ bash "$CLI" capabilities --worktree "$WT" > "$capabilities_out"
 capabilities_ec=$?
 if [ "$capabilities_ec" -eq 0 ] && node -e '
 const v = require(process.argv[1]);
+const { ADAPTERS } = require(process.argv[2]);
 if (v.schema_version !== "1" || !Array.isArray(v.adapters) || !Array.isArray(v.runtimes)) process.exit(1);
 const names = v.adapters.map(x => x.adapter).sort().join(",");
-if (names !== "cmux,herdr,orca") process.exit(1);
+if (names !== ADAPTERS.slice().sort().join(",")) process.exit(1);
 for (const entry of v.adapters) {
   if (typeof entry.available !== "boolean" || entry.available !== true) process.exit(1);
   if (typeof entry.version !== "string" || !entry.version.trim()) process.exit(1);
@@ -1120,7 +1121,7 @@ for (const entry of v.adapters) {
     seen.add(item);
   }
 }
-' "$capabilities_out"; then
+' "$capabilities_out" "$PRODUCT_HOME/scripts/lib/transport-registry.cjs"; then
   pass "AC-111-6 capabilities aggregate keeps schema_version/adapters/runtimes with strict per-adapter shape"
 else fail "AC-111-6 strict capabilities aggregate ($(cat "$capabilities_out"))"; fi
 

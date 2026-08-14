@@ -8,25 +8,39 @@ PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 CORE="$SCRIPT_DIR/dispatch-core.sh"
 SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
+
+registry_adapters() {
+  node "$TRANSPORT_REGISTRY" lines
+}
+
+registry_adapter_pipe() {
+  node "$TRANSPORT_REGISTRY" pipe
+}
+
+is_registered_adapter() {
+  for adapter in $(registry_adapters); do
+    [ "$1" = "$adapter" ] && return 0
+  done
+  return 1
+}
 
 usage() {
   echo "usage: agent-workflow.sh capabilities [--worktree PATH]" >&2
-  echo "       agent-workflow.sh dispatch [--orchestrator cmux|orca|herdr] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
+  echo "       agent-workflow.sh dispatch [--orchestrator $(registry_adapter_pipe)] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
   echo "       agent-workflow.sh inspect --receipt PATH" >&2
 }
 
 adapter_script() {
-  case "$1" in
-    cmux|orca|herdr) printf '%s/adapters/%s.sh\n' "$SCRIPT_DIR" "$1" ;;
-    *) return 1 ;;
-  esac
+  is_registered_adapter "$1" || return 1
+  printf '%s/adapters/%s.sh\n' "$SCRIPT_DIR" "$1"
 }
 
 capabilities() {
   worktree="${1:-$PWD}"
   printf '{"schema_version":"1","adapters":['
   first=1
-  for adapter in cmux orca herdr; do
+  for adapter in $(registry_adapters); do
     script="$(adapter_script "$adapter")"
     result="$(bash "$script" capabilities --worktree "$worktree" 2>/dev/null)"
     probe_status=$?
@@ -156,13 +170,12 @@ case "$COMMAND" in
       SOURCE="config"
     fi
     if [ -z "$CHOICE" ]; then
-      echo "ERROR: orchestrator_not_configured: choose --orchestrator cmux|orca|herdr, set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
+      echo "ERROR: orchestrator_not_configured: choose --orchestrator $(registry_adapter_pipe), set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
       exit 2
     fi
-    case "$CHOICE" in
-      cmux|orca|herdr) ;;
-      *) echo "ERROR: unknown_orchestrator: $CHOICE (expected cmux, orca, or herdr)" >&2; exit 2 ;;
-    esac
+    if ! is_registered_adapter "$CHOICE"; then
+      echo "ERROR: unknown_orchestrator: $CHOICE (expected $(registry_adapter_pipe))" >&2; exit 2
+    fi
     RUNTIME="$CLI_RUNTIME"
     RUNTIME_SOURCE="cli"
     if [ -z "$RUNTIME" ] && [ -n "${AGENT_WORKFLOW_RUNTIME:-}" ]; then
