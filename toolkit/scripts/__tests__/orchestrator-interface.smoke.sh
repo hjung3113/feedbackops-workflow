@@ -1104,15 +1104,35 @@ printf '%s\n' '# changed' >> "$runner_path"
 PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
 if grep -q '"lifecycle":"stale"' "$inspect_out"; then pass "inspect detects stale runner identity"; else fail "stale receipt detection"; fi
 
-node - "$VALIDATOR" "$SCHEMA" "$ROOT/schemas/fixtures/transport_receipt.valid.json" "$ROOT/schemas/fixtures/transport_receipt.invalid.json" <<'NODE'
+check_transport_fault_fixture() {
+  fixture_name="$1"
+  expected_error="$2"
+  node - "$VALIDATOR" "$SCHEMA" "$ROOT/schemas/fixtures/$fixture_name" "$expected_error" <<'NODE'
 const { validate } = require(process.argv[2]);
 const fs = require("fs");
 const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
-const valid = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
-const invalid = JSON.parse(fs.readFileSync(process.argv[5], "utf8"));
-if (validate(schema, valid).length || !validate(schema, invalid).length) process.exit(1);
+const value = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+const expectedError = process.argv[5];
+const errors = validate(schema, value);
+process.exit(errors.length > 0 && errors.some((message) => message.includes(expectedError)) ? 0 : 1);
 NODE
-if [ "$?" -eq 0 ]; then pass "transport receipt valid and invalid fixtures enforce the contract"; else fail "transport receipt fixtures"; fi
+  if [ "$?" -eq 0 ]; then pass "transport receipt one-fault fixture $fixture_name names its specific fault"; else fail "transport receipt one-fault fixture $fixture_name fault naming"; fi
+}
+node - "$VALIDATOR" "$SCHEMA" "$ROOT/schemas/fixtures/transport_receipt.valid.json" <<'NODE'
+const { validate } = require(process.argv[2]);
+const fs = require("fs");
+const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const value = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+process.exit(validate(schema, value).length ? 1 : 0);
+NODE
+if [ "$?" -eq 0 ]; then pass "transport receipt valid fixture still enforces the contract"; else fail "transport receipt valid fixture"; fi
+check_transport_fault_fixture transport_receipt.fault-authoritative.invalid.json '$.authoritative: must equal false'
+check_transport_fault_fixture transport_receipt.fault-adapter.invalid.json '$.adapter: must be one of ["cmux","orca","herdr"]'
+check_transport_fault_fixture transport_receipt.fault-capabilities.invalid.json '$.capabilities: must contain at least 1 items'
+check_transport_fault_fixture transport_receipt.fault-external_handle.invalid.json '$.external_handle: must contain at least 1 characters'
+check_transport_fault_fixture transport_receipt.fault-runner_sha256.invalid.json '$.runner.sha256: must match ^[a-f0-9]{64}$'
+check_transport_fault_fixture transport_receipt.fault-launched_at.invalid.json '$.launched_at: must match'
+check_transport_fault_fixture transport_receipt.fault-created_at.invalid.json '$.created_at: must match'
 
 capabilities_out="$TMP_ROOT/capabilities.json"
 TRANSPORT_USED="$TMP_ROOT/capability-unused" CMUX_ARGV="$TMP_ROOT/capability-cmux" ORCA_ARGV="$TMP_ROOT/capability-orca" \

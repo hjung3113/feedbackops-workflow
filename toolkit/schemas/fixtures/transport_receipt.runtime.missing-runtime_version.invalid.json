@@ -3,9 +3,11 @@
   "artifact_type": "transport_receipt",
   "authoritative": false,
   "issue": 42,
+  "runtime": "opencode",
+  "role": "reviewer",
   "adapter": "orca",
   "adapter_version": "orca 1.0",
-  "capabilities": ["terminal.create"],
+  "capabilities": ["terminal.create", "terminal.list.read_only"],
   "external_handle": "terminal-42",
   "worktree_path": "/tmp/example",
   "runner": {

@@ -62,8 +62,12 @@ function validate(schema, value, path = "$", root = schema) {
     for (const member of schema.allOf) errors.push(...validate(member, value, path, root));
   }
   if (schema.oneOf) {
-    const matching = schema.oneOf.filter((member) => validate(member, value, path, root).length === 0).length;
-    if (matching !== 1) errors.push(`${path}: must match exactly one oneOf branch, matched ${matching}`);
+    const branchErrors = schema.oneOf.map((member) => validate(member, value, path, root));
+    const matching = branchErrors.filter((messages) => messages.length === 0).length;
+    if (matching !== 1) {
+      errors.push(`${path}: must match exactly one oneOf branch, matched ${matching}`);
+      for (const messages of branchErrors) errors.push(...messages);
+    }
   }
   if (schema.not && validate(schema.not, value, path, root).length === 0) {
     errors.push(`${path}: must not match forbidden schema`);

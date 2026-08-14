@@ -15,13 +15,18 @@ check_fixture() {
   schema_name="$1"
   fixture_name="$2"
   expected="$3"
-  node - "$VALIDATOR" "$ROOT/schemas/$schema_name.schema.json" "$ROOT/schemas/fixtures/$fixture_name" "$expected" <<'NODE'
+  expected_error="${4:-}"
+  node - "$VALIDATOR" "$ROOT/schemas/$schema_name.schema.json" "$ROOT/schemas/fixtures/$fixture_name" "$expected" "$expected_error" <<'NODE'
 const fs = require("fs");
 const { validate } = require(process.argv[2]);
 const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
 const value = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
 const expected = process.argv[5] === "valid";
-process.exit((validate(schema, value).length === 0) === expected ? 0 : 1);
+const expectedError = process.argv[6];
+const errors = validate(schema, value);
+let ok = (errors.length === 0) === expected;
+if (ok && expectedError) ok = errors.some((message) => message.includes(expectedError));
+process.exit(ok ? 0 : 1);
 NODE
   if [ "$?" -eq 0 ]; then pass "$schema_name $fixture_name is $expected"; else fail "$schema_name $fixture_name is $expected"; fi
 }
@@ -43,7 +48,9 @@ check_fixture touch touch.runtime.invalid.json invalid
 check_fixture transport_receipt transport_receipt.valid.json valid
 check_fixture transport_receipt transport_receipt.runtime.valid.json valid
 check_fixture transport_receipt transport_receipt.herdr.valid.json valid
-check_fixture transport_receipt transport_receipt.runtime.invalid.json invalid
+check_fixture transport_receipt transport_receipt.runtime.missing-runtime.invalid.json invalid 'missing required property runtime'
+check_fixture transport_receipt transport_receipt.runtime.missing-role.invalid.json invalid 'missing required property role'
+check_fixture transport_receipt transport_receipt.runtime.missing-runtime_version.invalid.json invalid 'missing required property runtime_version'
 check_fixture transport_receipt transport_receipt.routing.valid.json valid
 check_fixture transport_receipt transport_receipt.routing.invalid.json invalid
 check_fixture transport_receipt transport_receipt.routing.legacy.invalid.json invalid
