@@ -158,7 +158,7 @@ bash scripts/__tests__/run-all-contract.test.sh
 - Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, passing evidence is embedded in the existing VERIFY artifact, and the reference adapter maps supported libpq TLS URL options to `PG*` variables without placing credential-bearing URLs in `psql` argv, rejecting unrecognized or empty query options before `psql` starts.
 - Every classifier failure exposes typed machine data, and failed canonical artifacts retain the same `code`/`expected`/`actual` records. Existing human diagnostics remain available.
 - REVIEW closure admission now documents and independently checks `lifecycle:"final"`, `status:"pass"`, and an all-met checklist; its existing `failure_closure_not_verified` machine code carries a stable predicate detail for lifecycle, status, or checklist failure.
-- No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `--fresh` is a stable reserved refusal until a target DB lifecycle adapter owns rebuild/drop behavior.
+- No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `verify.sh` never creates or drops databases; the unimplemented `--fresh` and `--parse-db-url` flags were removed as dead code.
 - `verify.sh` remains the sole operator interface while `scripts/lib/verify-result.cjs` owns result classification, clean-probe validation, and VERIFY payload construction.
 
 ### v0.17 — dispatch liveness operator contract
