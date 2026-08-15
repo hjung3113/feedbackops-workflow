@@ -4,6 +4,15 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
 
 ## In progress: v0.21 generic distribution and runtime symmetry
 
+- The three transport adapters now share one implementation each of semver
+  parsing and floor checks (`scripts/lib/semver.cjs`, prerelease-aware, with a
+  strict whole-string mode for Orca's runtime appVersion), capability payload
+  emission (`scripts/lib/adapter-json.cjs`, referencing the field set owned by
+  the `capability-result.cjs` acceptance gate), and the shell-side help probe,
+  runner-path glob guard, graceful `handle_unverifiable` fallback, and
+  `"<version>;binary-sha256:<digest>"` provenance format
+  (`scripts/lib/adapter-helpers.sh`). Per-adapter CLI arg loops and case
+  dispatch are intentionally not framework-unified.
 - Ignored installed `.agent-workflow` is an explicit absolute PRODUCT_HOME:
   fresh linked worktrees invoke its scripts with `--worktree`, while workflow
   selection and allocation config stay in PRODUCT_HOME and prompt paths remain

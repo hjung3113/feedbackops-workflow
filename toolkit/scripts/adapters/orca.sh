@@ -2,26 +2,28 @@
 # Orca transport adapter. It opens one fresh bare-shell terminal in the exact
 # existing worktree and starts only the common launch runner.
 set -u
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/../lib/adapter-helpers.sh"
 
 command_name="${1:-}"
 shift || true
 capability_json() {
   worktree="$1"
   if ! command -v orca >/dev/null 2>&1; then
-    printf '{"adapter":"orca","available":false,"reason_code":"binary_not_found","version":"unknown","capabilities":[]}\n'
+    node "$ADAPTER_JSON" capabilities orca false binary_not_found unknown ''
     return
   fi
   help="$(orca terminal create --help 2>&1)"
   for flag in '--worktree' '--title' '--command' '--json'; do
-    if ! printf '%s\n' "$help" | grep -F -q -- "$flag"; then
-      printf '{"adapter":"orca","available":false,"reason_code":"required_capability_missing","version":"unknown","capabilities":[]}\n'
+    if ! help_has "$help" "$flag"; then
+      node "$ADAPTER_JSON" capabilities orca false required_capability_missing unknown ''
       return
     fi
   done
   list_help="$(orca terminal list --help 2>&1)"
   for flag in '--worktree' '--json'; do
-    if ! printf '%s\n' "$list_help" | grep -F -q -- "$flag"; then
-      printf '{"adapter":"orca","available":false,"reason_code":"required_capability_missing","version":"unknown","capabilities":[]}\n'
+    if ! help_has "$list_help" "$flag"; then
+      node "$ADAPTER_JSON" capabilities orca false required_capability_missing unknown ''
       return
     fi
   done
@@ -30,8 +32,7 @@ capability_json() {
 try {
   const value = JSON.parse(process.argv[2]);
   const version = value && value.result && value.result.runtime && value.result.runtime.appVersion;
-  if (typeof version !== "string" || version !== version.trim()
-    || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) process.exit(1);
+  if (typeof version !== "string") process.exit(1);
   process.stdout.write(version);
 } catch (error) {
   process.exit(1);
@@ -39,13 +40,11 @@ try {
 NODE
   )"
   [ -n "$version" ] || version="unknown"
-  node - "$version" <<'NODE'
-process.stdout.write(JSON.stringify({
-  adapter: "orca", available: true, reason_code: "available",
-  version: process.argv[2],
-  capabilities: ["terminal.create.worktree_path", "terminal.create.title", "terminal.create.command", "terminal.create.json", "terminal.list.read_only"]
-}) + "\n");
-NODE
+  if [ "$version" != "unknown" ]; then
+    version="$(node "$ADAPTER_SEMVER" exact "$version" 2>/dev/null)" || version="unknown"
+  fi
+  node "$ADAPTER_JSON" capabilities orca true available "$version" \
+    'terminal.create.worktree_path,terminal.create.title,terminal.create.command,terminal.create.json,terminal.list.read_only'
 }
 
 normalize_handle_json() {
@@ -96,7 +95,7 @@ case "$command_name" in
       esac
     done
     [ -n "$NAME" ] && [ -n "$WORKTREE" ] && [ -n "$RUNNER" ] || exit 2
-    case "$RUNNER" in .review/ISSUE-*-launch.*/launch.sh) ;; *) exit 2 ;; esac
+    runner_path_allowed "$RUNNER" || exit 2
     output="$(orca terminal create --worktree "path:$WORKTREE" --title "$NAME" --command "bash $RUNNER" --json)" || exit $?
     normalize_handle_json launch "$output"
     ;;
@@ -111,7 +110,7 @@ case "$command_name" in
     done
     [ -n "$WORKTREE" ] && [ -n "$HANDLE" ] || exit 2
     output="$(orca terminal list --worktree "path:$WORKTREE" --json 2>/dev/null)" || {
-      printf '{"lifecycle":"handle_unverifiable","reason":"Orca terminal list failed"}\n'
+      adapter_handle_unverifiable 'Orca terminal list failed'
       exit 0
     }
     normalize_handle_json inspect "$output" "$HANDLE"

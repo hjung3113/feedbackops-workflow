@@ -10,25 +10,38 @@
 // every available claim but still accepts a well-shaped unavailable
 // entry so the survey can report it as-is. Any other shape exits
 // non-zero in both modes.
-const [mode, raw, expected] = process.argv.slice(2);
+const CAPABILITY_RESULT_FIELDS = ["adapter", "available", "reason_code", "version", "capabilities"];
 
-try {
-  const value = JSON.parse(raw);
-  if (value.adapter !== expected || typeof value.available !== "boolean"
+function validateCapabilityResult(value, expectedAdapter) {
+  if (value.adapter !== expectedAdapter || typeof value.available !== "boolean"
       || typeof value.version !== "string" || !Array.isArray(value.capabilities)
-      || value.capabilities.some(entry => typeof entry !== "string")) process.exit(2);
+      || value.capabilities.some(entry => typeof entry !== "string")) return false;
   if (value.available) {
-    if (!value.version.trim()) process.exit(2);
-    if (!value.capabilities.length) process.exit(2);
+    if (!value.version.trim()) return false;
+    if (!value.capabilities.length) return false;
     const seen = new Set();
     for (const entry of value.capabilities) {
-      if (!entry.trim() || seen.has(entry)) process.exit(2);
+      if (!entry.trim() || seen.has(entry)) return false;
       seen.add(entry);
     }
-    if (mode === "dispatch") {
-      process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities));
-    }
-  } else if (mode === "dispatch") {
-    process.exit(2);
   }
-} catch (error) { process.exit(2); }
+  return true;
+}
+
+if (require.main === module) {
+  const [mode, raw, expected] = process.argv.slice(2);
+
+  try {
+    const value = JSON.parse(raw);
+    if (!validateCapabilityResult(value, expected)) process.exit(2);
+    if (value.available) {
+      if (mode === "dispatch") {
+        process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities));
+      }
+    } else if (mode === "dispatch") {
+      process.exit(2);
+    }
+  } catch (error) { process.exit(2); }
+}
+
+module.exports = { CAPABILITY_RESULT_FIELDS, validateCapabilityResult };
