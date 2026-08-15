@@ -183,7 +183,8 @@ try {
 NODE
 }
 
-parse_run_error() {
+# Shared {error:{code,message}} parser for adapter command stderr.
+parse_adapter_error() {
   error_file="$1"
   node - "$error_file" <<'NODE'
 const fs = require("fs");
@@ -274,7 +275,7 @@ process.stdout.write(JSON.stringify({ external_handle: id, lifecycle: "launched"
 NODE
     exit 0
   fi
-  run_error_code="$(parse_run_error "$run_stderr" 2>/dev/null)"
+  run_error_code="$(parse_adapter_error "$run_stderr" 2>/dev/null)"
   run_error_parse_status=$?
   case "$run_error_code" in
     pane_not_found|invalid_key|pane_send_failed)
@@ -310,21 +311,6 @@ try {
   process.stdout.write("malformed");
   process.exit(0);
 }
-NODE
-}
-
-parse_inspect_error() {
-  error_file="$1"
-  node - "$error_file" <<'NODE'
-const fs = require("fs");
-try {
-  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-  const error = value && value.error;
-  if (!error || typeof error !== "object" || Array.isArray(error)
-      || typeof error.code !== "string" || !error.code
-      || typeof error.message !== "string" || !error.message) process.exit(2);
-  process.stdout.write(error.code);
-} catch (error) { process.exit(2); }
 NODE
 }
 
@@ -370,7 +356,7 @@ inspect() {
     fi
     return 0
   fi
-  inspect_error_code="$(parse_inspect_error "$inspect_stderr" 2>/dev/null)"
+  inspect_error_code="$(parse_adapter_error "$inspect_stderr" 2>/dev/null)"
   if [ "$inspect_status" -eq 1 ] && [ "$inspect_error_code" = "workspace_not_found" ]; then
     lifecycle_json stale 'workspace handle is not found'
   else
