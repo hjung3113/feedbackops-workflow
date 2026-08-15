@@ -1,6 +1,8 @@
 # Multi-Agent Workflow — Trial Log
 
 > Historical record: this file preserves what each dated trial actually used. Some fields and commands shown below were later superseded—for example `recommended_actions` was removed from blocker artifacts and CODEX-owned `pr_draft.verify_result` is now deprecated. For current contracts, use `schemas/`, `docs/agents/artifact-lifecycle.md`, and `docs/agents/multi-agent-workflow.md`.
+>
+> Note: `cmux-cluster.sh`, referenced by the trials below, was removed on 2026-08-16 (#127); the log entries that mention it are historical and preserved as-is.
 
 ## Trial 1 — Issue #33 (HttpError.detail discriminated union) — 2026-05-23
 

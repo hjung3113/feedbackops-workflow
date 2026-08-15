@@ -4,7 +4,6 @@ agent-runtime.smoke.sh
 agent-watchdog.smoke.sh
 artifact-fresh.smoke.sh
 atomic-fs.smoke.sh
-cmux-cluster.smoke.sh
 cmux-dispatch.smoke.sh
 codex-safe.smoke.sh
 codex-watchdog.smoke.sh
