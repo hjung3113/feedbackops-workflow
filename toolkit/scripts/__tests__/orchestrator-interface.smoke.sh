@@ -58,10 +58,18 @@ if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help
   esac
   exit 0
 fi
-if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
+if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then
+  if [ "${CMUX_NEW_WORKSPACE_HELP_MODE:-flags}" = "flagless" ]; then
+    printf '%s\n' 'Usage: cmux new-workspace [name]' '  Create a workspace with default settings'
+  else
+    echo '--cwd PATH --command TEXT'
+  fi
+  exit 0
+fi
 if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then
   case "${CMUX_LIST_MODE:-live}" in
     live) printf '%s\n' '{"workspaces":[{"ref":"workspace:11","name":"codex-502"}]}' ;;
+    id_key) printf '%s\n' '{"workspaces":[{"id":"cmux-502","name":"codex-502"}]}' ;;
     duplicate_name) printf '%s\n' '{"workspaces":[{"ref":"workspace:11","name":"same-name"},{"ref":"workspace:12","name":"same-name"}]}' ;;
     removed) printf '%s\n' '{"workspaces":[{"ref":"workspace:12","name":"codex-502"}]}' ;;
     decoy) printf '%s\n' '{"workspaces":[{"ref":"workspace:12","name":"codex-502","request":{"id":"workspace:11"}}]}' ;;
@@ -535,16 +543,21 @@ done
 
 # The cmux capability probe must prove --cwd/--command support from the same
 # help surface the launch command uses (`workspace create --help`): a direct
-# flag listing or an explicit same-line new-workspace delegation. The legacy
-# new-workspace help surface still answers in this fake, so the unrelated and
-# mention_only cases also prove the cross-command proof no longer admits.
+# flag listing, or an explicit same-line new-workspace delegation that the
+# delegated `new-workspace --help` surface itself confirms by listing both
+# flags. The legacy new-workspace help surface still answers in this fake, so
+# the unrelated and mention_only cases also prove the cross-command proof no
+# longer admits, and the flagless case proves a delegation claim alone is not
+# accepted without the delegated surface's own flag listing.
 CMUX_CAP_SCRIPT="$ROOT/scripts/adapters/cmux.sh"
 cmux_capability_matrix() {
   case_name="$1"
   help_mode="$2"
   expected_available="$3"
-  output_file="$TMP_ROOT/cmux-capability-$help_mode.json"
-  CMUX_HELP_MODE="$help_mode" PATH="$BIN:$PATH" bash "$CMUX_CAP_SCRIPT" capabilities --worktree "$WT" >"$output_file" 2>&1
+  legacy_help_mode="${4:-flags}"
+  output_file="$TMP_ROOT/cmux-capability-$help_mode-${legacy_help_mode}.json"
+  CMUX_HELP_MODE="$help_mode" CMUX_NEW_WORKSPACE_HELP_MODE="$legacy_help_mode" \
+    PATH="$BIN:$PATH" bash "$CMUX_CAP_SCRIPT" capabilities --worktree "$WT" >"$output_file" 2>&1
   status=$?
   if [ "$status" -eq 0 ] && node - "$output_file" "$expected_available" <<'NODE'
 const fs = require("fs");
@@ -561,6 +574,7 @@ NODE
 cmux_capability_matrix "AC-112-1 cmux workspace create --help directly listing --cwd/--command proves capability" direct true
 cmux_capability_matrix "AC-112-2 cmux workspace create --help explicit new-workspace delegation wording proves capability" delegation true
 cmux_capability_matrix "AC-112-3 cmux live 0.64.22 delegation help text still proves capability" live true
+cmux_capability_matrix "AC-112-5 cmux delegation wording without new-workspace --help flags is rejected as required_capability_missing" delegation false flagless
 cmux_capability_matrix "AC-112-4 cmux unrelated workspace create --help is rejected as required_capability_missing" unrelated false
 cmux_capability_matrix "AC-112-4 cmux scattered new-workspace mention without same-line delegation is rejected" mention_only false
 
@@ -1044,6 +1058,11 @@ if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-50
   pass "cmux create id response remains compatible"
 else fail "cmux id response normalization"; fi
 
+id_key_inspect="$(CMUX_LIST_MODE=id_key PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" inspect --worktree "$CMUX_WT" --external-handle cmux-502)"
+if node -e 'const v=JSON.parse(process.argv[1]); if(v.lifecycle!=="live")process.exit(1)' "$id_key_inspect"; then
+  pass "AC-111-13 cmux id-shaped create handle inspects live when workspace list exposes the same id"
+else fail "AC-111-13 cmux id-key list inspection ($(cat "$id_key_inspect" 2>/dev/null))"; fi
+
 decoy_launch="$(TRANSPORT_USED="$TMP_ROOT/decoy-used" CMUX_ARGV="$TMP_ROOT/decoy-argv" CMUX_CREATE_SHAPE=decoy_id CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" launch --name codex-502 --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh)"
 if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-502")process.exit(1)' "$decoy_launch"; then
   pass "AC-111-12 cmux create adopts only the documented workspace result id, never a nested request id"
@@ -1322,6 +1341,10 @@ strict_aggregate_case AC-111-6-child-exit-nonzero '{"adapter":"herdr","available
 strict_aggregate_case AC-111-7-child-non-json-stdout 'definitely not json' 0
 strict_aggregate_case AC-111-7-child-wrong-shape '{"adapter":"orca","available":true,"version":"1.4.161","capabilities":["terminal.create.title"]}' 0
 strict_aggregate_case AC-111-7-child-empty-stdout '' 0
+strict_aggregate_case AC-111-8-child-blank-version '{"adapter":"herdr","available":true,"version":"   ","capabilities":["workspace.create.cwd"]}' 0
+strict_aggregate_case AC-111-8-child-empty-capabilities '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":[]}' 0
+strict_aggregate_case AC-111-8-child-duplicate-capabilities '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":["workspace.create.cwd","workspace.create.cwd"]}' 0
+strict_aggregate_case AC-111-8-child-blank-capability-entry '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":["workspace.create.cwd","   "]}' 0
 
 # Restore the real adapters so later consumers of the product copy are intact.
 cp "$ROOT/scripts/adapters/cmux.sh" "$PRODUCT_HOME/scripts/adapters/cmux.sh"

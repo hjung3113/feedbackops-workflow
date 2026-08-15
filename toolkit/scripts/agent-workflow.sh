@@ -8,6 +8,7 @@ PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 CORE="$SCRIPT_DIR/dispatch-core.sh"
 SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CAPABILITY_RESULT="$SCRIPT_DIR/lib/capability-result.cjs"
 TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
 
 registry_adapters() {
@@ -47,15 +48,9 @@ capabilities() {
     # A child probe that fails or emits anything other than the shared
     # capability-result shape is folded into the synthetic unavailable
     # fallback; a child being unavailable is not a fatal aggregate failure.
-    if [ "$probe_status" -ne 0 ] || ! node - "$result" "$adapter" <<'NODE'
-try {
-  const value = JSON.parse(process.argv[2]);
-  if (value.adapter !== process.argv[3] || typeof value.available !== "boolean"
-      || typeof value.version !== "string" || !Array.isArray(value.capabilities)
-      || value.capabilities.some(entry => typeof entry !== "string")) process.exit(2);
-} catch (error) { process.exit(2); }
-NODE
-    then
+    # An available claim must clear the same strict acceptance rules the
+    # dispatch admission gate applies (shared capability-result validator).
+    if [ "$probe_status" -ne 0 ] || ! node "$CAPABILITY_RESULT" aggregate "$result" "$adapter"; then
       result="{\"adapter\":\"$adapter\",\"available\":false,\"reason_code\":\"capability_probe_failed\",\"version\":\"unknown\",\"capabilities\":[]}"
     fi
     [ "$first" -eq 1 ] || printf ','

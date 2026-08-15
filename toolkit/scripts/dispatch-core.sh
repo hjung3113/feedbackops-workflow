@@ -728,25 +728,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
     echo "ERROR: required_capability_missing: $ADAPTER capability probe failed" >&2
     exit 2
   fi
-  CAPABILITY_FIELDS="$(node - "$CAPABILITY_JSON" "$ADAPTER" <<'NODE'
-try {
-  const value = JSON.parse(process.argv[2]);
-  const expected = process.argv[3];
-  if (value.adapter !== expected || value.available !== true || typeof value.version !== "string" || !Array.isArray(value.capabilities)) process.exit(2);
-  // An "available" claim must carry a provable version and a non-empty,
-  // duplicate-free list of non-blank capability strings. Anything less is
-  // treated exactly like an unavailable adapter.
-  if (!value.version.trim()) process.exit(2);
-  if (!value.capabilities.length) process.exit(2);
-  const seen = new Set();
-  for (const entry of value.capabilities) {
-    if (typeof entry !== "string" || !entry.trim() || seen.has(entry)) process.exit(2);
-    seen.add(entry);
-  }
-  process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities));
-} catch (error) { process.exit(2); }
-NODE
-)"
+  CAPABILITY_FIELDS="$(node "$SCRIPT_DIR/lib/capability-result.cjs" dispatch "$CAPABILITY_JSON" "$ADAPTER")"
   if [ "$?" -ne 0 ]; then
     reason="$(node -e 'try { process.stdout.write(JSON.parse(process.argv[1]).reason_code || "required_capability_missing") } catch (e) { process.stdout.write("required_capability_missing") }' "$CAPABILITY_JSON")"
     echo "ERROR: $reason: selected $ADAPTER adapter is unavailable; no fallback attempted" >&2

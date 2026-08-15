@@ -22,7 +22,13 @@ case "$command_name" in
         && printf '%s\n' "$workspace_help" | grep -F -q -- '--command'; then
         launch_flags_proven=true
       elif printf '%s\n' "$workspace_help" | grep -F 'new-workspace' | grep -F 'same' | grep -F -q 'create'; then
-        launch_flags_proven=true
+        # An explicit delegation claim is only proof when the delegated
+        # surface itself lists both launch flags.
+        delegation_help="$(cmux new-workspace --help 2>&1)"
+        if printf '%s\n' "$delegation_help" | grep -F -q -- '--cwd' \
+          && printf '%s\n' "$delegation_help" | grep -F -q -- '--command'; then
+          launch_flags_proven=true
+        fi
       fi
       if [ "$workspace_help_status" -ne 0 ] || [ "$launch_flags_proven" != "true" ] \
         || ! node - "$version" <<'NODE'
