@@ -37,10 +37,8 @@ usage() {
   echo "usage: verify.sh --classify-json <report-file> [<vitest-exit-code>]" >&2
   echo "       verify.sh --typecheck-diff <baseline-file> <current-file>" >&2
   echo "       verify.sh --typecheck" >&2
-  echo "       verify.sh --parse-db-url <database-url>   (hidden test mode)" >&2
   echo "       verify.sh --verify-clean  (run the target-provided clean-state probe)" >&2
   echo "       verify.sh [--full-module|<vitest-filter>] (no filter/--full-module runs the full backend module; a filter is a test name/path, NOT a package selector)" >&2
-  echo "       verify.sh --fresh           (reserved; requires a target DB lifecycle adapter)" >&2
 }
 
 emit_machine_failure() {
@@ -236,12 +234,6 @@ main() {
     first=""
   fi
 
-  if [ "$first" = "--fresh" ]; then
-    echo "FAIL: --fresh is reserved for migration chunks or crash recovery and requires a target DB lifecycle adapter" >&2
-    emit_machine_failure "fresh_requires_adapter" "configured target DB lifecycle adapter" "unconfigured"
-    exit 2
-  fi
-
   if [ "$first" = "--classify-json" ]; then
     if [ "$#" -lt 2 ]; then
       usage
@@ -262,17 +254,6 @@ main() {
     fi
     typecheck_diff "$2" "$3"
     exit $?
-  fi
-
-  if [ "$first" = "--parse-db-url" ]; then
-    if [ "$#" -lt 2 ]; then
-      usage
-      emit_machine_failure "invalid_arguments" "database URL argument" "missing"
-      exit 2
-    fi
-    parse_db_url "$2"
-    printf '%s\t%s\t%s\n' "$DB_HOST" "$DB_DATABASE" "$DB_ROLE"
-    exit 0
   fi
 
   if [ "$first" = "--typecheck" ]; then
