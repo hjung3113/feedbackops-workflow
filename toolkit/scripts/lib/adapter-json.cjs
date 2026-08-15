@@ -32,7 +32,8 @@ if (require.main === module) {
     const capabilities = capabilitiesCsv ? capabilitiesCsv.split(",") : [];
     process.stdout.write(emitCapabilities(adapter, available, reasonCode, version, capabilities));
   } else if (command === "lifecycle" && adapter && available) {
-    process.stdout.write(emitLifecycle(adapter, available));
+    const [lifecycle, reason] = [adapter, available];
+    process.stdout.write(emitLifecycle(lifecycle, reason));
   } else {
     process.exit(2);
   }

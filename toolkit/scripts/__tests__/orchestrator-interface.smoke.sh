@@ -52,6 +52,9 @@ if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help
     unrelated)
       printf '%s\n' 'Usage: cmux workspace create' 'create [flags]'
       ;;
+    flagless)
+      printf '%s\n' 'Usage: cmux workspace create [flags]' '  --name TEXT      Workspace name' '  --json           Emit JSON output'
+      ;;
     live)
       printf '%s\n' 'cmux workspace' '' 'Usage: cmux workspace <subcommand> [flags]' '' 'Canonical noun for workspace operations. Legacy verbs' '(new-workspace, list-workspaces, close-workspace,' 'rename-workspace, select-workspace) keep working and print a' 'one-time deprecation hint pointing here.' '' 'Subcommands:' '  list                    List workspaces in a window' '  create [flags]          Create a workspace (same flags as new-workspace)' '  env [workspace] [--mask]' '  close <workspace>       Close a workspace' '  rename <workspace> --title <new>' '  select <workspace>      Make a workspace active' '' 'Examples:' '  cmux workspace list --json' '  cmux workspace create --name Build --cwd ~/projects/myapp' '  cmux workspace close workspace:3'
       ;;
@@ -577,6 +580,7 @@ cmux_capability_matrix "AC-112-3 cmux live 0.64.22 delegation help text still pr
 cmux_capability_matrix "AC-112-5 cmux delegation wording without new-workspace --help flags is rejected as required_capability_missing" delegation false flagless
 cmux_capability_matrix "AC-112-4 cmux unrelated workspace create --help is rejected as required_capability_missing" unrelated false
 cmux_capability_matrix "AC-112-4 cmux scattered new-workspace mention without same-line delegation is rejected" mention_only false
+cmux_capability_matrix "AC-130-6 cmux workspace create --help listing real flags but not --cwd/--command is rejected as required_capability_missing" flagless false flagless
 
 # An unavailable selected adapter must fail before the initial-write marker and
 # must never call the other adapter.

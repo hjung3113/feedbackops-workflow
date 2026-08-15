@@ -21,15 +21,15 @@ case "$command_name" in
       workspace_help="$(cmux workspace create --help 2>&1)"
       workspace_help_status=$?
       launch_flags_proven=false
-      if help_has "$workspace_help" -- '--cwd' \
-        && help_has "$workspace_help" -- '--command'; then
+      if help_has "$workspace_help" '--cwd' \
+        && help_has "$workspace_help" '--command'; then
         launch_flags_proven=true
       elif printf '%s\n' "$workspace_help" | grep -F 'new-workspace' | grep -F 'same' | grep -F -q 'create'; then
         # An explicit delegation claim is only proof when the delegated
         # surface itself lists both launch flags.
         delegation_help="$(cmux new-workspace --help 2>&1)"
-        if help_has "$delegation_help" -- '--cwd' \
-          && help_has "$delegation_help" -- '--command'; then
+        if help_has "$delegation_help" '--cwd' \
+          && help_has "$delegation_help" '--command'; then
           launch_flags_proven=true
         fi
       fi
@@ -39,7 +39,7 @@ case "$command_name" in
         exit 0
       fi
       node "$ADAPTER_JSON" capabilities cmux true available \
-        "$(adapter_provenance_version "$parsed_version" "$digest")" \
+        "$(adapter_provenance_version "$version" "$digest")" \
         'workspace.create.cwd,workspace.create.command,workspace.list.read_only'
     else
       node "$ADAPTER_JSON" capabilities cmux false binary_not_found unknown ''
