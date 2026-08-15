@@ -89,14 +89,6 @@
       "reason": "The upgrade compatibility adapter recognizes the former schema-link suffix."
     },
     {
-      "path": "toolkit/scripts/__tests__/cmux-cluster.smoke.sh",
-      "token": "legacy-review-schemas",
-      "region": "old-layout-fixture",
-      "context": "mkdir -p \"$wt_old_layout/scripts\" \"$wt_old_layout/.review/schemas\"",
-      "expectedCount": 1,
-      "reason": "The smoke test proves that the old installed layout is rejected."
-    },
-    {
       "path": "toolkit/scripts/__tests__/install-into.smoke.sh",
       "token": "legacy-review-schemas",
       "region": "legacy-link-fixture",
