@@ -1393,6 +1393,76 @@ env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the w
 env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
 env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 5
 
+# --- shared adapter helpers (issue 130) ----------------------------------------
+# The three transport adapters must share one implementation each of semver
+# parsing, capability emission, help probing, the runner-path guard, and the
+# graceful handle_unverifiable fallback — while keeping their own per-adapter
+# CLI arg loops and case dispatch (no generic dispatch framework).
+SHARED_ADAPTER_LIB="$ROOT/scripts/lib/adapter-helpers.sh"
+AC130_ADAPTERS="cmux orca herdr"
+
+ac130_adapters_pass() {
+  check_description="$1"
+  shift
+  for ac130_adapter in $AC130_ADAPTERS; do
+    "$@" "$ROOT/scripts/adapters/$ac130_adapter.sh" || { fail "$check_description ($ac130_adapter)"; return 1; }
+  done
+  pass "$check_description"
+  return 0
+}
+
+ac130_adapters_pass "AC-130-1 every adapter sources the shared helper lib and calls the shared semver authority" sh -c 'grep -F -q "adapter-helpers.sh" "$1" && grep -F -q "ADAPTER_SEMVER" "$1"' _
+ac130_semver_case() {
+  ac130_raw="$1"; ac130_floor="$2"; ac130_expected="$3"
+  ac130_got="$(node "$ROOT/scripts/lib/semver.cjs" parse-floor "$ac130_raw" "$ac130_floor" 2>/dev/null)"
+  ac130_ec=$?
+  [ "$ac130_ec" -eq 0 ] && [ "$ac130_got" = "$ac130_expected" ]
+}
+if ac130_semver_case 'herdr 0.9.1' 0.8.0 0.9.1 \
+  && ac130_semver_case 'v0.8.0' 0.8.0 0.8.0 \
+  && ! ac130_semver_case '0.8.0-rc.1' 0.8.0 '' \
+  && ! ac130_semver_case 'not-a-version' 0.8.0 ''; then
+  pass "AC-130-1 shared semver parser is prerelease-aware and floor-checked"
+else fail "AC-130-1 shared semver parser"; fi
+
+if node - "$ROOT/scripts/lib/adapter-json.cjs" "$ROOT/scripts/lib/capability-result.cjs" <<'NODE'
+const { emitCapabilities } = require(process.argv[2]);
+const { CAPABILITY_RESULT_FIELDS, validateCapabilityResult } = require(process.argv[3]);
+if (!Array.isArray(CAPABILITY_RESULT_FIELDS) || !CAPABILITY_RESULT_FIELDS.length) process.exit(1);
+const emitted = emitCapabilities("herdr", "true", "available", "0.8.0;binary-sha256:abc", ["session.inherited", "pane.run"]);
+const value = JSON.parse(emitted);
+if (Object.keys(value).sort().join(",") !== CAPABILITY_RESULT_FIELDS.slice().sort().join(",")) process.exit(1);
+if (!validateCapabilityResult(value, "herdr")) process.exit(1);
+NODE
+then pass "AC-130-2 emitCapabilities shares the capability-result field set and stays acceptance-valid"
+else fail "AC-130-2 emitCapabilities field-set sharing"; fi
+ac130_adapters_pass "AC-130-2 every adapter emits capabilities through adapter-json.cjs" sh -c 'grep -F -q "ADAPTER_JSON" "$1"' _
+
+ac130_single_definition() {
+  ac130_symbol="$1"
+  grep -E -q "^${ac130_symbol}\(\)" "$SHARED_ADAPTER_LIB" \
+    && [ "$(grep -R -l -E "^${ac130_symbol}\(\)" "$ROOT/scripts/adapters" | wc -l | tr -d ' ')" = "0" ]
+}
+if ac130_single_definition help_has \
+  && ac130_single_definition runner_path_allowed \
+  && ac130_single_definition adapter_handle_unverifiable; then
+  pass "AC-130-3 help_has, runner guard, and graceful fallback each have exactly one shared definition"
+else fail "AC-130-3 shared probe/guard/fallback single ownership"; fi
+if [ "$(grep -R -l -F '.review/ISSUE-*-launch.*/launch.sh' "$ROOT/scripts/adapters" | wc -l | tr -d ' ')" = "0" ] \
+  && grep -F -q '.review/ISSUE-*-launch.*/launch.sh' "$SHARED_ADAPTER_LIB"; then
+  pass "AC-130-3 the runner-path glob guard lives only in the shared helper lib"
+else fail "AC-130-3 runner glob guard ownership"; fi
+ac130_adapters_pass "AC-130-3 every adapter probes help output and runner paths through the shared helpers" sh -c 'grep -F -q "help_has" "$1" && grep -F -q "runner_path_allowed" "$1"' _
+
+ac130_adapters_pass "AC-130-4 each adapter keeps its own CLI arg loop and case dispatch" sh -c 'grep -F -q "while [ \$# -gt 0 ]" "$1" && grep -F -q "case \"\$command_name\"" "$1"' _
+if [ ! -e "$ROOT/scripts/lib/dispatch-framework.sh" ] && ! ls "$ROOT/scripts/adapters" | grep -F -q 'common'; then
+  pass "AC-130-4 no generic CLI-arg/case-dispatch framework was introduced"
+else fail "AC-130-4 forbidden generic dispatch framework"; fi
+
+if [ "$FAILURES" -eq 0 ]; then
+  pass "AC-130-5 shared helpers keep the full adapter interface contract green"
+else fail "AC-130-5 adapter interface contract regressions above"; fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then echo "ALL CASES PASS"; exit 0; fi
 echo "$FAILURES CASE(S) FAILED"

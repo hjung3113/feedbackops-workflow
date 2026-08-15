@@ -129,6 +129,9 @@ assert_exists "candidate integrator" "$PRODUCT_ROOT/scripts/candidate-integrate.
 assert_exists "candidate closure gate" "$PRODUCT_ROOT/scripts/candidate-close.sh"
 assert_exists "shared RFC3339 parser" "$PRODUCT_ROOT/scripts/lib/rfc3339.cjs"
 assert_exists "shared cmux handle normalizer" "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+assert_exists "shared adapter semver authority" "$PRODUCT_ROOT/scripts/lib/semver.cjs"
+assert_exists "shared adapter capability emitter" "$PRODUCT_ROOT/scripts/lib/adapter-json.cjs"
+assert_exists "shared adapter shell helpers" "$PRODUCT_ROOT/scripts/lib/adapter-helpers.sh"
 assert_exists "telemetry sample semantic validator" "$PRODUCT_ROOT/scripts/lib/telemetry-sample.cjs"
 # Lifecycle-guard behavior (final REVIEW / active PR-DRAFT closure evidence)
 # is owned by toolkit/scripts/__tests__/parallel-safety.smoke.sh's "only final
