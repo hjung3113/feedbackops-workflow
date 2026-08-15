@@ -5,10 +5,11 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_EXEC="$SCRIPT_DIR/agent-runtime.sh"
+RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 CONTROL_PUBLISHER="$SCRIPT_DIR/conductor-control-publish.sh"
 ISSUE_N=""; RUNTIME=""; ROLE=""; MODE=""; PROMPT_FILE=""; CWD=""; MODEL=""; EFFORT=""; PERMISSION_FILE=""; PRODUCE_REVIEW=0; CONDUCTOR_CONTROL=0
 FIRST_PROGRESS_TIMEOUT="${AGENT_WATCHDOG_FIRST_PROGRESS_TIMEOUT:-240}"; STALL_TIMEOUT="${AGENT_WATCHDOG_STALL_TIMEOUT:-180}"; MAX_RETRIES="${AGENT_WATCHDOG_MAX_RETRIES:-2}"; POLL_INTERVAL="${AGENT_WATCHDOG_POLL_INTERVAL:-15}"; PROBE_GAP="${AGENT_WATCHDOG_PROBE_GAP:-10}"
-usage() { echo "usage: agent-watchdog.sh --issue N --runtime codex|claude|opencode --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --prompt-file F --cwd DIR [--model M] [--effort E] [--opencode-permission-file F] [--produce-review|--conductor-control] [--max-retries N]" >&2; }
+usage() { echo "usage: agent-watchdog.sh --issue N --runtime $(node "$RUNTIME_REGISTRY" pipe) --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --prompt-file F --cwd DIR [--model M] [--effort E] [--opencode-permission-file F] [--produce-review|--conductor-control] [--max-retries N]" >&2; }
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 write_marker() {
   status="$1"; attempt="$2"; pid="$3"; exit_code="$4"; refusal_reason="${5:-}"; marker="$CWD/.review/ISSUE-${ISSUE_N}-RUN.json"
@@ -75,6 +76,13 @@ PR_DRAFT_BEFORE_SIG="$(blocker_signature "$PR_DRAFT_PATH")"
 case "$MAX_RETRIES" in ''|*[!0-9]*) echo '--max-retries must be a non-negative integer' >&2; exit 2;; esac
 CAPABILITIES="$($RUNTIME_EXEC capabilities --runtime "$RUNTIME")" || { echo "$CAPABILITIES" >&2; exit 3; }
 RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).version||"")}catch(_){process.exit(2)}})')" || { echo 'runtime capability output lacks version' >&2; exit 3; }
+# Stash ownership is registry policy (stash_by): "runtime" means the runtime's
+# own wrapper already stashes partial work; "watchdog" means this watchdog
+# must preserve it. The capability probe above already proved the runtime is
+# registered, so a missing policy here is a broken installation, not a
+# third state.
+STASH_BY="$(node "$RUNTIME_REGISTRY" stash-by "$RUNTIME")"
+case "$STASH_BY" in runtime|watchdog) ;; *) echo "ERROR: stash policy unavailable for runtime: $RUNTIME" >&2; exit 3 ;; esac
 STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT"' EXIT
 set -- --runtime "$RUNTIME" --role "$ROLE" --mode "$MODE" --cwd "$CWD" --prompt-file "$PROMPT_FILE" --issue "$ISSUE_N"; [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; [ -n "$PERMISSION_FILE" ] && set -- "$@" --opencode-permission-file "$PERMISSION_FILE"; [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
 attempt=0
@@ -86,10 +94,11 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   wait "$pid" 2>/dev/null; ec=$?
   if [ "$ec" -ne 0 ]; then
     mkdir -p "$CWD/.review" || exit 1; attempt_stderr="$CWD/.review/ISSUE-${ISSUE_N}-agent-attempt${attempt}-stderr.log"; mv "$STDERR" "$attempt_stderr"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"
-    # codex stashes partial work itself inside codex-safe.sh; claude/opencode
-    # have no equivalent wrapper, so a stall-kill or crash here would otherwise
-    # leave the worktree dirty for the next retry with nothing preserved.
-    if [ "$MODE" = write ] && [ "$PRODUCE_REVIEW" -eq 0 ] && [ "$RUNTIME" != codex ]; then
+    # Stash ownership is registry data (stash_by): the codex wrapper stashes
+    # partial work itself; claude/opencode have no equivalent wrapper, so a
+    # stall-kill or crash here would otherwise leave the worktree dirty for
+    # the next retry with nothing preserved.
+    if [ "$MODE" = write ] && [ "$PRODUCE_REVIEW" -eq 0 ] && [ "$STASH_BY" = watchdog ]; then
       "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$CWD" || true
     fi
     if [ "$killed" -eq 1 ]; then continue; fi
@@ -97,7 +106,7 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     # therefore a terminal refusal, not a transport failure worth retrying.
     # This also preserves any previously published canonical review.
     if [ "$PRODUCE_REVIEW" -eq 1 ]; then
-      if [ "$RUNTIME" = codex ]; then write_marker refused "$attempt" "$pid" "$ec" || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" "$ec" runtime_exit_nonzero || true; fi
+      if [ "$STASH_BY" = runtime ]; then write_marker refused "$attempt" "$pid" "$ec" || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" "$ec" runtime_exit_nonzero || true; fi
       exit 4
     fi
     if failure_is_refused "$attempt_stderr"; then write_marker refused "$attempt" "$pid" "$ec" || true; exit 4; fi
@@ -128,7 +137,7 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     fi
   fi
   if [ "$PRODUCE_REVIEW" -eq 1 ]; then
-  if [ "$RUNTIME" = codex ]; then
+  if [ "$STASH_BY" = runtime ]; then
     REVIEW_SOURCE="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"
   elif transcribe_review "$OUTPUT" "$REVIEW_TRANSCRIPT"; then
     REVIEW_SOURCE="$REVIEW_TRANSCRIPT"
@@ -141,15 +150,15 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   REVIEW_REFUSAL_REASON="$(validate_review "$REVIEW_SOURCE")"; review_validation_ec=$?
   if [ "$review_validation_ec" -ne 0 ]; then
     echo 'ERROR: REVIEW output is not canonical for this issue and live HEAD' >&2
-    if [ "$RUNTIME" = codex ]; then write_marker refused "$attempt" "$pid" 1 || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" 1 "${REVIEW_REFUSAL_REASON:-schema_invalid}" || true; fi
+    if [ "$STASH_BY" = runtime ]; then write_marker refused "$attempt" "$pid" 1 || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" 1 "${REVIEW_REFUSAL_REASON:-schema_invalid}" || true; fi
     exit 1
   fi
   if ! node "$SCRIPT_DIR/lib/review-publish.cjs" "$REVIEW_SOURCE" "$CWD/.review" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" >/dev/null 2>&1; then
     echo 'ERROR: REVIEW publication lost its pinned HEAD or conflicted with immutable evidence' >&2
-    if [ "$RUNTIME" = codex ]; then write_marker refused "$attempt" "$pid" 1 || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" 1 publication_failed || true; fi
+    if [ "$STASH_BY" = runtime ]; then write_marker refused "$attempt" "$pid" 1 || true; else preserve_review_output || true; write_marker refused "$attempt" "$pid" 1 publication_failed || true; fi
     exit 1
   fi
-  if [ "$RUNTIME" != codex ]; then OUTPUT=""; fi
+  if [ "$STASH_BY" = watchdog ]; then OUTPUT=""; fi
   fi
   if [ "$CONDUCTOR_CONTROL" -eq 1 ]; then
     if ! "$CONTROL_PUBLISHER" --issue "$ISSUE_N" --cwd "$CWD" --proposal "$OUTPUT"; then
