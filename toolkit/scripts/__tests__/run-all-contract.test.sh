@@ -81,6 +81,28 @@ else
   pass "AC-OBS-1 raw failing capture is not retained"
 fi
 
+# --- AC-STDIN-1: a smoke that drains stdin cannot truncate the inventory ---
+# The 0- prefix makes this fixture sort first, so without driver-level stdin
+# isolation its stdin read would consume the runner's remaining inventory
+# pipe and the later deliberate-* smokes would silently never run.
+cat > "$FIXTURE_DIR/0-stdin-drain.smoke.sh" <<'EOF'
+#!/usr/bin/env bash
+cat > /dev/null
+exit 4
+EOF
+drain_out="$TMP_ROOT/stdin-drain-run.out"
+TMPDIR="$FIXTURE_TMP" bash "$FIXTURE_DIR/run-all.sh" >"$drain_out" 2>&1
+drain_ec=$?
+if [ "$drain_ec" -ne 0 ] \
+  && grep -F -x -q -- 'NOT OK - 0-stdin-drain.smoke.sh (exit 4)' "$drain_out" \
+  && grep -F -x -q -- 'NOT OK - deliberate-fail.smoke.sh (exit 3)' "$drain_out" \
+  && grep -F -x -q -- '--- 1/3 passed' "$drain_out"; then
+  pass "AC-STDIN-1 stdin-draining smoke does not truncate the smoke inventory"
+else
+  fail "AC-STDIN-1 stdin-draining smoke does not truncate the smoke inventory (ec=$drain_ec output=$(cat "$drain_out"))"
+fi
+rm -f "$FIXTURE_DIR/0-stdin-drain.smoke.sh"
+
 # --- AC-OBS-2: --list answers without allocating temporary storage ---
 EMPTY_TMP="$TMP_ROOT/empty-tmp"
 mkdir -p "$EMPTY_TMP"

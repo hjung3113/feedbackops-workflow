@@ -120,7 +120,7 @@ while IFS= read -r smoke; do
   TOTAL=$((TOTAL + 1))
   raw_diagnostic="$LOG_DIR/$name.raw"
   safe_diagnostic="$LOG_DIR/$name.out"
-  bash "$smoke" > "$raw_diagnostic" 2>&1
+  bash "$smoke" < /dev/null > "$raw_diagnostic" 2>&1
   ec=$?
   if [ "$ec" -eq 0 ]; then
     rm -f "$raw_diagnostic"
