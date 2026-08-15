@@ -17,12 +17,20 @@ case "$command_name" in
       version="$(cmux --version 2>/dev/null)"
       workspace_help="$(cmux workspace create --help 2>&1)"
       workspace_help_status=$?
-      create_help="$(cmux new-workspace --help 2>&1)"
-      create_help_status=$?
-      if [ "$workspace_help_status" -ne 0 ] || [ "$create_help_status" -ne 0 ] \
-        || ! printf '%s\n' "$workspace_help" | grep -F -q 'create [flags]' \
-        || ! printf '%s\n' "$create_help" | grep -F -q -- '--cwd' \
-        || ! printf '%s\n' "$create_help" | grep -F -q -- '--command' \
+      launch_flags_proven=false
+      if printf '%s\n' "$workspace_help" | grep -F -q -- '--cwd' \
+        && printf '%s\n' "$workspace_help" | grep -F -q -- '--command'; then
+        launch_flags_proven=true
+      elif printf '%s\n' "$workspace_help" | grep -F 'new-workspace' | grep -F 'same' | grep -F -q 'create'; then
+        # An explicit delegation claim is only proof when the delegated
+        # surface itself lists both launch flags.
+        delegation_help="$(cmux new-workspace --help 2>&1)"
+        if printf '%s\n' "$delegation_help" | grep -F -q -- '--cwd' \
+          && printf '%s\n' "$delegation_help" | grep -F -q -- '--command'; then
+          launch_flags_proven=true
+        fi
+      fi
+      if [ "$workspace_help_status" -ne 0 ] || [ "$launch_flags_proven" != "true" ] \
         || ! node - "$version" <<'NODE'
 const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:\s|$)/.exec(process.argv[2] || "");
 if (!match) process.exit(1);

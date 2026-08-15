@@ -39,7 +39,13 @@ fi
 CMUX_PROBE_HELPER="$TMP_ROOT/cmux-probe-helper.sh"
 cat > "$CMUX_PROBE_HELPER" <<'EOF'
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  case "${CMUX_HELP_MODE:-live}" in
+    direct) printf '%s\n' 'Usage: cmux workspace create --name NAME --cwd PATH --command TEXT'; exit 0 ;;
+    unrelated) printf '%s\n' 'Usage: cmux workspace create [flags]'; exit 0 ;;
+    *) printf '%s\n' '  create [flags]          Create a workspace (same flags as new-workspace)'; exit 0 ;;
+  esac
+fi
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then echo '{"workspaces":[]}'; exit 0; fi
 EOF
@@ -48,6 +54,72 @@ export CMUX_PROBE_HELPER
 FAILURES=0
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
+
+# Exact-token argv verification for printed dry-run commands. Shell-glob
+# substring checks (case ..."..."...) stay green when a flag is duplicated
+# or its match straddles token boundaries; these helpers split a printed
+# line on spaces and compare whole tokens and adjacent argv order only.
+argv_of() {
+  argv_line="$1"
+  argv_saved_opts="$-"
+  set -f
+  set -- $argv_line
+  set +f
+  case "$argv_saved_opts" in *f*) set -f ;; esac
+  ARGV=("$@")
+}
+
+argv_token_count() {
+  argv_of "$1"
+  argv_i=0
+  argv_count=0
+  while [ "$argv_i" -lt "${#ARGV[@]}" ]; do
+    [ "${ARGV[$argv_i]}" = "$2" ] && argv_count=$((argv_count + 1))
+    argv_i=$((argv_i + 1))
+  done
+  printf '%s\n' "$argv_count"
+}
+
+argv_pair_count() {
+  argv_of "$1"
+  argv_i=0
+  argv_count=0
+  while [ "$argv_i" -lt $(( ${#ARGV[@]} - 1 )) ]; do
+    if [ "${ARGV[$argv_i]}" = "$2" ] && [ "${ARGV[$((argv_i + 1))]}" = "$3" ]; then
+      argv_count=$((argv_count + 1))
+    fi
+    argv_i=$((argv_i + 1))
+  done
+  printf '%s\n' "$argv_count"
+}
+
+argv_head_is() {
+  argv_of "$1"
+  shift
+  argv_i=0
+  for argv_expected in "$@"; do
+    [ "${ARGV[$argv_i]}" = "$argv_expected" ] || return 1
+    argv_i=$((argv_i + 1))
+  done
+  return 0
+}
+
+argv_env_all_cleared() {
+  argv_of "$1"
+  argv_i=0
+  argv_total=0
+  argv_cleared=0
+  while [ "$argv_i" -lt "${#ARGV[@]}" ]; do
+    case "${ARGV[$argv_i]}" in
+      "$2="*)
+        argv_total=$((argv_total + 1))
+        [ "${ARGV[$argv_i]}" = "$2=" ] && argv_cleared=$((argv_cleared + 1))
+        ;;
+    esac
+    argv_i=$((argv_i + 1))
+  done
+  [ "$argv_total" -ge 1 ] && [ "$argv_total" -eq "$argv_cleared" ]
+}
 
 # Asynchronous cmux fixtures are event-driven. Wait on the observable condition
 # up to a declared deadline instead of sleeping a fixed span, and name the
@@ -142,6 +214,11 @@ printf '%s\n' "prompt body" > "$WT/.review/ISSUE-301-PROMPT.txt"
 
 # Allocation is validated before any marker or cmux side effect. Only the
 # Codex implementation allocation may be auto-forwarded; Opus/Fable never is.
+# Kept here (not moved to model-alloc.smoke.sh): these prove the integration
+# invariant that the real dispatch CLI resolves and forwards the tuple into
+# its printed runner argv (incl. PRODUCT_HOME-over-worktree precedence),
+# while model-alloc.smoke.sh unit-tests model-alloc.sh resolution in
+# isolation and covers none of these negative conditions.
 alloc_out="$TMP_ROOT/allocator-dry-run.out"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier trivial --allocate --allocator-role implementation --dry-run >"$alloc_out" 2>&1
 ec=$?
@@ -387,42 +464,83 @@ else
   fail "missing prompt file is non-zero with message (ec=$ec)"
 fi
 
-# --- dry-run happy path ---
+# --- dry-run happy path: exact token/argv verification ---
 out_file="$TMP_ROOT/dry-run.stdout"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --dry-run >"$out_file" 2>&1
 ec=$?
 printed="$(cat "$out_file")"
 if [ "$ec" -eq 0 ]; then pass "dry-run exits 0"; else fail "dry-run exits 0 (got $ec)"; fi
+cmux_printed_line="$(printf '%s\n' "$printed" | sed -n '/^cmux workspace create/p')"
+runner_printed_line="$(printf '%s\n' "$printed" | sed -n 's/^runner [^:]*: //p')"
+if [ -n "$cmux_printed_line" ] && argv_head_is "$cmux_printed_line" cmux workspace create; then
+  pass "dry-run command is exactly the cmux workspace create argv"
+else
+  fail "dry-run command is exactly the cmux workspace create argv (got: $printed)"
+fi
+if [ "$(argv_pair_count "$runner_printed_line" --cwd "$WT")" -eq 1 ] && [ "$(argv_token_count "$runner_printed_line" --cwd)" -eq 1 ]; then
+  pass "dry-run runner argv carries the absolute worktree as its only --cwd value"
+else
+  fail "dry-run runner argv carries the absolute worktree as its only --cwd value (got: $runner_printed_line)"
+fi
+if [ "$(argv_pair_count "$runner_printed_line" --prompt-file "$WT/.review/ISSUE-301-PROMPT.txt")" -eq 1 ] && [ "$(argv_token_count "$runner_printed_line" --prompt-file)" -eq 1 ]; then
+  pass "dry-run runner argv carries the absolute prompt path as its only --prompt-file value"
+else
+  fail "dry-run runner argv carries the absolute prompt path as its only --prompt-file value (got: $runner_printed_line)"
+fi
+if argv_env_all_cleared "$runner_printed_line" NODE_OPTIONS; then
+  pass "dry-run runner argv clears NODE_OPTIONS with an empty assignment"
+else
+  fail "dry-run runner argv clears NODE_OPTIONS with an empty assignment (got: $runner_printed_line)"
+fi
 
-case "$printed" in
-  *"--cwd $WT"*) pass "dry-run command contains absolute --cwd worktree" ;;
-  *) fail "dry-run command contains absolute --cwd worktree (got: $printed)" ;;
+# Negative proof for the exact-token checks above: both crafted lines
+# satisfy the retired substring checks (case ..."..."...) — a duplicated
+# --cwd whose wrong earlier value shifts the true pair's ordering, and a
+# --cwd glued into another token — yet exact argv verification must
+# reject both, which the substring checks never would.
+false_green_dup="cmux workspace create --cwd /wrong/before --cwd $WT"
+false_green_glued="cmux workspace create --prompt-file--cwd $WT"
+case "$false_green_dup" in
+  *"--cwd $WT"*) dup_substring_green=yes ;;
+  *) dup_substring_green=no ;;
 esac
-case "$printed" in
-  *"--prompt-file $WT/.review/ISSUE-301-PROMPT.txt"*) pass "dry-run command contains absolute prompt path" ;;
-  *) fail "dry-run command contains absolute prompt path (got: $printed)" ;;
+case "$false_green_glued" in
+  *"--cwd $WT"*) glued_substring_green=yes ;;
+  *) glued_substring_green=no ;;
 esac
-case "$printed" in
-  *"NODE_OPTIONS="*) pass "dry-run command clears NODE_OPTIONS" ;;
-  *) fail "dry-run command clears NODE_OPTIONS (got: $printed)" ;;
-esac
-case "$printed" in
-  *"cmux workspace create"*) pass "dry-run uses cmux workspace create" ;;
-  *) fail "dry-run uses cmux workspace create (got: $printed)" ;;
-esac
+if [ "$dup_substring_green" = yes ] && [ "$(argv_token_count "$false_green_dup" --cwd)" -ne 1 ]; then
+  pass "exact argv check catches a duplicated mis-ordered --cwd the substring check accepted"
+else
+  fail "exact argv check catches a duplicated mis-ordered --cwd the substring check accepted"
+fi
+if [ "$glued_substring_green" = yes ] && [ "$(argv_pair_count "$false_green_glued" --cwd "$WT")" -eq 0 ]; then
+  pass "exact argv check catches a boundary-straddling --cwd the substring check accepted"
+else
+  fail "exact argv check catches a boundary-straddling --cwd the substring check accepted"
+fi
 
 # --- watchdog flags are forwarded only when explicitly supplied ---
 timeout_out="$TMP_ROOT/dry-run-timeouts.stdout"
 bash "$DISPATCH" --issue 301 --worktree "$WT" --read-only --first-progress-timeout 1500 --stall-timeout 900 --dry-run >"$timeout_out" 2>&1
 ec=$?
 timeout_printed="$(cat "$timeout_out")"
-if [ "$ec" -eq 0 ] && printf '%s\n' "$timeout_printed" | grep -q -- "--role architect" && printf '%s\n' "$timeout_printed" | grep -q -- "--mode read" && printf '%s\n' "$timeout_printed" | grep -q -- "--first-progress-timeout 1500" && printf '%s\n' "$timeout_printed" | grep -q -- "--stall-timeout 900"; then
+timeout_runner_line="$(printf '%s\n' "$timeout_printed" | sed -n 's/^runner [^:]*: //p')"
+if [ "$ec" -eq 0 ] \
+  && [ "$(argv_pair_count "$timeout_runner_line" --role architect)" -eq 1 ] \
+  && [ "$(argv_pair_count "$timeout_runner_line" --mode read)" -eq 1 ] \
+  && [ "$(argv_pair_count "$timeout_runner_line" --first-progress-timeout 1500)" -eq 1 ] \
+  && [ "$(argv_pair_count "$timeout_runner_line" --stall-timeout 900)" -eq 1 ] \
+  && [ "$(argv_token_count "$timeout_runner_line" --first-progress-timeout)" -eq 1 ] \
+  && [ "$(argv_token_count "$timeout_runner_line" --stall-timeout)" -eq 1 ]; then
   pass "dry-run maps legacy read-only to an explicit read role and watchdog timeouts"
 else
   fail "dry-run maps legacy read-only and watchdog timeout flags (ec=$ec: $timeout_printed)"
 fi
 
-if printf '%s\n' "$printed" | grep -q -- "--role implementation" && printf '%s\n' "$printed" | grep -q -- "--mode write" && ! printf '%s\n' "$printed" | grep -q -- "--first-progress-timeout" && ! printf '%s\n' "$printed" | grep -q -- "--stall-timeout"; then
+if [ "$(argv_pair_count "$runner_printed_line" --role implementation)" -eq 1 ] \
+  && [ "$(argv_pair_count "$runner_printed_line" --mode write)" -eq 1 ] \
+  && [ "$(argv_token_count "$runner_printed_line" --first-progress-timeout)" -eq 0 ] \
+  && [ "$(argv_token_count "$runner_printed_line" --stall-timeout)" -eq 0 ]; then
   pass "dry-run defaults legacy writes to an explicit implementation role"
 else
   fail "dry-run omits optional watchdog timeouts when unspecified (got: $printed)"
@@ -480,7 +598,9 @@ mkdir -p "$RUNNER_FIXTURE/adapters" "$TMP_ROOT/schemas" "$RUNNER_FIXTURE/lib"
 cp "$SCRIPT_DIR/../adapters/cmux.sh" "$RUNNER_FIXTURE/adapters/cmux.sh"
 cp "$ROOT/schemas/transport_receipt.schema.json" "$TMP_ROOT/schemas/transport_receipt.schema.json"
 cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-subset.cjs"
+cp "$SCRIPT_DIR/../lib/capability-result.cjs" "$RUNNER_FIXTURE/lib/capability-result.cjs"
 cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
+cp "$SCRIPT_DIR/../lib/transport-registry.cjs" "$RUNNER_FIXTURE/lib/transport-registry.cjs"
 cat > "$RUNNER_FIXTURE/agent-watchdog.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"
@@ -551,6 +671,44 @@ if [ "$ec" -eq 0 ] && [ -n "$runner_333" ] && [ -x "$runner_333" ] && grep -q "f
   pass "deep dispatch uses a short relative runner and preserves watchdog argv"
 else
   fail "deep dispatch uses a short relative runner and preserves watchdog argv (ec=$ec: $(cat "$runner_transport_out"))"
+fi
+
+# --- capability proof comes from workspace create --help itself (AC-112) ---
+# The dispatch seam admits a delegation-style help (live 0.64.22 wording) and
+# a direct --cwd/--command listing, and refuses an unrelated summary before
+# any runner is created, even though the legacy new-workspace surface in this
+# fake still advertises both flags.
+CAP_WT="$TMP_ROOT/capability-wt"
+mkdir -p "$CAP_WT/.review"
+git init -q "$CAP_WT"
+git -C "$CAP_WT" -c user.name="Smoke Test" -c user.email="smoke@example.test" commit --allow-empty -q -m "init"
+capability_issue=311
+for help_mode in live direct; do
+  printf '%s\n' "prompt body" > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
+  cap_mode_out="$TMP_ROOT/capability-$help_mode.out"
+  WATCHDOG_ARGV_FILE="$TMP_ROOT/capability-$help_mode-watchdog-argv.txt" \
+  CMUX_HELP_MODE="$help_mode" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+    bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue "$capability_issue" --worktree "$CAP_WT" \
+    --read-only --poll-timeout 3 >"$cap_mode_out" 2>&1
+  ec=$?
+  if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$cap_mode_out"; then
+    pass "AC-112 $help_mode workspace create --help proves --cwd/--command through dispatch"
+  else
+    fail "AC-112 $help_mode workspace create --help dispatch (ec=$ec: $(cat "$cap_mode_out"))"
+  fi
+  capability_issue=$((capability_issue + 1))
+done
+printf '%s\n' "prompt body" > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
+cap_refusal_out="$TMP_ROOT/capability-unrelated.out"
+CMUX_HELP_MODE=unrelated CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+  bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue "$capability_issue" --worktree "$CAP_WT" \
+  --read-only --poll-timeout 1 >"$cap_refusal_out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -q 'required_capability_missing' "$cap_refusal_out" \
+  && ! find "$CAP_WT/.review" -type d -name "ISSUE-${capability_issue}-launch.*" | grep -q .; then
+  pass "AC-112 unrelated workspace create --help is refused before any launch runner"
+else
+  fail "AC-112 unrelated workspace create --help refusal (ec=$ec: $(cat "$cap_refusal_out"))"
 fi
 
 printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-334-PROMPT.txt"
@@ -663,6 +821,11 @@ else
 fi
 
 # --- write-capable same-issue redispatch is gate-bound and single-use ---
+# Kept here (not moved to admission-recover.smoke.sh): every case below
+# drives the real cmux-dispatch CLI end-to-end (gating, ordinals, crash
+# windows, rollback); admission-recover.smoke.sh unit-tests
+# lib/admission-recover.cjs subcommands against synthetic states and
+# proves different negative conditions.
 ADMIT_WT="$TMP_ROOT/wt-admission"
 mkdir -p "$ADMIT_WT/.review/evidence"
 git init -q "$ADMIT_WT"
@@ -967,6 +1130,9 @@ else
 fi
 # A live issue-lock owner remains authoritative even when its lock file is
 # older than the recovery threshold. Staleness may only reclaim a dead owner.
+# Unit-level like admission-recover.smoke.sh, but kept: that owner proves
+# only dead-owner and interrupted-pair reclaim — neither a live owner nor an
+# ownerless crash orphan — so moving these would weaken coverage.
 live_lock_dir="$admission_root/.issue-307-lock"
 live_lock_file="$live_lock_dir/.admission-lock.json"
 live_singleton="$admission_root/issue-307-integrated-fix"
@@ -1238,6 +1404,10 @@ else
 fi
 
 # --- poll path: a STALE RUN.json from a previous run must NOT count ---
+# Kept here (not moved to artifact-fresh.smoke.sh): artifact-fresh.sh owns
+# pr_draft base_sha/merge-base staleness; this block owns RUN.json/BLOCKER
+# liveness freshness through the real cmux dispatch poll path — a different
+# invariant at a different layer.
 # First production use hit this: re-dispatch of the same issue found the
 # previous run's status:"exited" RUN.json and reported success immediately,
 # before the new watchdog had even started.
@@ -1472,6 +1642,10 @@ else
 fi
 
 # --- codex-watchdog.sh: relative --prompt-file resolves against --cwd ---
+# Kept here (not moved to agent-watchdog.smoke.sh or
+# codex-watchdog.smoke.sh): both owners pass absolute --prompt-file paths,
+# so relative-path resolution — which the cmux launch runner depends on —
+# is proven only here.
 WT_REL="$TMP_ROOT/wt-relative"
 mkdir -p "$WT_REL/.review"
 printf '%s\n' "prompt body" > "$WT_REL/.review/ISSUE-303-PROMPT.txt"

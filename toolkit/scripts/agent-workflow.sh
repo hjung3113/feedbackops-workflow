@@ -8,28 +8,51 @@ PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 CORE="$SCRIPT_DIR/dispatch-core.sh"
 SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CAPABILITY_RESULT="$SCRIPT_DIR/lib/capability-result.cjs"
+TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
+
+registry_adapters() {
+  node "$TRANSPORT_REGISTRY" lines
+}
+
+registry_adapter_pipe() {
+  node "$TRANSPORT_REGISTRY" pipe
+}
+
+is_registered_adapter() {
+  for adapter in $(registry_adapters); do
+    [ "$1" = "$adapter" ] && return 0
+  done
+  return 1
+}
 
 usage() {
   echo "usage: agent-workflow.sh capabilities [--worktree PATH]" >&2
-  echo "       agent-workflow.sh dispatch [--orchestrator cmux|orca|herdr] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
+  echo "       agent-workflow.sh dispatch [--orchestrator $(registry_adapter_pipe)] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
   echo "       agent-workflow.sh inspect --receipt PATH" >&2
 }
 
 adapter_script() {
-  case "$1" in
-    cmux|orca|herdr) printf '%s/adapters/%s.sh\n' "$SCRIPT_DIR" "$1" ;;
-    *) return 1 ;;
-  esac
+  is_registered_adapter "$1" || return 1
+  printf '%s/adapters/%s.sh\n' "$SCRIPT_DIR" "$1"
 }
 
 capabilities() {
   worktree="${1:-$PWD}"
   printf '{"schema_version":"1","adapters":['
   first=1
-  for adapter in cmux orca herdr; do
+  for adapter in $(registry_adapters); do
     script="$(adapter_script "$adapter")"
     result="$(bash "$script" capabilities --worktree "$worktree" 2>/dev/null)"
-    [ -n "$result" ] || result="{\"adapter\":\"$adapter\",\"available\":false,\"reason_code\":\"capability_probe_failed\",\"version\":\"unknown\",\"capabilities\":[]}"
+    probe_status=$?
+    # A child probe that fails or emits anything other than the shared
+    # capability-result shape is folded into the synthetic unavailable
+    # fallback; a child being unavailable is not a fatal aggregate failure.
+    # An available claim must clear the same strict acceptance rules the
+    # dispatch admission gate applies (shared capability-result validator).
+    if [ "$probe_status" -ne 0 ] || ! node "$CAPABILITY_RESULT" aggregate "$result" "$adapter"; then
+      result="{\"adapter\":\"$adapter\",\"available\":false,\"reason_code\":\"capability_probe_failed\",\"version\":\"unknown\",\"capabilities\":[]}"
+    fi
     [ "$first" -eq 1 ] || printf ','
     printf '%s' "$result"
     first=0
@@ -142,13 +165,12 @@ case "$COMMAND" in
       SOURCE="config"
     fi
     if [ -z "$CHOICE" ]; then
-      echo "ERROR: orchestrator_not_configured: choose --orchestrator cmux|orca|herdr, set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
+      echo "ERROR: orchestrator_not_configured: choose --orchestrator $(registry_adapter_pipe), set AGENT_WORKFLOW_ORCHESTRATOR, or create $PRODUCT_HOME/workflow-config.json" >&2
       exit 2
     fi
-    case "$CHOICE" in
-      cmux|orca|herdr) ;;
-      *) echo "ERROR: unknown_orchestrator: $CHOICE (expected cmux, orca, or herdr)" >&2; exit 2 ;;
-    esac
+    if ! is_registered_adapter "$CHOICE"; then
+      echo "ERROR: unknown_orchestrator: $CHOICE (expected $(registry_adapter_pipe))" >&2; exit 2
+    fi
     RUNTIME="$CLI_RUNTIME"
     RUNTIME_SOURCE="cli"
     if [ -z "$RUNTIME" ] && [ -n "${AGENT_WORKFLOW_RUNTIME:-}" ]; then
@@ -238,7 +260,7 @@ try {
   if (errors.length) throw new Error(errors.join("; "));
   const inspection = JSON.parse(adapterInspectionJson);
   if (!["live", "stale", "handle_unverifiable"].includes(inspection.lifecycle)
-      || typeof inspection.reason !== "string" || !inspection.reason) throw new Error("invalid adapter inspection");
+      || typeof inspection.reason !== "string" || !inspection.reason.trim()) throw new Error("invalid adapter inspection");
   let lifecycle = inspection.lifecycle;
   let reason = inspection.reason;
   try {

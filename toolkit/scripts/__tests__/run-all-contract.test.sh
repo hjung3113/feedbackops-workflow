@@ -141,6 +141,92 @@ else
   fail "AC-OBS-4 unknown argument shapes still fail with usage (ec=$usage_ec: $(cat "$usage_out"))"
 fi
 
+# --- AC-INV-*: smoke inventory manifest parity ---
+MANIFEST="$SCRIPT_DIR/smoke-inventory.manifest"
+
+manifest_has_no_duplicates() {
+  sort "$1" | uniq -d | grep -q .
+  [ "$?" -ne 0 ]
+}
+
+inventory_matches_manifest() {
+  list_file="$1"
+  manifest_file="$2"
+  manifest_has_no_duplicates "$manifest_file" \
+    && diff <(sort "$list_file") <(sort "$manifest_file") >/dev/null 2>&1
+}
+
+undeclared_discovered() {
+  list_file="$1"
+  manifest_file="$2"
+  comm -13 <(sort "$manifest_file") <(sort "$list_file")
+}
+
+declared_but_missing() {
+  list_file="$1"
+  manifest_file="$2"
+  comm -23 <(sort "$manifest_file") <(sort "$list_file")
+}
+
+# --- AC-INV-1: the live inventory matches the manifest exactly ---
+live_list="$TMP_ROOT/live-list.txt"
+bash "$RUNNER" --list >"$live_list" 2>&1
+live_ec=$?
+if [ "$live_ec" -eq 0 ] \
+  && inventory_matches_manifest "$live_list" "$MANIFEST"; then
+  pass "AC-INV-1 live smoke inventory matches the manifest exactly"
+else
+  fail "AC-INV-1 live smoke inventory matches the manifest exactly (ec=$live_ec)"
+fi
+
+# Fixture suite for inventory drift: a runner copy beside one declared smoke
+# and its own manifest copy.
+INV_FIXTURE_DIR="$TMP_ROOT/inv-fixture-suite"
+mkdir -p "$INV_FIXTURE_DIR"
+cp "$RUNNER" "$INV_FIXTURE_DIR/run-all.sh"
+cat > "$INV_FIXTURE_DIR/fixture-only.smoke.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+inv_manifest="$INV_FIXTURE_DIR/smoke-inventory.manifest"
+printf '%s\n' 'fixture-only.smoke.sh' > "$inv_manifest"
+inv_list="$TMP_ROOT/inv-list.txt"
+
+# --- AC-INV-2: an added-but-undeclared smoke is caught ---
+printf '#!/usr/bin/env bash\nexit 0\n' > "$INV_FIXTURE_DIR/undeclared-extra.smoke.sh"
+bash "$INV_FIXTURE_DIR/run-all.sh" --list >"$inv_list" 2>&1
+inv2_ec=$?
+if [ "$inv2_ec" -eq 0 ] \
+  && ! inventory_matches_manifest "$inv_list" "$inv_manifest" \
+  && [ "$(undeclared_discovered "$inv_list" "$inv_manifest")" = 'undeclared-extra.smoke.sh' ]; then
+  pass "AC-INV-2 added-but-undeclared smoke is reported as a manifest mismatch"
+else
+  fail "AC-INV-2 added-but-undeclared smoke is reported as a manifest mismatch (ec=$inv2_ec)"
+fi
+
+# --- AC-INV-3: a deleted/renamed-out smoke is caught ---
+rm -f "$INV_FIXTURE_DIR/undeclared-extra.smoke.sh"
+mv "$INV_FIXTURE_DIR/fixture-only.smoke.sh" "$INV_FIXTURE_DIR/fixture-only.test.sh"
+printf '%s\n' 'fixture-only.smoke.sh' > "$inv_manifest"
+bash "$INV_FIXTURE_DIR/run-all.sh" --list >"$inv_list" 2>&1
+inv3_ec=$?
+if [ "$inv3_ec" -eq 0 ] \
+  && ! inventory_matches_manifest "$inv_list" "$inv_manifest" \
+  && [ "$(declared_but_missing "$inv_list" "$inv_manifest")" = 'fixture-only.smoke.sh' ]; then
+  pass "AC-INV-3 manifest smoke renamed out of the inventory is reported missing"
+else
+  fail "AC-INV-3 manifest smoke renamed out of the inventory is reported missing (ec=$inv3_ec)"
+fi
+
+# --- AC-INV-4: a duplicate manifest entry is itself invalid ---
+printf '%s\n%s\n' 'fixture-only.smoke.sh' 'fixture-only.smoke.sh' > "$inv_manifest"
+if ! manifest_has_no_duplicates "$inv_manifest" \
+  && ! inventory_matches_manifest "$inv_list" "$inv_manifest"; then
+  pass "AC-INV-4 duplicate manifest entry is rejected before set-equality"
+else
+  fail "AC-INV-4 duplicate manifest entry is rejected before set-equality"
+fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

@@ -25,7 +25,7 @@
 #   RUN.json is a scoped abort — codex chose to stop, not crash.
 #
 # Usage:
-#   scripts/agent-workflow.sh dispatch --orchestrator cmux|orca|herdr --issue <N> --worktree <path> \
+#   scripts/agent-workflow.sh dispatch --orchestrator <registered adapter> --issue <N> --worktree <path> \
 #     [--prompt-file <p>] [--name <workspace-name>] \
 #     [--tier trivial|standard|full_cluster] \
 #     [--round-state <json> --manifest-revision <n>] \
@@ -37,7 +37,8 @@
 # Defaults:
 #   --prompt-file    <worktree>/.review/ISSUE-<N>-PROMPT.md
 #   --name           codex-<N>
-#   --poll-timeout   300   (poll interval 5s; CMUX_DISPATCH_POLL_INTERVAL overrides, test seam)
+#   --poll-timeout   300   (poll interval 5s; AGENT_WORKFLOW_POLL_INTERVAL overrides,
+#                          CMUX_DISPATCH_POLL_INTERVAL is the legacy fallback name; test seam)
 #
 # Same-issue re-dispatch (e.g. a second prompt file for the same issue) is
 # supported: a pre-existing RUN.json/BLOCKER.json from a previous run is
@@ -60,6 +61,7 @@ PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
 PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
 TOUCH_ALLOWLIST_PREFLIGHT="$SCRIPT_DIR/lib/touch-allowlist-preflight.cjs"
 RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
@@ -92,11 +94,20 @@ EXECUTION_PLAN=""
 PLAN_SEAT=""
 POLL_TIMEOUT=300
 DRY_RUN=0
-POLL_INTERVAL="${CMUX_DISPATCH_POLL_INTERVAL:-5}"
-PRE_MARKER_DELAY="${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}"
+POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-${CMUX_DISPATCH_POLL_INTERVAL:-5}}"
+PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter cmux|orca|herdr --runtime codex|claude|opencode --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime codex|claude|opencode --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+}
+
+# is_registered_adapter <name> — membership in the transport registry, which is
+# the single source of truth for the admitted adapter set.
+is_registered_adapter() {
+  for adapter in $(node "$TRANSPORT_REGISTRY" lines); do
+    [ "$1" = "$adapter" ] && return 0
+  done
+  return 1
 }
 
 # file_sig <file> — identity signature (mtime + started_at) used to tell a
@@ -329,7 +340,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ -n "$ADAPTER" ] || { echo "missing --adapter" >&2; usage; exit 2; }
-case "$ADAPTER" in cmux|orca|herdr) ;; *) echo "unknown adapter: $ADAPTER" >&2; exit 2 ;; esac
+is_registered_adapter "$ADAPTER" || { echo "unknown adapter: $ADAPTER" >&2; exit 2; }
 case "$RUNTIME" in codex|claude|opencode) ;; *) echo "unknown runtime: $RUNTIME" >&2; exit 2 ;; esac
 case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
@@ -717,15 +728,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
     echo "ERROR: required_capability_missing: $ADAPTER capability probe failed" >&2
     exit 2
   fi
-  CAPABILITY_FIELDS="$(node - "$CAPABILITY_JSON" "$ADAPTER" <<'NODE'
-try {
-  const value = JSON.parse(process.argv[2]);
-  const expected = process.argv[3];
-  if (value.adapter !== expected || value.available !== true || typeof value.version !== "string" || !Array.isArray(value.capabilities)) process.exit(2);
-  process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities));
-} catch (error) { process.exit(2); }
-NODE
-)"
+  CAPABILITY_FIELDS="$(node "$SCRIPT_DIR/lib/capability-result.cjs" dispatch "$CAPABILITY_JSON" "$ADAPTER")"
   if [ "$?" -ne 0 ]; then
     reason="$(node -e 'try { process.stdout.write(JSON.parse(process.argv[1]).reason_code || "required_capability_missing") } catch (e) { process.stdout.write("required_capability_missing") }' "$CAPABILITY_JSON")"
     echo "ERROR: $reason: selected $ADAPTER adapter is unavailable; no fallback attempted" >&2
@@ -1247,8 +1250,13 @@ fi
 LAUNCHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LAUNCH_JSON="$(bash "$ADAPTER_SCRIPT" launch --name "$WS_NAME" --worktree "$ABS_WORKTREE" --runner-relative "$RUNNER_RELATIVE")"
 launch_status=$?
-EXTERNAL_HANDLE="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.external_handle !== "string" || !v.external_handle) process.exit(2); process.stdout.write(v.external_handle); } catch(e) { process.exit(2); }' "$LAUNCH_JSON")" || {
-  echo "ERROR: $ADAPTER adapter returned an invalid or ambiguous external handle" >&2
+# A launch result is only acceptable when the adapter reports one of the two
+# legitimately observable lifecycles (launched, or Herdr's ambiguous
+# command_unconfirmed) together with a non-blank handle. Any other lifecycle
+# value or a whitespace-only handle is rejected exactly like a missing handle:
+# no receipt, no runner/admission progression from this point.
+EXTERNAL_HANDLE="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.external_handle !== "string" || !v.external_handle.trim() || (v.lifecycle !== "launched" && v.lifecycle !== "command_unconfirmed")) process.exit(2); process.stdout.write(v.external_handle); } catch(e) { process.exit(2); }' "$LAUNCH_JSON")" || {
+  echo "ERROR: $ADAPTER adapter returned an invalid or ambiguous external handle or launch lifecycle" >&2
   if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; else exit 2; fi
 }
 if [ "$launch_status" -ne 0 ]; then

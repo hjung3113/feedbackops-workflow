@@ -40,7 +40,7 @@ fi
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]          Create a workspace (same flags as new-workspace)'; exit 0; fi
 if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
 cwd=""
 command=""
@@ -111,7 +111,7 @@ chmod +x "$BIN/codex"
 
 run_review() {
   mode="$1"
-  REVIEW_STUB_MODE="$mode" AGENT_WORKFLOW_MODEL_PROBE_CMD='[ "$MODEL" = "gpt-5.6-sol" ]' CMUX_DISPATCH_POLL_INTERVAL=1 AGENT_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_PROBE_GAP=0 CODEX_WATCHDOG_PROBE_CMD=false PATH="$BIN:$PATH" \
+  REVIEW_STUB_MODE="$mode" AGENT_WORKFLOW_MODEL_PROBE_CMD='[ "$MODEL" = "gpt-5.6-sol" ]' AGENT_WORKFLOW_POLL_INTERVAL=1 AGENT_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_PROBE_GAP=0 CODEX_WATCHDOG_PROBE_CMD=false PATH="$BIN:$PATH" \
     bash "$DISPATCH" --issue 370 --worktree "$WT" --produce-review --model gpt-5.6-sol --effort medium --poll-timeout 5
 }
 

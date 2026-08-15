@@ -12,3 +12,4 @@ jobs:
           node-version: 22
       - run: bash .github/tests/release-contract.smoke.sh
       - run: NODE_OPTIONS= bash toolkit/scripts/__tests__/run-all.sh
+      - run: bash toolkit/scripts/__tests__/run-all-contract.test.sh

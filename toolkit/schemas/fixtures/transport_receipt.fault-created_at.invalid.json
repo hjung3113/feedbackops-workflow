@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "artifact_type": "transport_receipt",
+  "authoritative": false,
+  "issue": 42,
+  "adapter": "cmux",
+  "adapter_version": "cmux 1.0",
+  "capabilities": ["workspace.create.cwd", "workspace.create.command", "workspace.list.read_only"],
+  "external_handle": "codex-42",
+  "worktree_path": "/tmp/example",
+  "runner": {
+    "path": "/tmp/example/.review/ISSUE-42-launch.abcd/launch.sh",
+    "relative_path": ".review/ISSUE-42-launch.abcd/launch.sh",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "launched_at": "2026-07-21T00:00:00Z",
+  "created_at": "not-a-date"
+}

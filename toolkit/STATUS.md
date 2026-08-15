@@ -24,6 +24,11 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
   of the contract; only fresh canonical REVIEW and VERIFY evidence at live HEAD
   retains completion authority. Herdr requires an inherited session
   (`HERDR_ENV=1` and non-empty `HERDR_SOCKET_PATH`) and never falls back.
+- The admitted transport set lives in one registry module
+  (`scripts/lib/transport-registry.cjs`); CLI selection, the shared core, and
+  routed admission consume it at runtime, and a release-gate parity check
+  keeps the static receipt/telemetry schema enums exact (telemetry keeps its
+  legacy `local` value, which is not a registered adapter).
 - Reviewer allocation can be explicitly requested per runtime: the shipped
   Claude entry uses `sonnet`, while OpenCode remains target-provider-configured
   and refuses before admission when no `reviewer_by_runtime.opencode` tuple is

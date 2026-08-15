@@ -38,13 +38,41 @@ RESOLVED_BIN="$BIN"
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
-if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then echo 'create [flags]'; exit 0; fi
-if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then echo '--cwd PATH --command TEXT'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  case "${CMUX_HELP_MODE:-live}" in
+    direct)
+      printf '%s\n' 'Usage: cmux workspace create [flags]' '  --cwd PATH       Working directory for the workspace' '  --command TEXT   Command the workspace runs'
+      ;;
+    delegation)
+      printf '%s\n' 'Usage: cmux workspace create [flags]' '  create accepts the same flag set as new-workspace'
+      ;;
+    mention_only)
+      printf '%s\n' 'cmux workspace' 'Legacy verbs (new-workspace, list-workspaces) keep working.' 'All workspace verbs apply the same validation rules.'
+      ;;
+    unrelated)
+      printf '%s\n' 'Usage: cmux workspace create' 'create [flags]'
+      ;;
+    live)
+      printf '%s\n' 'cmux workspace' '' 'Usage: cmux workspace <subcommand> [flags]' '' 'Canonical noun for workspace operations. Legacy verbs' '(new-workspace, list-workspaces, close-workspace,' 'rename-workspace, select-workspace) keep working and print a' 'one-time deprecation hint pointing here.' '' 'Subcommands:' '  list                    List workspaces in a window' '  create [flags]          Create a workspace (same flags as new-workspace)' '  env [workspace] [--mask]' '  close <workspace>       Close a workspace' '  rename <workspace> --title <new>' '  select <workspace>      Make a workspace active' '' 'Examples:' '  cmux workspace list --json' '  cmux workspace create --name Build --cwd ~/projects/myapp' '  cmux workspace close workspace:3'
+      ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = "new-workspace" ] && [ "${2:-}" = "--help" ]; then
+  if [ "${CMUX_NEW_WORKSPACE_HELP_MODE:-flags}" = "flagless" ]; then
+    printf '%s\n' 'Usage: cmux new-workspace [name]' '  Create a workspace with default settings'
+  else
+    echo '--cwd PATH --command TEXT'
+  fi
+  exit 0
+fi
 if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "list" ] && [ "${3:-}" = "--json" ]; then
   case "${CMUX_LIST_MODE:-live}" in
     live) printf '%s\n' '{"workspaces":[{"ref":"workspace:11","name":"codex-502"}]}' ;;
+    id_key) printf '%s\n' '{"workspaces":[{"id":"cmux-502","name":"codex-502"}]}' ;;
     duplicate_name) printf '%s\n' '{"workspaces":[{"ref":"workspace:11","name":"same-name"},{"ref":"workspace:12","name":"same-name"}]}' ;;
     removed) printf '%s\n' '{"workspaces":[{"ref":"workspace:12","name":"codex-502"}]}' ;;
+    decoy) printf '%s\n' '{"workspaces":[{"ref":"workspace:12","name":"codex-502","request":{"id":"workspace:11"}}]}' ;;
     invalid) printf '%s\n' '{"workspaces":' ;;
     fail) exit 2 ;;
   esac
@@ -68,6 +96,7 @@ case "${CMUX_CREATE_SHAPE:-plain}" in
   ref) node -e 'process.stdout.write(JSON.stringify({result:{ref:`cmux-${process.argv[1]}`}})+"\n")' "$issue" ;;
   name_only) node -e 'process.stdout.write(JSON.stringify({workspace:{name:process.argv[1]}})+"\n")' "$name" ;;
   ambiguous) printf '%s\n' '{"id":"cmux-one","ref":"cmux-two"}' ;;
+  decoy_id) node -e 'process.stdout.write(JSON.stringify({workspace:{id:`cmux-${process.argv[1]}`,name:process.argv[2],request:{id:"nested-decoy-502"}}})+"\n")' "$issue" "$name" ;;
   missing) printf '\n' ;;
   invalid) printf 'created workspace:cmux-%s\n' "$issue" ;;
 esac
@@ -370,6 +399,9 @@ exit 0
 EOF
 chmod +x "$BIN/codex"
 export AGENT_WORKFLOW_CODEX_BIN="$BIN/codex"
+# The generic runtime pin outranks the per-runtime pin, so a value inherited
+# from a dispatching session would bypass the fake codex binary above.
+unset AGENT_WORKFLOW_RUNTIME_BIN
 
 WT="$TMP_ROOT/choice"
 make_worktree "$WT" 501
@@ -508,6 +540,43 @@ if (value.available || value.reason_code !== "required_capability_missing") proc
 NODE
   then pass "Herdr workspace list $list_mode is required"; else fail "Herdr workspace list $list_mode ($(cat "$TMP_ROOT/herdr-list-$list_mode.json"))"; fi
 done
+
+# The cmux capability probe must prove --cwd/--command support from the same
+# help surface the launch command uses (`workspace create --help`): a direct
+# flag listing, or an explicit same-line new-workspace delegation that the
+# delegated `new-workspace --help` surface itself confirms by listing both
+# flags. The legacy new-workspace help surface still answers in this fake, so
+# the unrelated and mention_only cases also prove the cross-command proof no
+# longer admits, and the flagless case proves a delegation claim alone is not
+# accepted without the delegated surface's own flag listing.
+CMUX_CAP_SCRIPT="$ROOT/scripts/adapters/cmux.sh"
+cmux_capability_matrix() {
+  case_name="$1"
+  help_mode="$2"
+  expected_available="$3"
+  legacy_help_mode="${4:-flags}"
+  output_file="$TMP_ROOT/cmux-capability-$help_mode-${legacy_help_mode}.json"
+  CMUX_HELP_MODE="$help_mode" CMUX_NEW_WORKSPACE_HELP_MODE="$legacy_help_mode" \
+    PATH="$BIN:$PATH" bash "$CMUX_CAP_SCRIPT" capabilities --worktree "$WT" >"$output_file" 2>&1
+  status=$?
+  if [ "$status" -eq 0 ] && node - "$output_file" "$expected_available" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (value.adapter !== "cmux" || value.available !== (process.argv[3] === "true")) process.exit(1);
+  if (!value.available && value.reason_code !== "required_capability_missing") process.exit(1);
+  if (!value.available && (value.version !== "unknown" || value.capabilities.length)) process.exit(1);
+} catch (error) { process.exit(1); }
+NODE
+  then pass "$case_name"
+  else fail "$case_name ($(cat "$output_file"))"; fi
+}
+cmux_capability_matrix "AC-112-1 cmux workspace create --help directly listing --cwd/--command proves capability" direct true
+cmux_capability_matrix "AC-112-2 cmux workspace create --help explicit new-workspace delegation wording proves capability" delegation true
+cmux_capability_matrix "AC-112-3 cmux live 0.64.22 delegation help text still proves capability" live true
+cmux_capability_matrix "AC-112-5 cmux delegation wording without new-workspace --help flags is rejected as required_capability_missing" delegation false flagless
+cmux_capability_matrix "AC-112-4 cmux unrelated workspace create --help is rejected as required_capability_missing" unrelated false
+cmux_capability_matrix "AC-112-4 cmux scattered new-workspace mention without same-line delegation is rejected" mention_only false
 
 # An unavailable selected adapter must fail before the initial-write marker and
 # must never call the other adapter.
@@ -754,7 +823,7 @@ HERDR_DISPATCH_OUT="$TMP_ROOT/herdr-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" \
 HERDR_CREATE_LOG="$HERDR_DISPATCH_STATE/create.log" HERDR_RUN_LOG="$HERDR_DISPATCH_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_DISPATCH_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-602 HERDR_PANE_ID=herdr-pane-602 HERDR_RUN_MODE=success HERDR_SEED_DECOY=1 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 602 --worktree "$HERDR_DISPATCH_WT" --name requested-label-602 --read-only --poll-timeout 3 >"$HERDR_DISPATCH_OUT" 2>&1
 herdr_dispatch_ec=$?
 HERDR_DISPATCH_RECEIPT="$HERDR_DISPATCH_WT/.review/ISSUE-602-TRANSPORT.json"
@@ -772,12 +841,9 @@ if (value.adapter !== "herdr" || value.external_handle !== "herdr-workspace-602"
 NODE
 then pass "Herdr public dispatch publishes the returned workspace receipt"; else fail "Herdr public dispatch (ec=$herdr_dispatch_ec out=$(cat "$HERDR_DISPATCH_OUT"))"; fi
 
-HERDR_INSPECT_OUT="$TMP_ROOT/herdr-inspect-live.out"
-HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=live \
-PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
-if grep -q '"adapter":"herdr"' "$HERDR_INSPECT_OUT" && grep -q '"lifecycle":"live"' "$HERDR_INSPECT_OUT"; then
-  pass "Herdr CLI inspect reports the exact returned workspace as live"
-else fail "Herdr CLI live inspect ($(cat "$HERDR_INSPECT_OUT"))"; fi
+# The live inspection of this receipt is proven for every registry adapter by
+# the shared AC-116-1 loop below; only Herdr-specific error mappings remain.
+HERDR_INSPECT_OUT="$TMP_ROOT/herdr-inspect.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=stale \
 PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$HERDR_DISPATCH_RECEIPT" >"$HERDR_INSPECT_OUT" 2>&1
 if grep -q '"lifecycle":"stale"' "$HERDR_INSPECT_OUT" && grep -q 'workspace handle is not found' "$HERDR_INSPECT_OUT"; then
@@ -805,7 +871,7 @@ HERDR_AMBIGUOUS_OUT="$TMP_ROOT/herdr-ambiguous-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_STATE" \
 HERDR_CREATE_LOG="$HERDR_AMBIGUOUS_STATE/create.log" HERDR_RUN_LOG="$HERDR_AMBIGUOUS_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_AMBIGUOUS_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-603 HERDR_PANE_ID=herdr-pane-603 HERDR_RUN_MODE=ambiguous_malformed HERDR_RUN_STATUS=7 HERDR_WRITE_RUN_ON_AMBIGUOUS=1 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 603 --worktree "$HERDR_AMBIGUOUS_WT" --read-only --poll-timeout 3 >"$HERDR_AMBIGUOUS_OUT" 2>&1
 herdr_ambiguous_ec=$?
 if [ "$herdr_ambiguous_ec" -eq 0 ] && [ -f "$HERDR_AMBIGUOUS_WT/.review/ISSUE-603-TRANSPORT.json" ] \
@@ -821,7 +887,7 @@ HERDR_AMBIGUOUS_ABSENT_OUT="$TMP_ROOT/herdr-ambiguous-absent.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_ABSENT_STATE" \
 HERDR_CREATE_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/create.log" HERDR_RUN_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_AMBIGUOUS_ABSENT_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-604 HERDR_PANE_ID=herdr-pane-604 HERDR_RUN_MODE=ambiguous_empty HERDR_RUN_STATUS=7 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 604 --worktree "$HERDR_AMBIGUOUS_ABSENT_WT" --read-only --poll-timeout 1 >"$HERDR_AMBIGUOUS_ABSENT_OUT" 2>&1
 herdr_ambiguous_absent_ec=$?
 if [ "$herdr_ambiguous_absent_ec" -eq 7 ] && [ -f "$HERDR_AMBIGUOUS_ABSENT_WT/.review/ISSUE-604-TRANSPORT.json" ] \
@@ -837,7 +903,7 @@ HERDR_DEFINITE_OUT="$TMP_ROOT/herdr-definite-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DEFINITE_STATE" \
 HERDR_CREATE_LOG="$HERDR_DEFINITE_STATE/create.log" HERDR_RUN_LOG="$HERDR_DEFINITE_STATE/run.log" HERDR_CLOSE_LOG="$HERDR_DEFINITE_STATE/close.log" \
 HERDR_WORKSPACE_ID=herdr-workspace-605 HERDR_PANE_ID=herdr-pane-605 HERDR_RUN_MODE=pane_not_found HERDR_RUN_STATUS=1 \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator herdr --issue 605 --worktree "$HERDR_DEFINITE_WT" --read-only --poll-timeout 1 >"$HERDR_DEFINITE_OUT" 2>&1
 herdr_definite_ec=$?
 if [ "$herdr_definite_ec" -eq 1 ] && [ ! -e "$HERDR_DEFINITE_WT/.review/ISSUE-605-TRANSPORT.json" ] \
@@ -853,10 +919,10 @@ ORCA_WT="$TMP_ROOT/orca-wt"
 make_worktree "$CMUX_WT" 502
 make_worktree "$ORCA_WT" 503
 TRANSPORT_USED="$TMP_ROOT/cmux-used" CMUX_ARGV="$TMP_ROOT/cmux-argv" ORCA_ARGV="$TMP_ROOT/unused-orca" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/cmux.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/cmux.out" 2>&1
 cmux_ec=$?
 TRANSPORT_USED="$TMP_ROOT/orca-used" CMUX_ARGV="$TMP_ROOT/unused-cmux" ORCA_ARGV="$TMP_ROOT/orca-argv" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator orca --issue 503 --worktree "$ORCA_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/orca.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator orca --issue 503 --worktree "$ORCA_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/orca.out" 2>&1
 orca_ec=$?
 if [ "$cmux_ec" -eq 0 ] && [ "$orca_ec" -eq 0 ] \
   && [ -d "$CMUX_WT/.review/.write-dispatch-issue-502-started" ] \
@@ -867,6 +933,11 @@ if [ "$cmux_ec" -eq 0 ] && [ "$orca_ec" -eq 0 ] \
   && grep -E '^bash \.review/ISSUE-503-launch\..*/launch\.sh$' "$TMP_ROOT/orca-argv" >/dev/null; then
   pass "cmux and Orca share exact cwd, runner, admission, and freshness behavior"
 else fail "adapter parity (cmux=$cmux_ec orca=$orca_ec)"; fi
+
+cmux_launch_argv="$(paste -s -d ' ' "$TMP_ROOT/cmux-argv")"
+if printf '%s\n' "$cmux_launch_argv" | grep -Eq '^workspace create --name codex-502 --cwd [^ ]+ --command bash \.review/ISSUE-502-launch\.[^ ]+/launch\.sh$'; then
+  pass "AC-112-5 cmux launch argv still uses workspace create --name/--cwd/--command"
+else fail "AC-112-5 cmux launch argv unchanged ($cmux_launch_argv)"; fi
 
 orca_version="$(node -e 'process.stdout.write(require(process.argv[1]).adapter_version)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
 if [ "$orca_version" = "1.4.161" ] && [ "$orca_version" != "orca" ]; then
@@ -909,11 +980,29 @@ NODE
 done
 if [ "$FAILURES" -eq 0 ]; then pass "dispatch publishes schema-valid non-authoritative receipts"; fi
 
+# AC-116-1: every registry adapter's dispatched receipt crosses the same CLI
+# inspect boundary with the same evidence shape — its own adapter identity, a
+# live probe of the handle dispatch returned, and the non-authoritative
+# completion note. Only the receipt fixture and the inherited-session env
+# needed to reach Herdr's probe differ.
 inspect_out="$TMP_ROOT/inspect.out"
-PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" > "$inspect_out"
-if grep -q '"adapter":"cmux"' "$inspect_out" && grep -q '"lifecycle":"live"' "$inspect_out"; then
-  pass "inspect queries the cmux external workspace handle read-only"
-else fail "cmux external handle inspection"; fi
+for adapter in $(node "$PRODUCT_HOME/scripts/lib/transport-registry.cjs" lines); do
+  case "$adapter" in
+    cmux) live_receipt="$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" ;;
+    orca) live_receipt="$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" ;;
+    herdr) live_receipt="$HERDR_DISPATCH_WT/.review/ISSUE-602-TRANSPORT.json" ;;
+  esac
+  if [ "$adapter" = herdr ]; then
+    HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" HERDR_GET_MODE=live \
+      PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$live_receipt" > "$inspect_out" 2>&1
+  else
+    PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$live_receipt" > "$inspect_out" 2>&1
+  fi
+  if grep -q "\"adapter\":\"$adapter\"" "$inspect_out" && grep -q '"lifecycle":"live"' "$inspect_out" \
+    && grep -q '"authoritative":false' "$inspect_out" && grep -q 'canonical REVIEW and VERIFY' "$inspect_out"; then
+    pass "AC-116-1 $adapter receipt inspects live through the shared boundary without completion authority"
+  else fail "AC-116-1 $adapter live inspect ($(cat "$inspect_out"))"; fi
+done
 cmux_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_handle)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
 if [ "$cmux_handle" = "workspace:11" ]; then
   pass "cmux receipt normalizes the plain-text create workspace ref rather than the requested name"
@@ -932,7 +1021,7 @@ old_cmux_runner="$cmux_runner"
 # the now-superseded receipt runner without touching the pending runner.
 rm -f "${old_cmux_runner%/launch.sh}/.receipt-published"
 TRANSPORT_USED="$TMP_ROOT/cmux-redispatch-used" CMUX_ARGV="$TMP_ROOT/cmux-redispatch-argv" ORCA_ARGV="$TMP_ROOT/unused-orca" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --read-only --poll-timeout 3 >"$TMP_ROOT/cmux-redispatch.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --read-only --poll-timeout 3 >"$TMP_ROOT/cmux-redispatch.out" 2>&1
 cmux_redispatch_ec=$?
 current_cmux_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
 if [ "$cmux_redispatch_ec" -eq 1 ] && [ "$current_cmux_runner" != "$old_cmux_runner" ] \
@@ -949,6 +1038,10 @@ CMUX_LIST_MODE=removed PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$CMUX_WT
 if grep -q '"lifecycle":"stale"' "$inspect_out"; then
   pass "removed created cmux workspace is stale even when its name remains"
 else fail "cmux removed workspace stale identity"; fi
+CMUX_LIST_MODE=decoy PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json" > "$inspect_out"
+if grep -q '"lifecycle":"stale"' "$inspect_out"; then
+  pass "AC-111-12 cmux inspect does not adopt a nested decoy id as the workspace handle"
+else fail "AC-111-12 cmux inspect decoy id rejection ($(cat "$inspect_out"))"; fi
 
 weird_name="$(printf 'same "name"\nnext')"
 weird_launch="$(TRANSPORT_USED="$TMP_ROOT/weird-used" CMUX_ARGV="$TMP_ROOT/weird-argv" CMUX_CREATE_SHAPE=id CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" launch --name "$weird_name" --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh)"
@@ -965,6 +1058,16 @@ if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-50
   pass "cmux create id response remains compatible"
 else fail "cmux id response normalization"; fi
 
+id_key_inspect="$(CMUX_LIST_MODE=id_key PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" inspect --worktree "$CMUX_WT" --external-handle cmux-502)"
+if node -e 'const v=JSON.parse(process.argv[1]); if(v.lifecycle!=="live")process.exit(1)' "$id_key_inspect"; then
+  pass "AC-111-13 cmux id-shaped create handle inspects live when workspace list exposes the same id"
+else fail "AC-111-13 cmux id-key list inspection ($(cat "$id_key_inspect" 2>/dev/null))"; fi
+
+decoy_launch="$(TRANSPORT_USED="$TMP_ROOT/decoy-used" CMUX_ARGV="$TMP_ROOT/decoy-argv" CMUX_CREATE_SHAPE=decoy_id CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" bash "$ROOT/scripts/adapters/cmux.sh" launch --name codex-502 --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh)"
+if node -e 'const v=JSON.parse(process.argv[1]); if(v.external_handle!=="cmux-502")process.exit(1)' "$decoy_launch"; then
+  pass "AC-111-12 cmux create adopts only the documented workspace result id, never a nested request id"
+else fail "AC-111-12 cmux create decoy id rejection ($(cat "$TMP_ROOT/decoy-argv" 2>/dev/null))"; fi
+
 for invalid_create_shape in name_only ambiguous missing invalid; do
   if TRANSPORT_USED="$TMP_ROOT/${invalid_create_shape}-used" CMUX_ARGV="$TMP_ROOT/${invalid_create_shape}-argv" CMUX_CREATE_SHAPE="$invalid_create_shape" CMUX_CREATE_ISSUE_OVERRIDE=502 PATH="$BIN:$PATH" \
     bash "$ROOT/scripts/adapters/cmux.sh" launch --name codex-502 --worktree "$CMUX_WT" --runner-relative .review/ISSUE-502-launch.fixture/launch.sh > "$TMP_ROOT/${invalid_create_shape}-create.out" 2>&1; then
@@ -976,17 +1079,13 @@ done
 
 CMUX_UNPROVABLE_WT="$TMP_ROOT/cmux-unprovable"
 make_worktree "$CMUX_UNPROVABLE_WT" 507
-CMUX_CREATE_SHAPE=name_only AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+CMUX_CREATE_SHAPE=name_only AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator cmux --issue 507 --worktree "$CMUX_UNPROVABLE_WT" --tier trivial --poll-timeout 1 > "$TMP_ROOT/cmux-unprovable.out" 2>&1
 unprovable_ec=$?
 if [ "$unprovable_ec" -eq 2 ] && grep -q 'did not return one provable workspace id/ref' "$TMP_ROOT/cmux-unprovable.out" \
   && [ ! -e "$CMUX_UNPROVABLE_WT/.review/ISSUE-507-TRANSPORT.json" ]; then
   pass "cmux launch without a provable id/ref fails before receipt publication"
 else fail "cmux unprovable create identity (ec=$unprovable_ec)"; fi
-PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
-if grep -q '"lifecycle":"live"' "$inspect_out" && grep -q '"authoritative":false' "$inspect_out" && grep -q 'canonical REVIEW and VERIFY' "$inspect_out"; then
-  pass "inspect refuses to equate transport lifecycle with completion"
-else fail "inspect authority boundary"; fi
 orca_handle="$(node -e 'process.stdout.write(require(process.argv[1]).external_handle)' "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json")"
 if [ "$orca_handle" = "term-503" ]; then
   pass "Orca receipt uses nested terminal handle rather than create request id"
@@ -1001,7 +1100,7 @@ for invalid_create_shape in missing ambiguous; do
 done
 ORCA_UNPROVABLE_WT="$TMP_ROOT/orca-unprovable"
 make_worktree "$ORCA_UNPROVABLE_WT" 508
-ORCA_CREATE_MODE=missing AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" CMUX_DISPATCH_POLL_INTERVAL=1 \
+ORCA_CREATE_MODE=missing AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
 bash "$CLI" dispatch --orchestrator orca --issue 508 --worktree "$ORCA_UNPROVABLE_WT" --tier trivial --poll-timeout 1 > "$TMP_ROOT/orca-unprovable.out" 2>&1
 orca_unprovable_ec=$?
 if [ "$orca_unprovable_ec" -eq 2 ] && [ ! -e "$ORCA_UNPROVABLE_WT/.review/ISSUE-508-TRANSPORT.json" ]; then
@@ -1024,23 +1123,275 @@ printf '%s\n' '# changed' >> "$runner_path"
 PATH="$BIN:$PATH" bash "$CLI" inspect --receipt "$ORCA_WT/.review/ISSUE-503-TRANSPORT.json" > "$inspect_out"
 if grep -q '"lifecycle":"stale"' "$inspect_out"; then pass "inspect detects stale runner identity"; else fail "stale receipt detection"; fi
 
-node - "$VALIDATOR" "$SCHEMA" "$ROOT/schemas/fixtures/transport_receipt.valid.json" "$ROOT/schemas/fixtures/transport_receipt.invalid.json" <<'NODE'
+check_transport_fault_fixture() {
+  fixture_name="$1"
+  expected_error="$2"
+  node - "$VALIDATOR" "$SCHEMA" "$ROOT/schemas/fixtures/$fixture_name" "$expected_error" <<'NODE'
 const { validate } = require(process.argv[2]);
 const fs = require("fs");
 const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
-const valid = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
-const invalid = JSON.parse(fs.readFileSync(process.argv[5], "utf8"));
-if (validate(schema, valid).length || !validate(schema, invalid).length) process.exit(1);
+const value = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+const expectedError = process.argv[5];
+const errors = validate(schema, value);
+process.exit(errors.length > 0 && errors.some((message) => message.includes(expectedError)) ? 0 : 1);
 NODE
-if [ "$?" -eq 0 ]; then pass "transport receipt valid and invalid fixtures enforce the contract"; else fail "transport receipt fixtures"; fi
+  if [ "$?" -eq 0 ]; then pass "transport receipt one-fault fixture $fixture_name names its specific fault"; else fail "transport receipt one-fault fixture $fixture_name fault naming"; fi
+}
+node - "$VALIDATOR" "$SCHEMA" "$ROOT/schemas/fixtures/transport_receipt.valid.json" <<'NODE'
+const { validate } = require(process.argv[2]);
+const fs = require("fs");
+const schema = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+const value = JSON.parse(fs.readFileSync(process.argv[4], "utf8"));
+process.exit(validate(schema, value).length ? 1 : 0);
+NODE
+if [ "$?" -eq 0 ]; then pass "transport receipt valid fixture still enforces the contract"; else fail "transport receipt valid fixture"; fi
+check_transport_fault_fixture transport_receipt.fault-authoritative.invalid.json '$.authoritative: must equal false'
+check_transport_fault_fixture transport_receipt.fault-adapter.invalid.json '$.adapter: must be one of ["cmux","orca","herdr"]'
+check_transport_fault_fixture transport_receipt.fault-capabilities.invalid.json '$.capabilities: must contain at least 1 items'
+check_transport_fault_fixture transport_receipt.fault-external_handle.invalid.json '$.external_handle: must contain at least 1 characters'
+check_transport_fault_fixture transport_receipt.fault-runner_sha256.invalid.json '$.runner.sha256: must match ^[a-f0-9]{64}$'
+check_transport_fault_fixture transport_receipt.fault-launched_at.invalid.json '$.launched_at: must match'
+check_transport_fault_fixture transport_receipt.fault-created_at.invalid.json '$.created_at: must match'
 
 capabilities_out="$TMP_ROOT/capabilities.json"
 TRANSPORT_USED="$TMP_ROOT/capability-unused" CMUX_ARGV="$TMP_ROOT/capability-cmux" ORCA_ARGV="$TMP_ROOT/capability-orca" \
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$TMP_ROOT/capability-herdr-state" PATH="$BIN:$PATH" \
 bash "$CLI" capabilities --worktree "$WT" > "$capabilities_out"
-if node -e 'const v=require(process.argv[1]); const names=v.adapters.map(x=>x.adapter).sort().join(","); if(names!=="cmux,herdr,orca" || !v.adapters.every(x=>x.available===true)) process.exit(1)' "$capabilities_out"; then
-  pass "capabilities reports cmux, Orca, and Herdr independently"
-else fail "capabilities report"; fi
+capabilities_ec=$?
+if [ "$capabilities_ec" -eq 0 ] && node -e '
+const v = require(process.argv[1]);
+const { ADAPTERS } = require(process.argv[2]);
+if (v.schema_version !== "1" || !Array.isArray(v.adapters) || !Array.isArray(v.runtimes)) process.exit(1);
+const names = v.adapters.map(x => x.adapter).sort().join(",");
+if (names !== ADAPTERS.slice().sort().join(",")) process.exit(1);
+for (const entry of v.adapters) {
+  if (typeof entry.available !== "boolean" || entry.available !== true) process.exit(1);
+  if (typeof entry.version !== "string" || !entry.version.trim()) process.exit(1);
+  if (!Array.isArray(entry.capabilities) || !entry.capabilities.length) process.exit(1);
+  const seen = new Set();
+  for (const item of entry.capabilities) {
+    if (typeof item !== "string" || !item.trim() || seen.has(item)) process.exit(1);
+    seen.add(item);
+  }
+}
+' "$capabilities_out" "$PRODUCT_HOME/scripts/lib/transport-registry.cjs"; then
+  pass "AC-111-6 capabilities aggregate keeps schema_version/adapters/runtimes with strict per-adapter shape"
+else fail "AC-111-6 strict capabilities aggregate ($(cat "$capabilities_out"))"; fi
+
+# --- strict adapter-output contract (issue 111) -------------------------------
+# The shared dispatch core must reject malformed adapter output instead of
+# accepting it as a proven capability/launch/inspect result. These cases run
+# against a fake adapter installed into the product copy so the exact bytes a
+# malformed adapter would emit reach dispatch-core.sh unchanged.
+cat > "$PRODUCT_HOME/scripts/adapters/cmux.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "capabilities" ]; then
+  printf '%s\n' "${FAKE_CMUX_CAPABILITY_JSON:-}"
+  exit "${FAKE_CMUX_CAPABILITY_STATUS:-0}"
+fi
+if [ "${1:-}" = "launch" ]; then
+  printf '%s\n' "${FAKE_CMUX_LAUNCH_JSON:-}"
+  exit "${FAKE_CMUX_LAUNCH_STATUS:-0}"
+fi
+if [ "${1:-}" = "inspect" ]; then
+  printf '%s\n' "${FAKE_CMUX_INSPECT_JSON:-}"
+  exit 0
+fi
+exit 2
+EOF
+chmod +x "$PRODUCT_HOME/scripts/adapters/cmux.sh"
+
+STRICT_CAPABILITY='{"adapter":"cmux","available":true,"reason_code":"available","version":"0.64.18","capabilities":["workspace.create.cwd"]}'
+strict_capability_case() {
+  case_name="$1"; expected_reason="$2"; payload="$3"
+  case_wt="$TMP_ROOT/strict-cap-$case_name-wt"
+  make_worktree "$case_wt" 610
+  case_out="$TMP_ROOT/strict-cap-$case_name.out"
+  FAKE_CMUX_CAPABILITY_JSON="$payload" AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" \
+    bash "$CLI" dispatch --orchestrator cmux --issue 610 --worktree "$case_wt" --read-only --poll-timeout 1 >"$case_out" 2>&1
+  case_ec=$?
+  if [ "$case_ec" -eq 2 ] && grep -q "$expected_reason" "$case_out" \
+    && [ ! -e "$case_wt/.review/ISSUE-610-TRANSPORT.json" ] \
+    && ! find "$case_wt/.review" -type d -name 'ISSUE-610-launch.*' | grep -q .; then
+    pass "AC-111 capability $case_name is rejected before runner or receipt"
+  else fail "AC-111 capability $case_name (ec=$case_ec $(cat "$case_out"))"; fi
+}
+strict_capability_case AC-111-1-empty-capabilities required_capability_missing '{"adapter":"cmux","available":true,"version":"0.64.18","capabilities":[]}'
+strict_capability_case AC-111-2-duplicate-capabilities required_capability_missing '{"adapter":"cmux","available":true,"version":"0.64.18","capabilities":["workspace.create.cwd","workspace.create.cwd"]}'
+strict_capability_case AC-111-3-non-string-capability required_capability_missing '{"adapter":"cmux","available":true,"version":"0.64.18","capabilities":["workspace.create.cwd",7]}'
+strict_capability_case AC-111-3-blank-capability-entry required_capability_missing '{"adapter":"cmux","available":true,"version":"0.64.18","capabilities":["workspace.create.cwd","   "]}'
+strict_capability_case AC-111-4-whitespace-version required_capability_missing '{"adapter":"cmux","available":true,"version":"   ","capabilities":["workspace.create.cwd"]}'
+strict_capability_case AC-111-unavailable-reason-preserved binary_not_found '{"adapter":"cmux","available":false,"reason_code":"binary_not_found","version":"unknown","capabilities":[]}'
+
+strict_launch_case() {
+  case_name="$1"; launch_json="$2"; launch_status="${3:-0}"
+  case_wt="$TMP_ROOT/strict-launch-$case_name-wt"
+  make_worktree "$case_wt" 611
+  case_out="$TMP_ROOT/strict-launch-$case_name.out"
+  FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
+  FAKE_CMUX_LAUNCH_JSON="$launch_json" FAKE_CMUX_LAUNCH_STATUS="$launch_status" \
+  AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
+    bash "$CLI" dispatch --orchestrator cmux --issue 611 --worktree "$case_wt" --read-only --poll-timeout 1 >"$case_out" 2>&1
+  case_ec=$?
+  if [ "$case_ec" -eq 2 ] && grep -q 'invalid or ambiguous external handle' "$case_out" \
+    && [ ! -e "$case_wt/.review/ISSUE-611-TRANSPORT.json" ]; then
+    pass "AC-111 launch $case_name is rejected with no receipt published"
+  else fail "AC-111 launch $case_name (ec=$case_ec $(cat "$case_out"))"; fi
+}
+strict_launch_case AC-111-5-whitespace-handle '{"external_handle":"   ","lifecycle":"launched"}'
+strict_launch_case AC-111-8-failed-lifecycle '{"external_handle":"cmux-611","lifecycle":"failed"}'
+strict_launch_case AC-111-9-unknown-lifecycle '{"external_handle":"cmux-611","lifecycle":"pending"}'
+strict_launch_case AC-111-9-missing-lifecycle '{"external_handle":"cmux-611"}'
+
+# The preserved Herdr-style ambiguous path: command_unconfirmed with a
+# non-zero launch exit is still accepted and still publishes its receipt.
+unconfirmed_wt="$TMP_ROOT/strict-launch-unconfirmed-wt"
+make_worktree "$unconfirmed_wt" 613
+unconfirmed_out="$TMP_ROOT/strict-launch-unconfirmed.out"
+FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
+FAKE_CMUX_LAUNCH_JSON='{"external_handle":"cmux-613","lifecycle":"command_unconfirmed"}' FAKE_CMUX_LAUNCH_STATUS=7 \
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
+  bash "$CLI" dispatch --orchestrator cmux --issue 613 --worktree "$unconfirmed_wt" --read-only --poll-timeout 1 >"$unconfirmed_out" 2>&1
+unconfirmed_ec=$?
+if [ "$unconfirmed_ec" -eq 7 ] && [ -f "$unconfirmed_wt/.review/ISSUE-613-TRANSPORT.json" ]; then
+  pass "AC-111 command_unconfirmed launch with non-zero status still publishes its receipt"
+else fail "AC-111 command_unconfirmed preservation (ec=$unconfirmed_ec $(cat "$unconfirmed_out"))"; fi
+
+# Inspect results are validated against the same strict lifecycle contract.
+strict_inspect_wt="$TMP_ROOT/strict-inspect-wt"
+make_worktree "$strict_inspect_wt" 612
+strict_runner="$TMP_ROOT/strict-runner-612.sh"
+printf '%s\n' '#!/usr/bin/env bash' > "$strict_runner"
+strict_runner_sha="$(node -e 'const fs=require("fs"),crypto=require("crypto"); process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$strict_runner")"
+strict_receipt="$strict_inspect_wt/.review/ISSUE-612-TRANSPORT.json"
+node - "$strict_receipt" "$strict_inspect_wt" "$strict_runner" "$strict_runner_sha" <<'NODE'
+const fs = require("fs");
+const [file, worktree, runner, sha] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({
+  schema_version: "1", artifact_type: "transport_receipt", authoritative: false,
+  issue: 612, adapter: "cmux", adapter_version: "0.64.18",
+  capabilities: ["workspace.create.cwd"],
+  external_handle: "workspace:612",
+  worktree_path: worktree,
+  runner: { path: runner, relative_path: ".review/ISSUE-612-launch.fixture/launch.sh", sha256: sha },
+  launched_at: "2026-07-21T01:00:00Z", created_at: "2026-07-21T01:00:00Z"
+}, null, 2) + "\n");
+NODE
+strict_inspect_case() {
+  case_name="$1"; payload="$2"
+  case_out="$TMP_ROOT/strict-inspect-$case_name.out"
+  FAKE_CMUX_INSPECT_JSON="$payload" PATH="$BIN:$PATH" \
+    bash "$CLI" inspect --receipt "$strict_receipt" >"$case_out" 2>&1
+  case_ec=$?
+  if [ "$case_ec" -ne 0 ] && grep -q 'invalid adapter inspection' "$case_out" \
+    && ! grep -q '"lifecycle":"live"' "$case_out" && ! grep -q '"lifecycle":"stale"' "$case_out"; then
+    pass "AC-111 inspect $case_name is rejected, never promoted to live or stale"
+  else fail "AC-111 inspect $case_name (ec=$case_ec $(cat "$case_out"))"; fi
+}
+strict_inspect_case AC-111-10-blank-reason-live '{"lifecycle":"live","reason":"   "}'
+strict_inspect_case AC-111-10-blank-reason-unverifiable '{"lifecycle":"handle_unverifiable","reason":"   "}'
+strict_inspect_case AC-111-10-missing-reason '{"lifecycle":"live"}'
+strict_inspect_case AC-111-11-unknown-lifecycle '{"lifecycle":"zombie","reason":"looks alive"}'
+strict_inspect_case AC-111-11-unknown-lifecycle-blank-reason '{"lifecycle":"zombie"}'
+valid_inspect_out="$TMP_ROOT/strict-inspect-valid.out"
+FAKE_CMUX_INSPECT_JSON='{"lifecycle":"live","reason":"workspace handle is present"}' PATH="$BIN:$PATH" \
+  bash "$CLI" inspect --receipt "$strict_receipt" >"$valid_inspect_out" 2>&1
+valid_inspect_ec=$?
+if [ "$valid_inspect_ec" -eq 0 ] && grep -q '"lifecycle":"live"' "$valid_inspect_out"; then
+  pass "AC-111 well-formed inspect result with a non-blank reason is still accepted"
+else fail "AC-111 inspect valid control (ec=$valid_inspect_ec $(cat "$valid_inspect_out"))"; fi
+
+# Aggregate fallbacks: a failing or malformed child probe folds into the
+# synthetic unavailable entry while the overall aggregate stays exit 0.
+cat > "$PRODUCT_HOME/scripts/adapters/herdr.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "capabilities" ]; then
+  printf '%s\n' "${FAKE_HERDR_CAP_STDOUT:-}"
+  exit "${FAKE_HERDR_CAP_STATUS:-0}"
+fi
+exit 2
+EOF
+chmod +x "$PRODUCT_HOME/scripts/adapters/herdr.sh"
+strict_aggregate_case() {
+  case_name="$1"; stdout_payload="$2"; exit_status="$3"
+  case_out="$TMP_ROOT/strict-aggregate-$case_name.json"
+  FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
+  FAKE_HERDR_CAP_STDOUT="$stdout_payload" FAKE_HERDR_CAP_STATUS="$exit_status" \
+  TRANSPORT_USED="$TMP_ROOT/strict-aggregate-unused" CMUX_ARGV="$TMP_ROOT/strict-aggregate-cmux" ORCA_ARGV="$TMP_ROOT/strict-aggregate-orca" \
+  PATH="$BIN:$PATH" bash "$CLI" capabilities --worktree "$WT" > "$case_out" 2>&1
+  case_ec=$?
+  if [ "$case_ec" -eq 0 ] && node - "$case_out" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (value.schema_version !== "1" || !Array.isArray(value.adapters) || !Array.isArray(value.runtimes)) process.exit(2);
+  const byName = {};
+  for (const entry of value.adapters) byName[entry.adapter] = entry;
+  const herdr = byName.herdr;
+  if (!herdr || herdr.available !== false || herdr.reason_code !== "capability_probe_failed"
+      || herdr.version !== "unknown" || !Array.isArray(herdr.capabilities) || herdr.capabilities.length) process.exit(2);
+  if (!byName.cmux || byName.cmux.available !== true || !byName.orca || byName.orca.available !== true) process.exit(2);
+} catch (error) { process.exit(2); }
+NODE
+  then
+    pass "AC-111 aggregate $case_name folds into the synthetic unavailable fallback with exit 0"
+  else fail "AC-111 aggregate $case_name (ec=$case_ec $(cat "$case_out"))"; fi
+}
+strict_aggregate_case AC-111-6-child-exit-nonzero '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":["workspace.create.cwd"]}' 3
+strict_aggregate_case AC-111-7-child-non-json-stdout 'definitely not json' 0
+strict_aggregate_case AC-111-7-child-wrong-shape '{"adapter":"orca","available":true,"version":"1.4.161","capabilities":["terminal.create.title"]}' 0
+strict_aggregate_case AC-111-7-child-empty-stdout '' 0
+strict_aggregate_case AC-111-8-child-blank-version '{"adapter":"herdr","available":true,"version":"   ","capabilities":["workspace.create.cwd"]}' 0
+strict_aggregate_case AC-111-8-child-empty-capabilities '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":[]}' 0
+strict_aggregate_case AC-111-8-child-duplicate-capabilities '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":["workspace.create.cwd","workspace.create.cwd"]}' 0
+strict_aggregate_case AC-111-8-child-blank-capability-entry '{"adapter":"herdr","available":true,"version":"0.8.0","capabilities":["workspace.create.cwd","   "]}' 0
+
+# Restore the real adapters so later consumers of the product copy are intact.
+cp "$ROOT/scripts/adapters/cmux.sh" "$PRODUCT_HOME/scripts/adapters/cmux.sh"
+cp "$ROOT/scripts/adapters/herdr.sh" "$PRODUCT_HOME/scripts/adapters/herdr.sh"
+
+# --- transport-neutral dispatch timing env names (ISSUE-119) ---
+# The shared poll/pre-marker test seam must accept the generic
+# AGENT_WORKFLOW_* names while CMUX_DISPATCH_* remains the legacy fallback;
+# when both are set the generic name wins. Each case dispatches through a
+# cmux stub that never runs the launch command, so no RUN.json can appear
+# and the dispatch can only end via the poll timeout: the wall-clock
+# duration therefore observes which env name supplied the timing.
+ENV_BIN="$TMP_ROOT/bin-env-cmux"
+mkdir -p "$ENV_BIN"
+cat > "$ENV_BIN/cmux" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
+if [ "${1:-}" = "workspace" ] && [ "${2:-}" = "create" ] && [ "${3:-}" = "--help" ]; then
+  printf '%s\n' 'Usage: cmux workspace create [flags]' '  --cwd PATH       Working directory for the workspace' '  --command TEXT   Command the workspace runs'
+  exit 0
+fi
+printf '%s\n' '{"id":"cmux-env-precedence"}'
+EOF
+chmod +x "$ENV_BIN/cmux"
+env_precedence_case() {
+  case_id="$1"; case_issue="$2"; case_env="$3"; min_seconds="$4"; max_seconds="$5"
+  case_wt="$TMP_ROOT/env-precedence-$case_issue"
+  make_worktree "$case_wt" "$case_issue"
+  case_out="$TMP_ROOT/env-precedence-$case_issue.out"
+  case_start="$(date +%s)"
+  env $case_env AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$ENV_BIN:$PATH" \
+    bash "$CLI" dispatch --orchestrator cmux --issue "$case_issue" --worktree "$case_wt" --tier trivial --poll-timeout 2 >"$case_out" 2>&1
+  case_ec=$?
+  case_duration=$(( $(date +%s) - case_start ))
+  if [ "$case_ec" -ne 0 ] && grep -q 'dispatch-core: transport receipt=' "$case_out" \
+    && [ "$case_duration" -ge "$min_seconds" ] && [ "$case_duration" -lt "$max_seconds" ]; then
+    pass "$case_id"
+  else
+    fail "$case_id (ec=$case_ec duration=${case_duration}s $(cat "$case_out"))"
+  fi
+}
+env_precedence_case "AC-119-1 AGENT_WORKFLOW_POLL_INTERVAL alone sets the poll interval" 613 "AGENT_WORKFLOW_POLL_INTERVAL=1" 2 4
+env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone still sets the poll interval" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 2 4
+env_precedence_case "AC-119-3 AGENT_WORKFLOW_POLL_INTERVAL wins over a set CMUX_DISPATCH_POLL_INTERVAL" 615 "AGENT_WORKFLOW_POLL_INTERVAL=1 CMUX_DISPATCH_POLL_INTERVAL=5" 2 4
+env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the write marker" 616 "AGENT_WORKFLOW_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
+env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
+env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 5
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then echo "ALL CASES PASS"; exit 0; fi
