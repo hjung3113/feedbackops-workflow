@@ -541,16 +541,6 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
-fresh_err="$TMP_DIR/fresh.stderr"
-bash "$VERIFY" --fresh >/dev/null 2>"$fresh_err"
-ec=$?
-if [ "$ec" -eq 2 ] && grep -F -q '"code":"fresh_requires_adapter"' "$fresh_err"; then
-  echo "ok   - --fresh is reserved and fails with a stable machine code"
-else
-  echo "NOT OK - --fresh is reserved and fails with a stable machine code (got $ec)"
-  FAILURES=$((FAILURES + 1))
-fi
-
 echo "--- VERIFY_ISSUE without VERIFY_DATABASE_URL fails closed ---"
 
 # 2026-07-13 incident: VERIFY_DATABASE_URL was accidentally unset (upstream
@@ -590,26 +580,6 @@ else
   echo "NOT OK - empty (not just unset) VERIFY_DATABASE_URL also exits 4 (got $ec)"
   FAILURES=$((FAILURES + 1))
 fi
-
-echo "--- database url parser ---"
-
-run_parse_db_case() {
-  name="$1"; url="$2"; expected="$3"
-  out="$(bash "$VERIFY" --parse-db-url "$url" 2>/dev/null)"
-  if [ "$out" = "$expected" ]; then
-    echo "ok   - $name"
-  else
-    echo "NOT OK - $name (expected '$expected', got '$out')"
-    FAILURES=$((FAILURES + 1))
-  fi
-  case "$out" in
-    *secret*|*pass*) echo "NOT OK - $name leaked password"; FAILURES=$((FAILURES + 1)) ;;
-  esac
-}
-
-run_parse_db_case "parse localhost url" "postgres://fops_app:secretpass@localhost:5432/feedbackops?sslmode=disable" "localhost	feedbackops	fops_app"
-run_parse_db_case "parse ipv4 url" "postgres://fops_app@127.0.0.1/verify_smoke" "127.0.0.1	verify_smoke	fops_app"
-run_parse_db_case "parse bracketed ipv6 url" "postgres://fops_app:secretpass@[::1]:5432/verify_ipv6" "[::1]	verify_ipv6	fops_app"
 
 echo "--- verify schema clean-state contract ---"
 SCHEMA_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"

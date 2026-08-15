@@ -3,6 +3,8 @@
 # inherited-session workspace, root-pane command, and exact workspace probe.
 # bash-3.2-compatible: no associative arrays, lowercase expansion, or arrays.
 set -u
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/../lib/adapter-helpers.sh"
 
 command_name="${1:-}"
 shift || true
@@ -11,33 +13,12 @@ adapter_json() {
   reason="$1"
   version="$2"
   available="$3"
-  node - "$reason" "$version" "$available" <<'NODE'
-const [reason, version, available] = process.argv.slice(2);
-process.stdout.write(JSON.stringify({
-  adapter: "herdr",
-  available: available === "true",
-  reason_code: reason,
-  version,
-  capabilities: available === "true" ? [
-    "session.inherited",
-    "workspace.create.cwd",
-    "workspace.create.label",
-    "workspace.create.no_focus",
-    "workspace.get.read_only",
-    "workspace.close",
-    "pane.run"
-  ] : []
-}) + "\n");
-NODE
-}
-
-lifecycle_json() {
-  lifecycle="$1"
-  reason="$2"
-  node - "$lifecycle" "$reason" <<'NODE'
-const [lifecycle, reason] = process.argv.slice(2);
-process.stdout.write(JSON.stringify({ lifecycle, reason }) + "\n");
-NODE
+  if [ "$available" = "true" ]; then
+    node "$ADAPTER_JSON" capabilities herdr true available "$version" \
+      'session.inherited,workspace.create.cwd,workspace.create.label,workspace.create.no_focus,workspace.get.read_only,workspace.close,pane.run'
+  else
+    node "$ADAPTER_JSON" capabilities herdr false "$reason" unknown ''
+  fi
 }
 
 session_context_available() {
@@ -52,25 +33,6 @@ resolved_herdr_binary() {
   esac
   [ -x "$resolved" ] || return 1
   printf '%s\n' "$resolved"
-}
-
-parse_version() {
-  raw="$1"
-  node - "$raw" <<'NODE'
-const raw = (process.argv[2] || "").trim();
-const match = /(?:^|\s)v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|\s)/.exec(raw);
-if (!match) process.exit(2);
-const normalized = match[1];
-const main = normalized.split(/[+-]/, 1)[0].split(".").map(Number);
-const prerelease = normalized.indexOf("-") >= 0 ? normalized.split("-")[1].split("+")[0] : "";
-const floor = [0, 8, 0];
-for (let i = 0; i < 3; i++) {
-  if (main[i] > floor[i]) break;
-  if (main[i] < floor[i]) process.exit(2);
-  if (i === 2 && prerelease) process.exit(2);
-}
-process.stdout.write(normalized);
-NODE
 }
 
 capabilities() {
@@ -89,7 +51,7 @@ capabilities() {
     adapter_json required_capability_missing unknown false
     return 0
   fi
-  parsed_version="$(parse_version "$version_output" 2>/dev/null)"
+  parsed_version="$(node "$ADAPTER_SEMVER" parse-floor "$version_output" 0.8.0 2>/dev/null)"
   version_parse_status=$?
   if [ "$version_parse_status" -ne 0 ] || [ -z "$parsed_version" ]; then
     adapter_json required_capability_missing unknown false
@@ -111,18 +73,18 @@ NODE
   workspace_help="$("$binary" workspace --help 2>&1)"
   workspace_help_status=$?
   if [ "$workspace_help_status" -ne 0 ] \
-    || ! printf '%s\n' "$workspace_help" | grep -F -q 'create' \
-    || ! printf '%s\n' "$workspace_help" | grep -F -q 'get' \
-    || ! printf '%s\n' "$workspace_help" | grep -F -q 'close'; then
+    || ! help_has "$workspace_help" 'create' \
+    || ! help_has "$workspace_help" 'get' \
+    || ! help_has "$workspace_help" 'close'; then
     adapter_json required_capability_missing unknown false
     return 0
   fi
   create_help="$("$binary" workspace create --help 2>&1)"
   create_help_status=$?
   if [ "$create_help_status" -ne 0 ] \
-    || ! printf '%s\n' "$create_help" | grep -F -q -- '--cwd' \
-    || ! printf '%s\n' "$create_help" | grep -F -q -- '--label' \
-    || ! printf '%s\n' "$create_help" | grep -F -q -- '--no-focus'; then
+    || ! help_has "$create_help" '--cwd' \
+    || ! help_has "$create_help" '--label' \
+    || ! help_has "$create_help" '--no-focus'; then
     adapter_json required_capability_missing unknown false
     return 0
   fi
@@ -136,13 +98,13 @@ NODE
   fi
   pane_help="$("$binary" pane --help 2>&1)"
   pane_help_status=$?
-  if [ "$pane_help_status" -ne 0 ] || ! printf '%s\n' "$pane_help" | grep -F -q 'run'; then
+  if [ "$pane_help_status" -ne 0 ] || ! help_has "$pane_help" 'run'; then
     adapter_json required_capability_missing unknown false
     return 0
   fi
   pane_run_help="$("$binary" pane run --help 2>&1)"
   pane_run_help_status=$?
-  if [ "$pane_run_help_status" -ne 0 ] || ! printf '%s\n' "$pane_run_help" | grep -F -q 'pane run'; then
+  if [ "$pane_run_help_status" -ne 0 ] || ! help_has "$pane_run_help" 'pane run'; then
     adapter_json required_capability_missing unknown false
     return 0
   fi
@@ -160,7 +122,7 @@ NODE
     adapter_json required_capability_missing unknown false
     return 0
   fi
-  adapter_json available "$parsed_version;binary-sha256:$binary_digest" true
+  adapter_json available "$(adapter_provenance_version "$parsed_version" "$binary_digest")" true
   return 0
 }
 
@@ -183,7 +145,8 @@ try {
 NODE
 }
 
-parse_run_error() {
+# Shared {error:{code,message}} parser for adapter command stderr.
+parse_adapter_error() {
   error_file="$1"
   node - "$error_file" <<'NODE'
 const fs = require("fs");
@@ -215,7 +178,7 @@ launch() {
     esac
   done
   [ -n "$name" ] && [ -n "$worktree" ] && [ -n "$runner" ] || exit 2
-  case "$runner" in .review/ISSUE-*-launch.*/launch.sh) ;; *) exit 2 ;; esac
+  runner_path_allowed "$runner" || exit 2
   if ! session_context_available; then
     echo 'ERROR: session_context_missing' >&2
     exit 2
@@ -274,7 +237,7 @@ process.stdout.write(JSON.stringify({ external_handle: id, lifecycle: "launched"
 NODE
     exit 0
   fi
-  run_error_code="$(parse_run_error "$run_stderr" 2>/dev/null)"
+  run_error_code="$(parse_adapter_error "$run_stderr" 2>/dev/null)"
   run_error_parse_status=$?
   case "$run_error_code" in
     pane_not_found|invalid_key|pane_send_failed)
@@ -313,21 +276,6 @@ try {
 NODE
 }
 
-parse_inspect_error() {
-  error_file="$1"
-  node - "$error_file" <<'NODE'
-const fs = require("fs");
-try {
-  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-  const error = value && value.error;
-  if (!error || typeof error !== "object" || Array.isArray(error)
-      || typeof error.code !== "string" || !error.code
-      || typeof error.message !== "string" || !error.message) process.exit(2);
-  process.stdout.write(error.code);
-} catch (error) { process.exit(2); }
-NODE
-}
-
 inspect() {
   worktree=""; handle=""
   while [ $# -gt 0 ]; do
@@ -343,15 +291,15 @@ inspect() {
   done
   [ -n "$worktree" ] && [ -n "$handle" ] || exit 2
   if ! session_context_available; then
-    lifecycle_json handle_unverifiable session_context_missing
+    adapter_lifecycle_json handle_unverifiable session_context_missing
     return 0
   fi
   binary="$(resolved_herdr_binary)" || {
-    lifecycle_json handle_unverifiable 'herdr binary is absent'
+    adapter_handle_unverifiable 'herdr binary is absent'
     return 0
   }
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/herdr-adapter.XXXXXX")" || {
-    lifecycle_json handle_unverifiable 'workspace handle cannot be verified'
+    adapter_handle_unverifiable 'workspace handle cannot be verified'
     return 0
   }
   trap 'rm -rf "$temp_dir"' EXIT
@@ -362,19 +310,19 @@ inspect() {
   if [ "$inspect_status" -eq 0 ]; then
     inspect_result="$(parse_inspect_success "$inspect_stdout" "$handle" 2>/dev/null)"
     if [ "$inspect_result" = "live" ]; then
-      lifecycle_json live 'exact workspace handle is present'
+      adapter_lifecycle_json live 'exact workspace handle is present'
     elif [ "$inspect_result" = "malformed" ]; then
-      lifecycle_json handle_unverifiable 'workspace response is malformed'
+      adapter_handle_unverifiable 'workspace response is malformed'
     else
-      lifecycle_json handle_unverifiable 'workspace handle identity is mismatched'
+      adapter_handle_unverifiable 'workspace handle identity is mismatched'
     fi
     return 0
   fi
-  inspect_error_code="$(parse_inspect_error "$inspect_stderr" 2>/dev/null)"
+  inspect_error_code="$(parse_adapter_error "$inspect_stderr" 2>/dev/null)"
   if [ "$inspect_status" -eq 1 ] && [ "$inspect_error_code" = "workspace_not_found" ]; then
-    lifecycle_json stale 'workspace handle is not found'
+    adapter_lifecycle_json stale 'workspace handle is not found'
   else
-    lifecycle_json handle_unverifiable 'workspace handle cannot be verified'
+    adapter_handle_unverifiable 'workspace handle cannot be verified'
   fi
   return 0
 }

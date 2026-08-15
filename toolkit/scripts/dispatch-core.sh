@@ -311,7 +311,6 @@ while [ $# -gt 0 ]; do
     --adapter) ADAPTER="$2"; shift 2 ;;
     --runtime) RUNTIME="$2"; shift 2 ;;
     --role) ROLE="$2"; shift 2 ;;
-    --runtime-permission-file) RUNTIME_PERMISSION_FILE="$2"; shift 2 ;;
     --issue) ISSUE_N="$2"; shift 2 ;;
     --worktree) WORKTREE="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
