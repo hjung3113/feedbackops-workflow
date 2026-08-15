@@ -171,11 +171,6 @@ if (mode === "commit-admission") {
   try { tx.status = "committed"; write(path.join(integratedDir, txName), tx); } catch (_) { process.exit(2); }
   process.exit(0);
 }
-if (mode === "lock-prepare") {
-  if (!key || !issue) process.exit(2);
-  try { write(integratedDir, { version: 1, issue: String(issue), admission_key: key, pid: Number(ownerPid) || process.ppid, status: "locked" }); } catch (_) { process.exit(2); }
-  process.exit(0);
-}
 if (mode === "recover-lock") {
   const lockFile = integratedDir;
   const singleton = admissionDir;
