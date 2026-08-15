@@ -5,6 +5,7 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 COMMAND="${1:-}"
 [ -n "$COMMAND" ] || { echo "usage: route.sh decide|probe|policy ..." >&2; exit 2; }
 shift
@@ -25,7 +26,13 @@ if [ "$COMMAND" = "probe" ]; then
       *) echo "ERROR: unknown route probe argument: $1" >&2; exit 2 ;;
     esac
   done
-  case "$PROBE_RUNTIME" in codex|claude|opencode) ;; *) exit 2 ;; esac
+  # Runtime membership comes from the runtime registry; this gate only
+  # decides shape, so an unregistered runtime fails exactly like before.
+  runtime_registered=0
+  for registered_runtime in $(node "$RUNTIME_REGISTRY" lines); do
+    [ "$PROBE_RUNTIME" = "$registered_runtime" ] && runtime_registered=1
+  done
+  [ "$runtime_registered" -eq 1 ] || exit 2
   [ "$PROBE_DEPTH" = "static" ] || exit 2
   case "$PROBE_TTL" in ''|*[!0-9]*) exit 2 ;; esac
   [ "$PROBE_TTL" -ge 1 ] && [ "$PROBE_TTL" -le 3600 ] || exit 2
