@@ -1,5 +1,6 @@
 ac-check.smoke.sh
 admission-recover.smoke.sh
+atomic-fs.smoke.sh
 agent-runtime.smoke.sh
 agent-watchdog.smoke.sh
 artifact-fresh.smoke.sh
