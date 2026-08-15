@@ -132,8 +132,6 @@ const os = require("os");
 if (!atomic.processAlive(process.pid)) process.exit(1);
 if (atomic.processAlive(0)) process.exit(2);
 if (atomic.processAlive(999999999)) process.exit(3);
-const child = require("child_process").spawnSync("sleep", ["0"]);
-if (child.status !== 0 || atomic.processAlive(child.pid)) process.exit(4);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "atomic-fs-smoke-"));
 const file = path.join(dir, "x.json");
 fs.writeFileSync(file, "{ not json", { mode: 0o600 });

@@ -22,7 +22,9 @@ function atomicTempPath(file) {
 // clobber another live writer's temp; rename is the visibility point.
 // `beforeRename`, when provided, runs between the write and the rename so a
 // caller can keep its final preconditions adjacent to the linearization
-// point; an error thrown there propagates without renaming.
+// point; an error thrown there propagates without renaming, and the temp
+// file survives (writeAtomic does not clean it up) — the caller owns
+// unlinking it, same as before this extraction.
 function writeAtomic(file, content, beforeRename) {
   const temp = atomicTempPath(file);
   fs.writeFileSync(temp, content, { flag: "wx", mode: 0o600 });
