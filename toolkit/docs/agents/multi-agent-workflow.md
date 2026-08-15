@@ -281,9 +281,9 @@ The failure mode is nasty because it is **silent and looks behavioural**: codex 
 
 New dispatches run through `scripts/agent-watchdog.sh`, which invokes the typed
 `agent-runtime.sh` boundary with the selected runtime, role, mode, pinned
-executable, model/effort, and OpenCode permission file. `codex-watchdog.sh`
-remains only a legacy direct-call compatibility path; it is not the public
-multi-runtime authority. Codex write/review execution still delegates inside
+executable, model/effort, and OpenCode permission file. The legacy
+`codex-watchdog.sh` direct-call wrapper was removed (#127); `agent-watchdog.sh`
+is the sole watchdog authority. Codex write/review execution still delegates inside
 the runtime adapter to hardened `codex-safe.sh`, preserving its Git metadata,
 stash, effort forwarding, and atomic review-publication invariants.
 
@@ -403,7 +403,7 @@ A fresh `git worktree` is **NOT dispatch-ready**: it has no `node_modules` and n
 
 Run `"$PRODUCT_HOME/scripts/prepare-worktree.sh" <wt>` on the host, where PRODUCT_HOME is the absolute `.agent-workflow` directory in the installed checkout, not the fresh worktree. It installs deps from the frozen lockfile (`pnpm install --frozen-lockfile`) and copies env files (`.env`, `apps/backend/.env`), printing every copied key (values redacted) and loudly flagging high-risk keys (DATABASE_URL, WORKSPACE_ID, PORT, anything with STORAGE/BUCKET/S3/SECRET/TOKEN/KEY/PASSWORD/CREDENTIAL).
 
-`scripts/cmux-cluster.sh` **refuses to launch** if `<wt>/node_modules` or `<wt>/.env` is missing, naming what's missing and pointing at prepare-worktree.sh.
+The legacy `scripts/cmux-cluster.sh` cluster bootstrapper was removed (#127); `prepare-worktree.sh` is the sole worktree-prep authority, and a dispatch-ready check is the operator's responsibility before launch.
 
 **Env is shared-state coupling.** Copying one `.env` into multiple worktrees points them all at the same mutable DATABASE_URL / WORKSPACE_ID / storage bucket — parallel clusters corrupt each other. When ANY other prepared worktree already exists (>=1 other), prepare-worktree.sh refuses to copy env unless you pass `--env-profile <path>` (per-worktree env file, recommended) or `--allow-shared-env` (explicitly accept the risk). So the first worktree prepares without a flag; the second and beyond require one. Profile mode writes the same profile to both `<wt>/.env` and `<wt>/apps/backend/.env` so a stale backend env cannot override the profile later; the profile must therefore be self-contained for the target's verification needs.
 

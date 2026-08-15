@@ -15,7 +15,7 @@ Read this reference only when installing or adapting the workflow to a new targe
 | `tier-probe.sh` | TypeScript compatibility adapter | Profile-driven tier triggers are deliberately deferred; do not create a second precedence path. |
 | `verify.sh` | FeedbackOps compatibility adapter | Retains pnpm/Vitest/Postgres clean-state behavior. |
 | `prepare-verify-db.sh` | PostgreSQL adapter | Assumes local PostgreSQL and per-issue databases. |
-| `cmux-cluster.sh` / `rebase-inflight.sh` | Convention adapter | Carry branch, pane-label, and `feature/*` assumptions. |
+| `rebase-inflight.sh` | Convention adapter | Carries branch and `feature/*` assumptions. The former `cmux-cluster.sh` convention adapter was removed (#127). |
 
 The workflow's coordination model and generic verifier are reusable. Target facts have one authority: a target-owned JSON profile validated by `schemas/target-profile.schema.json`; examples for Node, Go, Python, and FeedbackOps live under `schemas/profiles/`.
 

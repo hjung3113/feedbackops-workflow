@@ -52,7 +52,8 @@ bounded UTF-8-safe combined stdout/stderr diagnostics.
 New launches use the runtime-neutral `agent-watchdog.sh`, publish
 runtime/role/version-bound `agent_run` liveness, and write schema-v2 transport
 receipts. Those receipts record launch intent/provenance, not confirmed command
-delivery or completion. `codex-watchdog.sh`, `codex_run`, and receipt v1 are
+delivery or completion. `codex_run` and receipt v1 (and artifacts produced by
+the removed `codex-watchdog.sh`, #127) are
 legacy-readable only. A watchdog attempt is not a redispatch ordinal. Read-only
 conductor control may publish only a host-validated, live-HEAD-bound
 ROUND-STATE update; it grants no product-code write permission.

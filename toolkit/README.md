@@ -161,7 +161,7 @@ printf '%s\n' '{"orchestrator":"orca","runtime":"opencode","role":"implementatio
 
 같은 issue를 다시 dispatch할 때 기존 RUN/BLOCKER는 cross-platform nanosecond mtime과 `started_at` 결합 서명으로 구분합니다. 현재 launch에서 서명이 바뀌지 않은 stale artifact는 liveness로 인정하지 않고 timeout 처리합니다.
 
-새 runtime 공통 경로는 `agent-watchdog.sh`입니다. 각 시도는 `artifact_type:"agent_run"`과 runtime/role/version을 가진 RUN을 갱신하고, non-zero stderr를 `ISSUE-N-agent-attempt<K>-stderr.log`로 보존합니다. Non-Codex REVIEWER가 거부되면 raw stdout도 non-authoritative `ISSUE-N-review-attempt<K>-output.log`로 보존하고 RUN의 `refusal_reason`으로 `unparseable_output` 등을 구분합니다. `attempt`는 watchdog 내부 시도 횟수이지 redispatch admission ordinal이나 실패 round가 아닙니다. `codex-watchdog.sh`와 `codex_run`은 기존 직접 호출/과거 산출물을 읽기 위한 호환 경로일 뿐 새 multi-runtime authority가 아닙니다.
+새 runtime 공통 경로는 `agent-watchdog.sh`입니다. 각 시도는 `artifact_type:"agent_run"`과 runtime/role/version을 가진 RUN을 갱신하고, non-zero stderr를 `ISSUE-N-agent-attempt<K>-stderr.log`로 보존합니다. Non-Codex REVIEWER가 거부되면 raw stdout도 non-authoritative `ISSUE-N-review-attempt<K>-output.log`로 보존하고 RUN의 `refusal_reason`으로 `unparseable_output` 등을 구분합니다. `attempt`는 watchdog 내부 시도 횟수이지 redispatch admission ordinal이나 실패 round가 아닙니다. `codex_run` 과거 산출물은 읽기 전용 호환 경로일 뿐 새 multi-runtime authority가 아니며, `codex-watchdog.sh`는 제거되었습니다 (#127).
 
 Conductor가 canonical ROUND-STATE를 갱신해야 할 때는 `--runtime <runtime> --role conductor --read-only --conductor-control`을 사용합니다. Runtime은 product-code write 권한 없이 proposal 하나만 출력하고, host publisher가 issue, live HEAD, worktree, base, schema, exact path, monotonic revision을 검증한 뒤 해당 ROUND-STATE만 원자 게시합니다. 검증 실패 시 아무 control artifact도 게시하지 않습니다.
 
@@ -271,7 +271,7 @@ Release Captain merge decision
 |---|---|---|
 | 설치·업그레이드 | `install-into.sh` | [적용 가이드](.claude/skills/agent-workflow/references/adoption.md) |
 | worktree·env 준비 | `prepare-worktree.sh` | [운영 플레이북](docs/agents/multi-agent-workflow.md#worktree-prep) |
-| visible dispatch·liveness | `agent-workflow.sh`, `dispatch-core.sh`, transport adapters, `agent-watchdog.sh`, `agent-runtime.sh` (`codex-watchdog.sh`는 legacy) | [디스패치 오퍼레이터 규칙](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules) |
+| visible dispatch·liveness | `agent-workflow.sh`, `dispatch-core.sh`, transport adapters, `agent-watchdog.sh`, `agent-runtime.sh` (`codex-watchdog.sh`는 #127에서 제거) | [디스패치 오퍼레이터 규칙](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules) |
 | 계약·완료 gate | `prompt-ac-check.sh`, `ac-check.sh`, `completion-check.sh`, `redispatch-check.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
 | 범용 검증 | `target-verify.sh`, target profile | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
 | FeedbackOps 호환 검증 | `prepare-verify-db.sh`, `verify.sh` | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |

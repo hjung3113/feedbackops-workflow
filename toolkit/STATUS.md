@@ -56,7 +56,7 @@ _Current as of 2026-07-21. `git log -1` and the schemas/scripts win any disagree
   not permission to substitute another runtime.
 - `agent-watchdog.sh` is the shared retry/liveness authority and publishes
   runtime/role/version-bound `agent_run` markers; watchdog attempts are not
-  redispatch ordinals. `codex-watchdog.sh`/`codex_run` remain legacy-compatible.
+  redispatch ordinals. `codex-watchdog.sh` was removed (#127); `codex_run` artifacts remain legacy-readable.
 - Non-Codex REVIEWER stdout accepts a prose-wrapped final fenced JSON object
   only through host transcription, then retains the existing schema/producer/
   issue/live-HEAD publication gate. Refusals retain raw output as
@@ -204,7 +204,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 
 - `cmux-dispatch.sh` forwards model/effort and optional liveness budgets.
 - `codex-safe.sh` grants only a linked worktree's or plain checkout's resolved Git metadata dir and supports read-only heartbeats.
-- `codex-watchdog.sh` classifies refusal from two failed probes rather than stderr text.
+- `codex-watchdog.sh` classifies refusal from two failed probes rather than stderr text. (Historical: the script was later removed in #127.)
 - `ac-check.sh` rejects duplicate or undiscovered manifest AC ids before review.
 - The integrated wrapper changes passed clean-context review and a full smoke run at `main@5500d6a`.
 - The versioned Claude skill is now a thin router; `install-into.sh` deploys scripts, schemas, playbook docs, and the project-local skill.
@@ -234,7 +234,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 - Product scripts, schemas, docs, canonical skill, tests, README, STATUS, environment example, and scoped instructions live beneath `toolkit/`.
 - Root Matt skills, tracker/domain/triage configuration, plans, CI, hooks, and runtime evidence remain repository-owned and are excluded from target installs.
 - Product issue reporting is self-contained, and the duplicate Matt-directory `agent-workflow` skill has been removed.
-- `cmux-cluster.sh` now checks the target's installed `.agent-workflow/{scripts,schemas}` contract instead of source-checkout paths.
+- `cmux-cluster.sh` now checks the target's installed `.agent-workflow/{scripts,schemas}` contract instead of source-checkout paths. (Historical: `cmux-cluster.sh` was later removed in #127.)
 
 ### v0.10 — safe legacy installation migration
 
@@ -296,7 +296,7 @@ Profile-driven preparation and tier routing remain deferred until they can consu
 ## Key operating facts
 
 - A process exit or worker prose is not completion evidence. Review and verification must match the live HEAD.
-- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected cmux/Orca/Herdr adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `codex-watchdog.sh` and `cmux-dispatch.sh` remain compatibility paths.
+- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected cmux/Orca/Herdr adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `cmux-dispatch.sh` remains a compatibility path, and `codex-watchdog.sh` was removed (#127).
 - Read-only seats use `--read-only`; optional first-progress/stall budgets are forwarded only when supplied.
 - Parallel write chunks require separate worktrees. FeedbackOps-style DB suites also require separate throwaway databases.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
