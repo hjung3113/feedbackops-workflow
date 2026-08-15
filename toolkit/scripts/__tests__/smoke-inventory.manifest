@@ -6,7 +6,6 @@ artifact-fresh.smoke.sh
 atomic-fs.smoke.sh
 cmux-dispatch.smoke.sh
 codex-safe.smoke.sh
-codex-watchdog.smoke.sh
 completion-check.smoke.sh
 conductor-control.smoke.sh
 conductor-rebuild.smoke.sh

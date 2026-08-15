@@ -281,9 +281,9 @@ The failure mode is nasty because it is **silent and looks behavioural**: codex 
 
 New dispatches run through `scripts/agent-watchdog.sh`, which invokes the typed
 `agent-runtime.sh` boundary with the selected runtime, role, mode, pinned
-executable, model/effort, and OpenCode permission file. `codex-watchdog.sh`
-remains only a legacy direct-call compatibility path; it is not the public
-multi-runtime authority. Codex write/review execution still delegates inside
+executable, model/effort, and OpenCode permission file. The legacy
+`codex-watchdog.sh` direct-call wrapper was removed (#127); `agent-watchdog.sh`
+is the sole watchdog authority. Codex write/review execution still delegates inside
 the runtime adapter to hardened `codex-safe.sh`, preserving its Git metadata,
 stash, effort forwarding, and atomic review-publication invariants.
 

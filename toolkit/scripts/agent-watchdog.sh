@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runtime-neutral watchdog. codex-watchdog.sh remains the compatibility path.
+# Runtime-neutral watchdog.
 # RUN records process liveness only; it never completes a workflow.
 # bash-3.2 compatible.
 set -u

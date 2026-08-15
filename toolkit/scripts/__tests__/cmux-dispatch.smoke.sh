@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
-# Smoke test for scripts/cmux-dispatch.sh (and the codex-watchdog.sh
-# relative --prompt-file resolution it depends on).
+# Smoke test for scripts/cmux-dispatch.sh.
 # Offline: never touches a real cmux binary (only --dry-run paths and
-# early-guard failure paths exercise cmux-dispatch.sh; watchdog resolution
-# is exercised directly against codex-watchdog.sh).
+# early-guard failure paths exercise cmux-dispatch.sh).
 # bash-3.2-compatible. Run: bash scripts/__tests__/cmux-dispatch.smoke.sh
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DISPATCH="$SCRIPT_DIR/../cmux-dispatch.sh"
-WATCHDOG="$SCRIPT_DIR/../codex-watchdog.sh"
 ROUTE="$SCRIPT_DIR/../route.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
@@ -1644,29 +1641,12 @@ else
   fail "concurrent first writes atomically admit exactly one launch (one=$race_one_ec two=$race_two_ec)"
 fi
 
-# --- codex-watchdog.sh: relative --prompt-file resolves against --cwd ---
-# Kept here (not moved to agent-watchdog.smoke.sh or
-# codex-watchdog.smoke.sh): both owners pass absolute --prompt-file paths,
-# so relative-path resolution — which the cmux launch runner depends on —
-# is proven only here.
-WT_REL="$TMP_ROOT/wt-relative"
-mkdir -p "$WT_REL/.review"
-printf '%s\n' "prompt body" > "$WT_REL/.review/ISSUE-303-PROMPT.txt"
-watchdog_out="$TMP_ROOT/watchdog-relative.out"
-# no codex on PATH here: expect it to get PAST the existence check (prints the
-# resolved-path echo line) and fail later trying to invoke codex-safe.sh —
-# that later failure is expected and NOT what this case asserts on.
-CODEX_WATCHDOG_POLL_INTERVAL=1 CODEX_WATCHDOG_PROBE_GAP=0 PATH="/usr/bin:/bin" bash "$WATCHDOG" --issue 303 --prompt-file ".review/ISSUE-303-PROMPT.txt" --cwd "$WT_REL" --max-retries 0 >"$watchdog_out" 2>&1
-if grep -q "prompt-file=$WT_REL/.review/ISSUE-303-PROMPT.txt" "$watchdog_out"; then
-  pass "watchdog resolves relative prompt-file against --cwd"
-else
-  fail "watchdog resolves relative prompt-file against --cwd (got: $(cat "$watchdog_out"))"
-fi
-if ! grep -q "prompt file not found" "$watchdog_out"; then
-  pass "watchdog does not report missing prompt file for the resolved path"
-else
-  fail "watchdog does not report missing prompt file for the resolved path"
-fi
+# Note: the former "relative --prompt-file resolves against --cwd" case,
+# which exercised the removed codex-watchdog.sh, was dropped in #127.
+# dispatch-core.sh resolves --prompt-file to an absolute path before
+# invoking agent-watchdog.sh, and agent-watchdog.sh checks the path as
+# given (no cd into --cwd), so no production caller passes a relative
+# prompt file and that coverage had no live subject.
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then

@@ -5,7 +5,7 @@
 # here and never own admission or workflow completion.
 # A hand-rolled transport command silently died in production (2026-07-13):
 # --cwd was forgotten on the cmux workspace itself, the workspace opened in
-# cmux's default project dir, and codex-watchdog.sh validated its
+# cmux's default project dir, and the watchdog validated its
 # --prompt-file relative to the CALLING shell's cwd (not the intended
 # worktree) and exited 2 before writing any artifact. Nothing but pane
 # scrollback recorded the failure.
