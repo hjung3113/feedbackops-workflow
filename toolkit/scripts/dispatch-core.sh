@@ -62,6 +62,7 @@ PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
+RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 TOUCH_ALLOWLIST_PREFLIGHT="$SCRIPT_DIR/lib/touch-allowlist-preflight.cjs"
 RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
@@ -98,7 +99,7 @@ POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-${CMUX_DISPATCH_POLL_INTERVAL:-5}
 PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime codex|claude|opencode --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # is_registered_adapter <name> — membership in the transport registry, which is
@@ -106,6 +107,15 @@ usage() {
 is_registered_adapter() {
   for adapter in $(node "$TRANSPORT_REGISTRY" lines); do
     [ "$1" = "$adapter" ] && return 0
+  done
+  return 1
+}
+
+# is_registered_runtime <name> — membership in the runtime registry, which is
+# the single source of truth for the admitted runtime set.
+is_registered_runtime() {
+  for runtime in $(node "$RUNTIME_REGISTRY" lines); do
+    [ "$1" = "$runtime" ] && return 0
   done
   return 1
 }
@@ -340,7 +350,7 @@ done
 
 [ -n "$ADAPTER" ] || { echo "missing --adapter" >&2; usage; exit 2; }
 is_registered_adapter "$ADAPTER" || { echo "unknown adapter: $ADAPTER" >&2; exit 2; }
-case "$RUNTIME" in codex|claude|opencode) ;; *) echo "unknown runtime: $RUNTIME" >&2; exit 2 ;; esac
+is_registered_runtime "$RUNTIME" || { echo "unknown runtime: $RUNTIME" >&2; exit 2; }
 case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
 [ -n "$WORKTREE" ] || { echo "missing --worktree" >&2; usage; exit 2; }
@@ -599,7 +609,7 @@ if [ "$ALLOCATE" -eq 1 ]; then
       ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
     fi
   fi
-  ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]), role=process.argv[2], key=role === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"], valid=/^gpt-5[.-]6(?:-|$)/.test(model) ? /^(none|low|medium|high|xhigh|max)$/.test(effort) : /^(low|medium|high)$/.test(effort); if (typeof model !== "string" || !valid) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
+  ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), role=process.argv[3], key=role === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"]; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
   MODEL="${1:-}"; EFFORT="${2:-}"
   if [ -z "$MODEL" ]; then
@@ -621,7 +631,7 @@ if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
   else
     DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
   fi
-  DEFAULT_ALLOC_FIELDS="$(node -e 'try { const v=JSON.parse(process.argv[1]), model=v.impl_model, effort=v.impl_effort, valid=/^gpt-5[.-]6(?:-|$)/.test(model) ? /^(none|low|medium|high|xhigh|max)$/.test(effort) : /^(low|medium|high)$/.test(effort); if (typeof model !== "string" || !valid) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
+  DEFAULT_ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), model=v.impl_model, effort=v.impl_effort; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $DEFAULT_ALLOC_FIELDS; IFS=$oldIFS
   MODEL="${1:-}"; [ -n "$EFFORT" ] || EFFORT="${2:-}"
   [ -n "$MODEL" ] && [ -n "$EFFORT" ] || { echo "ERROR: default allocation did not resolve model and effort" >&2; exit 2; }
@@ -690,11 +700,10 @@ model_compatibility_preflight() {
       echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
       return 2
     fi
-  elif ! case "$RUNTIME" in
+  elif ! is_registered_runtime "$RUNTIME" || ! case "$RUNTIME" in
     codex) "$RUNTIME_BIN_PIN" exec --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
     claude) "$RUNTIME_BIN_PIN" --print --permission-mode plan --output-format text --model "$MODEL" --effort "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
     opencode) OPENCODE_CONFIG_CONTENT="$(cat "$RUNTIME_PERMISSION_FILE")" "$RUNTIME_BIN_PIN" run --dir "$ABS_WORKTREE" --format default --agent agent-workflow --model "$MODEL" --variant "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
-    *) false ;;
   esac; then
     echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
     return 2

@@ -601,6 +601,7 @@ cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-
 cp "$SCRIPT_DIR/../lib/capability-result.cjs" "$RUNNER_FIXTURE/lib/capability-result.cjs"
 cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
 cp "$SCRIPT_DIR/../lib/transport-registry.cjs" "$RUNNER_FIXTURE/lib/transport-registry.cjs"
+cp "$SCRIPT_DIR/../lib/runtime-registry.cjs" "$RUNNER_FIXTURE/lib/runtime-registry.cjs"
 cp "$SCRIPT_DIR/../lib/semver.cjs" "$RUNNER_FIXTURE/lib/semver.cjs"
 cp "$SCRIPT_DIR/../lib/adapter-json.cjs" "$RUNNER_FIXTURE/lib/adapter-json.cjs"
 cp "$SCRIPT_DIR/../lib/adapter-helpers.sh" "$RUNNER_FIXTURE/lib/adapter-helpers.sh"
