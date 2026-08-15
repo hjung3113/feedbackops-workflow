@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 const fs = require("fs");
+const { writeAtomicJson } = require("./atomic-fs.cjs");
 const [roundState, admissionKey] = process.argv.slice(2);
 if (!roundState || !admissionKey) process.exit(2);
 if (process.env.AGENT_WORKFLOW_ADMISSION_ADVANCE_FAIL === "1") process.exit(2);
@@ -19,9 +20,7 @@ try {
   if (state.round_control.blocker_recovery && state.round_control.blocker_recovery.status === "ready") {
     state.round_control.blocker_recovery.status = "used";
   }
-  const temp = `${roundState}.tmp.${process.pid}`;
-  fs.writeFileSync(temp, JSON.stringify(state, null, 2) + "\n", { flag: "wx", mode: 0o600 });
-  fs.renameSync(temp, roundState);
+  writeAtomicJson(roundState, state, 2);
 } catch (_) {
   process.exit(2);
 }

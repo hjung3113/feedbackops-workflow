@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { atomicTempPath, publishViaPendingDir, quarantineThenDelete, writeAtomic } = require("./atomic-fs.cjs");
 const { publishSnapshot } = require("./review-snapshot.cjs");
 
 const [source, reviewDir, issue, worktree, expectedHead] = process.argv.slice(2);
@@ -15,17 +16,6 @@ let hadPriorCanonical = false;
 let lockHeld = false;
 const gitLocks = [];
 const ownerName = ".agent-workflow-owner.json";
-function processAlive(pid) {
-  if (!pid) return false;
-  try {
-    process.kill(Number(pid), 0);
-    const stat = execFileSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" }).trim();
-    return stat.length > 0 && stat.indexOf("Z") === -1;
-  } catch (_) { return false; }
-}
-function readOwner(dir) {
-  try { return JSON.parse(fs.readFileSync(path.join(dir, ownerName), "utf8")); } catch (_) { return null; }
-}
 function removeOwnedDir(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); return true; } catch (_) { return false; }
 }
@@ -33,34 +23,18 @@ function removeOwnedDir(dir) {
 // publish that directory as the lock. SIGKILL can leave only a non-blocking
 // pending directory, never a visible ownerless lock from this protocol.
 function acquireOwnedDir(dir, kind) {
-  const pending = `${dir}.pending.${process.pid}.${Date.now()}`;
   try {
-    fs.mkdirSync(pending, { mode: 0o700 });
-    fs.writeFileSync(path.join(pending, ownerName), JSON.stringify({ version: 1, pid: process.pid, kind }) + "\n", { flag: "wx", mode: 0o600 });
-    fs.renameSync(pending, dir);
+    publishViaPendingDir(dir, pending => {
+      fs.writeFileSync(path.join(pending, ownerName), JSON.stringify({ version: 1, pid: process.pid, kind }) + "\n", { flag: "wx", mode: 0o600 });
+    });
     return true;
   } catch (error) {
-    try { fs.rmSync(pending, { recursive: true, force: true }); } catch (_) {}
     // macOS reports a directory-over-directory rename collision as ENOTEMPTY
     // on some filesystems (Linux reports EEXIST). The target's existence is
     // the invariant that matters here.
     if (fs.existsSync(dir)) return false;
     throw error;
   }
-}
-function reclaimDeadOwnedDir(dir) {
-  let stat;
-  try { stat = fs.lstatSync(dir); } catch (_) { return true; }
-  // Never modify a regular Git lock; it can be owned by Git. Workflow locks
-  // are directories and all current writers put a pid in the owner record.
-  if (!stat.isDirectory()) return false;
-  const owner = readOwner(dir);
-  if (owner && processAlive(owner.pid)) return false;
-  // Atomically move the stale owner out of the contested name before removal.
-  // A remove-then-create sequence admits a competing publisher in between.
-  const claimed = `${dir}.reclaim.${process.pid}.${Date.now()}`;
-  try { fs.renameSync(dir, claimed); } catch (_) { return false; }
-  return removeOwnedDir(claimed);
 }
 function head() {
   return execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -78,7 +52,7 @@ function acquireGitLocks() {
     seen[name] = true;
     const lockPath = `${gitPath(name)}.lock`;
     if (!acquireOwnedDir(lockPath, "git")) {
-      if (!reclaimDeadOwnedDir(lockPath) || !acquireOwnedDir(lockPath, "git")) throw new Error("Git publication lock remained held");
+      if (!quarantineThenDelete(lockPath) || !acquireOwnedDir(lockPath, "git")) throw new Error("Git publication lock remained held");
     }
     gitLocks.push(lockPath);
   }
@@ -92,7 +66,7 @@ function acquirePublishLock() {
     // A dead publisher can leave its locks after SIGKILL. Reclaim only our
     // owner-bearing directory (or a legacy ownerless directory which current
     // writers cannot create), never a live owner's lock.
-    if (reclaimDeadOwnedDir(lock) && acquireOwnedDir(lock, "review-publication")) return;
+    if (quarantineThenDelete(lock) && acquireOwnedDir(lock, "review-publication")) return;
     try {
       // A codex-safe runner and its outer watchdog can both reach this seam.
       // Serialize those writers instead of turning a normal overlap into a
@@ -128,14 +102,14 @@ try {
   // Publish the snapshot from the exact bytes already parsed above. Do not
   // re-read the mutable runner output path between validation and publication.
   publishSnapshot(content, reviewDir, issue);
-  canonicalTemp = `${canonical}.tmp.${process.pid}`;
-  fs.writeFileSync(canonicalTemp, content, { flag: "wx", mode: 0o600 });
+  canonicalTemp = atomicTempPath(canonical);
   // Keep the final check immediately adjacent to the linearization point.
   // Tests may widen this window to prove a concurrent commit is refused.
-  const delay = Number(process.env.REVIEW_PUBLISH_PRE_RENAME_DELAY || 0);
-  if (Number.isFinite(delay) && delay > 0) execFileSync("sleep", [String(delay)]);
-  if (head() !== expectedHead) throw new Error("review HEAD changed during publication");
-  fs.renameSync(canonicalTemp, canonical);
+  writeAtomic(canonical, content, () => {
+    const delay = Number(process.env.REVIEW_PUBLISH_PRE_RENAME_DELAY || 0);
+    if (Number.isFinite(delay) && delay > 0) execFileSync("sleep", [String(delay)]);
+    if (head() !== expectedHead) throw new Error("review HEAD changed during publication");
+  });
   canonicalTemp = undefined;
   canonicalPublished = true;
   // A commit can land in the tiny post-rename window. Restore the prior
