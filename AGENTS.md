@@ -44,7 +44,9 @@ win if it disagrees. The detailed product playbook is
 - Scripts must remain macOS Bash 3.2-compatible: no `declare -A`, `${var,,}`,
   or `mapfile`.
 - Run affected smoke tests after a change. Add coverage for new behavior, or
-  state why coverage is impractical.
+  state why coverage is impractical. Verification cadence (focused smokes
+  mid-fix, full suite only at the PR gate, all tiers) is defined in
+  `toolkit/docs/agents/multi-agent-workflow.md` "Verification cadence".
 - Script/schema contract changes update the playbook and affected
   `toolkit/README.md` / `toolkit/STATUS.md` in the same commit. Schema changes
   also update fixtures and are validated.
