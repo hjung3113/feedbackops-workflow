@@ -5,13 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"; RUNTIME="$SCRIPT_DIR/../agent-runti
 ok() { echo "ok   - $1"; }; bad() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 BIN="$TMP_DIR/bin"; WT="$TMP_DIR/wt"; mkdir -p "$BIN" "$WT"; printf 'prompt\n' > "$WT/prompt.txt"
 make_bin() { name="$1"; help="$2"; printf '#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo test-version; exit 0; fi\nif [ "$1" = "--help" ] || [ "$2" = "--help" ]; then printf "%%s\\n" %s; exit 0; fi\nprintf "%%s\\n" "$@" > "$RUNTIME_ARGV"\n' "'$help'" > "$BIN/$name"; chmod +x "$BIN/$name"; }
-make_bin codex 'exec --sandbox --cd --model --config --output-last-message'; make_bin claude '--print --permission-mode --output-format --model --effort'; make_bin opencode 'run --dir --format --agent --model --variant'
+make_bin codex 'exec --sandbox --cd --model --config --output-last-message --json'; make_bin claude '--print --permission-mode --output-format --model --effort --include-partial-messages'; make_bin opencode 'run --dir --format --agent --model --variant json'
 # Refuse launches unless the documented inline config and explicit primary
 # agent are consumed. This proves config application, not only local parsing.
 cat > "$BIN/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo test-version; exit 0; fi
-if [ "$1" = "--help" ] || { [ "$1" = "run" ] && [ "$2" = "--help" ]; }; then printf '%s\n' 'run --dir --format --agent --model --variant'; exit 0; fi
+if [ "$1" = "--help" ] || { [ "$1" = "run" ] && [ "$2" = "--help" ]; }; then printf '%s\n' 'run --dir --format --agent --model --variant json'; exit 0; fi
 node - "$OPENCODE_CONFIG_CONTENT" "$@" <<'NODE'
 const raw=process.argv[2], argv=process.argv.slice(3);
 try {

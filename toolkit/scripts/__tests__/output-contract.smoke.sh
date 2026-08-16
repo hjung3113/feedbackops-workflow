@@ -94,7 +94,7 @@ cat > "$RUNTIME" <<'EOF'
 case "${1:-}" in
   --version) echo 'codex output-contract smoke'; exit 0 ;;
   --help) echo 'Commands: exec'; exit 0 ;;
-  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; }; exit 0 ;;
+  exec) [ "${2:-}" = "--help" ] && { echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; }; exit 0 ;;
 esac
 exit 0
 EOF

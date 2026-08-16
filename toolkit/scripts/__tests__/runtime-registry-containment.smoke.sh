@@ -137,7 +137,7 @@ cat > "$FAKE_BIN/codex-full" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo 'containment fake 1.0'; exit 0; fi
 if [ "$1" = "--help" ]; then echo 'Commands: exec'; exit 0; fi
-if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; fi
+if [ "$1" = "exec" ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
 exit 0
 EOF
 cat > "$FAKE_BIN/codex-partial" <<'EOF'

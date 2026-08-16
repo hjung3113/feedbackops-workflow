@@ -88,7 +88,7 @@ set -- --runtime "$RUNTIME" --role "$ROLE" --mode "$MODE" --cwd "$CWD" --prompt-
 attempt=0
 while [ "$attempt" -le "$MAX_RETRIES" ]; do
   attempt=$((attempt + 1)); : > "$OUTPUT"; : > "$STDERR"; write_marker running "$attempt" '' '' || true; touch "$STAMP"
-  "$RUNTIME_EXEC" run "$@" >"$OUTPUT" 2>"$STDERR" & pid=$!; write_marker running "$attempt" "$pid" '' || true
+  "$RUNTIME_EXEC" run "$@" >"$OUTPUT" 2>"$STDERR" </dev/null & pid=$!; write_marker running "$attempt" "$pid" '' || true
   first_seen=0; last_progress="$(date +%s)"; killed=0
   while kill -0 "$pid" 2>/dev/null; do sleep "$POLL_INTERVAL"; if progressed; then touch "$STAMP"; last_progress="$(date +%s)"; first_seen=1; fi; [ "$first_seen" -eq 1 ] && budget="$STALL_TIMEOUT" || budget="$FIRST_PROGRESS_TIMEOUT"; elapsed=$(( $(date +%s) - last_progress )); if [ "$elapsed" -ge "$budget" ]; then killed=1; kill_tree "$pid"; write_marker killed_stall "$attempt" "$pid" '' || true; break; fi; done
   wait "$pid" 2>/dev/null; ec=$?
