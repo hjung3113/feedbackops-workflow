@@ -8,7 +8,7 @@ RUNTIME_EXEC="$SCRIPT_DIR/agent-runtime.sh"
 RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 CONTROL_PUBLISHER="$SCRIPT_DIR/conductor-control-publish.sh"
 ISSUE_N=""; RUNTIME=""; ROLE=""; MODE=""; PROMPT_FILE=""; CWD=""; MODEL=""; EFFORT=""; PERMISSION_FILE=""; PRODUCE_REVIEW=0; CONDUCTOR_CONTROL=0
-FIRST_PROGRESS_TIMEOUT="${AGENT_WATCHDOG_FIRST_PROGRESS_TIMEOUT:-240}"; STALL_TIMEOUT="${AGENT_WATCHDOG_STALL_TIMEOUT:-180}"; MAX_RETRIES="${AGENT_WATCHDOG_MAX_RETRIES:-2}"; POLL_INTERVAL="${AGENT_WATCHDOG_POLL_INTERVAL:-15}"; PROBE_GAP="${AGENT_WATCHDOG_PROBE_GAP:-10}"
+FIRST_PROGRESS_TIMEOUT="${AGENT_WATCHDOG_FIRST_PROGRESS_TIMEOUT:-240}"; STALL_TIMEOUT="${AGENT_WATCHDOG_STALL_TIMEOUT:-180}"; MAX_RETRIES="${AGENT_WATCHDOG_MAX_RETRIES:-2}"; POLL_INTERVAL="${AGENT_WATCHDOG_POLL_INTERVAL:-15}"; PROBE_GAP="${AGENT_WATCHDOG_PROBE_GAP:-10}"; MAX_WALLCLOCK="${AGENT_WATCHDOG_MAX_WALLCLOCK:-3600}"
 usage() { echo "usage: agent-watchdog.sh --issue N --runtime $(node "$RUNTIME_REGISTRY" pipe) --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --prompt-file F --cwd DIR [--model M] [--effort E] [--opencode-permission-file F] [--produce-review|--conductor-control] [--max-retries N]" >&2; }
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 write_marker() {
@@ -17,7 +17,7 @@ write_marker() {
   AGENT_MARKER="$marker" AGENT_ISSUE="$ISSUE_N" AGENT_ATTEMPT="$attempt" AGENT_RUNTIME="$RUNTIME" AGENT_ROLE="$ROLE" AGENT_VERSION="$RUNTIME_VERSION" AGENT_STATUS="$status" AGENT_PID="$pid" AGENT_EXIT="$exit_code" AGENT_REFUSAL_REASON="$refusal_reason" AGENT_TIME="$(iso_now)" node -e '
 const fs=require("fs"); const o={schema_version:"1",artifact_type:"agent_run",issue:Number(process.env.AGENT_ISSUE),attempt:Number(process.env.AGENT_ATTEMPT),runtime:process.env.AGENT_RUNTIME,role:process.env.AGENT_ROLE,runtime_version:process.env.AGENT_VERSION,started_at:process.env.AGENT_TIME,updated_at:process.env.AGENT_TIME,status:process.env.AGENT_STATUS}; if(process.env.AGENT_PID)o.pid=Number(process.env.AGENT_PID); if(process.env.AGENT_EXIT)o.exit_code=Number(process.env.AGENT_EXIT); if(process.env.AGENT_REFUSAL_REASON)o.refusal_reason=process.env.AGENT_REFUSAL_REASON; fs.writeFileSync(process.env.AGENT_MARKER,JSON.stringify(o,null,2)+"\n");'
 }
-progressed() { find "$CWD" -path '*/node_modules' -prune -o -path '*/.git' -prune -o -path '*/.review' -prune -o -newer "$STAMP" -print -quit | grep -q .; }
+progressed() { find "$CWD" -path '*/node_modules' -prune -o -path '*/.git' -prune -o -path '*/.review' -prune -o -newer "$STAMP" -print -quit | grep -q . || [ "$OUTPUT" -nt "$STAMP" ]; }
 kill_tree() { pkill -TERM -P "$1" 2>/dev/null || true; kill -TERM "$1" 2>/dev/null || true; sleep 1; pkill -KILL -P "$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true; }
 validate_review() {
   node - "$1" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" <<'NODE'
@@ -89,8 +89,8 @@ attempt=0
 while [ "$attempt" -le "$MAX_RETRIES" ]; do
   attempt=$((attempt + 1)); : > "$OUTPUT"; : > "$STDERR"; write_marker running "$attempt" '' '' || true; touch "$STAMP"
   "$RUNTIME_EXEC" run "$@" >"$OUTPUT" 2>"$STDERR" </dev/null & pid=$!; write_marker running "$attempt" "$pid" '' || true
-  first_seen=0; last_progress="$(date +%s)"; killed=0
-  while kill -0 "$pid" 2>/dev/null; do sleep "$POLL_INTERVAL"; if progressed; then touch "$STAMP"; last_progress="$(date +%s)"; first_seen=1; fi; [ "$first_seen" -eq 1 ] && budget="$STALL_TIMEOUT" || budget="$FIRST_PROGRESS_TIMEOUT"; elapsed=$(( $(date +%s) - last_progress )); if [ "$elapsed" -ge "$budget" ]; then killed=1; kill_tree "$pid"; write_marker killed_stall "$attempt" "$pid" '' || true; break; fi; done
+  first_seen=0; last_progress="$(date +%s)"; launched_at="$last_progress"; killed=0
+  while kill -0 "$pid" 2>/dev/null; do sleep "$POLL_INTERVAL"; if progressed; then touch "$STAMP"; last_progress="$(date +%s)"; first_seen=1; fi; [ "$first_seen" -eq 1 ] && budget="$STALL_TIMEOUT" || budget="$FIRST_PROGRESS_TIMEOUT"; elapsed=$(( $(date +%s) - last_progress )); if [ "$elapsed" -ge "$budget" ]; then killed=1; kill_tree "$pid"; write_marker killed_stall "$attempt" "$pid" '' || true; break; fi; wall_elapsed=$(( $(date +%s) - launched_at )); if [ "$wall_elapsed" -ge "$MAX_WALLCLOCK" ]; then killed=1; kill_tree "$pid"; write_marker killed_stall "$attempt" "$pid" '' || true; break; fi; done
   wait "$pid" 2>/dev/null; ec=$?
   if [ "$ec" -ne 0 ]; then
     mkdir -p "$CWD/.review" || exit 1; attempt_stderr="$CWD/.review/ISSUE-${ISSUE_N}-agent-attempt${attempt}-stderr.log"; mv "$STDERR" "$attempt_stderr"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"

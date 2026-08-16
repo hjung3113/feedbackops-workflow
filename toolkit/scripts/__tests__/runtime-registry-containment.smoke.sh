@@ -83,6 +83,16 @@ NODE
 assert_command "AC-135-1 registry CLI answers membership, bin pin, and stash policy" \
   sh -c 'node "$1" is-registered codex && ! node "$1" is-registered bogus && [ "$(node "$1" stash-by codex)" = runtime ] && [ "$(node "$1" stash-by claude)" = watchdog ] && [ "$(node "$1" stash-by opencode)" = watchdog ] && [ "$(node "$1" bin codex)" = codex ] && AGENT_WORKFLOW_CODEX_BIN=/abs/pin node "$1" bin codex | grep -F -x -q -- /abs/pin' sh "$REGISTRY"
 
+# --- AC-142-A2a: extract-final last-match and read-error contract ---
+
+two_match="$TMP_DIR/extract-final-two-match.ndjson"
+printf '%s\n%s\n' '{"type":"result","subtype":"success","result":"first"}' '{"type":"result","subtype":"success","result":"second"}' > "$two_match"
+assert_equals "AC-142-A2a-1 extract-final returns the LAST matching line's text" \
+  "second" "$(node "$REGISTRY" extract-final claude "$two_match")"
+node "$REGISTRY" extract-final claude "$TMP_DIR/extract-final-missing.ndjson" >"$TMP_DIR/extract-final.err" 2>&1
+ef_ec=$?
+if [ "$ef_ec" -eq 3 ] && [ "$(wc -l < "$TMP_DIR/extract-final.err" | tr -d ' ')" -eq 1 ] && grep -F -q 'extract-final: cannot read' "$TMP_DIR/extract-final.err"; then ok "AC-142-A2a-2 extract-final unreadable input exits 3 with one stderr line, no stack trace"; else not_ok "AC-142-A2a-2 extract-final unreadable input exits 3 with one stderr line, no stack trace"; fi
+
 # --- AC-135-2: agent-workflow.sh validates runtimes through the registry ---
 
 assert_contains "AC-135-2 agent-workflow.sh wires the runtime registry" "lib/runtime-registry.cjs" "$PRODUCT_ROOT/agent-workflow.sh"

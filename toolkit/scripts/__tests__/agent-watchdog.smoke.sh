@@ -13,6 +13,14 @@ if [ "$OPENCODE_STUB_MODE" = transient ]; then
   n=0; [ -f "$OPENCODE_STUB_COUNT" ] && n="$(cat "$OPENCODE_STUB_COUNT")"; n=$((n + 1)); printf '%s\n' "$n" > "$OPENCODE_STUB_COUNT"
   [ "$n" -eq 1 ] && { echo 'temporary upstream failure' >&2; exit 9; }
 fi
+if [ "$OPENCODE_STUB_MODE" = heartbeat ]; then
+  worktree=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = --dir ]; then worktree="$2"; break; fi
+    shift
+  done
+  while :; do touch "$worktree/hb" 2>/dev/null; sleep 1; done
+fi
 if [ -n "${OPENCODE_STUB_PR_DRAFT:-}" ]; then
   worktree=""
   while [ "$#" -gt 0 ]; do
@@ -72,4 +80,12 @@ OPENCODE_STUB_ISSUE=87 OPENCODE_STUB_PR_DRAFT="$(pr_draft 87 "$WT" active wrong-
 if [ $? -ne 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="refused")process.exit(1)' "$WT/.review/ISSUE-87-RUN.json"; then ok 'implementation PR-DRAFT requires live branch binding'; else bad 'implementation PR-DRAFT requires live branch binding'; fi
 AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 80 --runtime codex --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="exited"||o.attempt!==1||o.runtime!=="codex"||o.role!=="reviewer")process.exit(1)' "$WT/.review/ISSUE-80-RUN.json"; then ok 'codex read runtime remains compatible with typed watchdog'; else bad 'codex runtime compatibility'; fi
+wallclock_start="$(date +%s)"
+OPENCODE_STUB_MODE=heartbeat AGENT_WATCHDOG_MAX_WALLCLOCK=2 AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 88 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --first-progress-timeout 5 --stall-timeout 5 --max-retries 0 >/dev/null 2>&1
+wallclock_ec=$?; wallclock_elapsed=$(( $(date +%s) - wallclock_start )); rm -f "$WT/hb"
+if [ "$wallclock_ec" -eq 6 ] && [ "$wallclock_elapsed" -le 10 ] && node -e 'const o=require(process.argv[1]); if(o.attempt!==1||o.status!=="exhausted")process.exit(1)' "$WT/.review/ISSUE-88-RUN.json" 2>/dev/null; then ok 'AC-142-A2a-3 wall-clock cap kills a continuously progressing runtime that never stalls'; else bad 'AC-142-A2a-3 wall-clock cap kills a continuously progressing runtime that never stalls'; fi
+eval "$(grep -E '^progressed\(\) ' "$WATCHDOG")"
+progressed_tmp="$TMP/progressed"; mkdir -p "$progressed_tmp/wt/.review"; CWD="$progressed_tmp/wt"; STAMP="$progressed_tmp/stamp"; OUTPUT="$progressed_tmp/out"
+touch "$STAMP"; sleep 1; touch "$OUTPUT"
+if progressed; then ok 'AC-142-A2a-4 progressed() treats OUTPUT newer than STAMP as progress even with .review pruned'; else bad 'AC-142-A2a-4 progressed() treats OUTPUT newer than STAMP as progress even with .review pruned'; fi
 [ "$FAIL" -eq 0 ] && { echo 'ALL CASES PASS'; exit 0; }; exit 1

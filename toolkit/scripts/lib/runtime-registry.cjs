@@ -120,7 +120,10 @@ if (require.main === module) {
       const filePath = process.argv[4];
       if (!filePath) { process.stderr.write("usage: runtime-registry.cjs extract-final <runtime> <ndjson-file>\n"); process.exit(2); }
       const spec = PROGRESS[name].final;
-      const lines = require("fs").readFileSync(filePath, "utf8").split("\n");
+      let raw = null;
+      try { raw = require("fs").readFileSync(filePath, "utf8"); } catch (err) { process.stderr.write(`extract-final: cannot read ${filePath}: ${err.code || err.message}\n`); process.exit(3); }
+      const lines = raw.split("\n");
+      let finalText;
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -128,10 +131,11 @@ if (require.main === module) {
         try { event = JSON.parse(trimmed); } catch (err) { event = null; }
         if (event && spec.match.every(([dotted, expected]) => pathGet(event, dotted) === expected)) {
           const text = pathGet(event, spec.text_path);
-          if (text !== undefined) { write(text); process.exit(0); }
+          if (text !== undefined) finalText = text;
         }
       }
-      process.exit(1);
+      if (finalText !== undefined) { write(finalText); }
+      process.exit(finalText !== undefined ? 0 : 1);
       break;
     }
     default:
