@@ -85,11 +85,12 @@ STASH_BY="$(node "$RUNTIME_REGISTRY" stash-by "$RUNTIME")"
 case "$STASH_BY" in runtime|watchdog) ;; *) echo "ERROR: stash policy unavailable for runtime: $RUNTIME" >&2; exit 3 ;; esac
 STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT"' EXIT
 set -- --runtime "$RUNTIME" --role "$ROLE" --mode "$MODE" --cwd "$CWD" --prompt-file "$PROMPT_FILE" --issue "$ISSUE_N"; [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; [ -n "$PERMISSION_FILE" ] && set -- "$@" --opencode-permission-file "$PERMISSION_FILE"; [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
+launched_at="$(date +%s)"
 attempt=0
 while [ "$attempt" -le "$MAX_RETRIES" ]; do
   attempt=$((attempt + 1)); : > "$OUTPUT"; : > "$STDERR"; write_marker running "$attempt" '' '' || true; touch "$STAMP"
   "$RUNTIME_EXEC" run "$@" >"$OUTPUT" 2>"$STDERR" </dev/null & pid=$!; write_marker running "$attempt" "$pid" '' || true
-  first_seen=0; last_progress="$(date +%s)"; launched_at="$last_progress"; killed=0
+  first_seen=0; last_progress="$(date +%s)"; killed=0
   while kill -0 "$pid" 2>/dev/null; do sleep "$POLL_INTERVAL"; if progressed; then touch "$STAMP"; last_progress="$(date +%s)"; first_seen=1; fi; [ "$first_seen" -eq 1 ] && budget="$STALL_TIMEOUT" || budget="$FIRST_PROGRESS_TIMEOUT"; elapsed=$(( $(date +%s) - last_progress )); if [ "$elapsed" -ge "$budget" ]; then killed=1; kill_tree "$pid"; write_marker killed_stall "$attempt" "$pid" '' || true; break; fi; wall_elapsed=$(( $(date +%s) - launched_at )); if [ "$wall_elapsed" -ge "$MAX_WALLCLOCK" ]; then killed=1; kill_tree "$pid"; write_marker killed_stall "$attempt" "$pid" '' || true; break; fi; done
   wait "$pid" 2>/dev/null; ec=$?
   if [ "$ec" -ne 0 ]; then
