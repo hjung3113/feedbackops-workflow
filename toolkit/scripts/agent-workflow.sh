@@ -26,9 +26,26 @@ is_registered_adapter() {
   return 1
 }
 
+RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
+
+registry_runtimes() {
+  node "$RUNTIME_REGISTRY" lines
+}
+
+registry_runtime_pipe() {
+  node "$RUNTIME_REGISTRY" pipe
+}
+
+is_registered_runtime() {
+  for runtime in $(registry_runtimes); do
+    [ "$1" = "$runtime" ] && return 0
+  done
+  return 1
+}
+
 usage() {
   echo "usage: agent-workflow.sh capabilities [--worktree PATH]" >&2
-  echo "       agent-workflow.sh dispatch [--orchestrator $(registry_adapter_pipe)] [--runtime codex|claude|opencode] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
+  echo "       agent-workflow.sh dispatch [--orchestrator $(registry_adapter_pipe)] [--runtime $(registry_runtime_pipe)] [--role ROLE] --issue N --worktree PATH [dispatch options]" >&2
   echo "       agent-workflow.sh inspect --receipt PATH" >&2
 }
 
@@ -59,7 +76,7 @@ capabilities() {
   done
   printf '],"runtimes":['
   first=1
-  for runtime in codex claude opencode; do
+  for runtime in $(registry_runtimes); do
     script="$SCRIPT_DIR/agent-runtime.sh"
     if [ -x "$script" ]; then
       result="$(bash "$script" capabilities --runtime "$runtime" 2>/dev/null)"
@@ -185,10 +202,9 @@ case "$COMMAND" in
       RUNTIME="codex"
       RUNTIME_SOURCE="legacy_compatibility"
     fi
-    case "$RUNTIME" in
-      codex|claude|opencode) ;;
-      *) echo "ERROR: unknown_runtime: $RUNTIME (expected codex, claude, or opencode)" >&2; exit 2 ;;
-    esac
+    if ! is_registered_runtime "$RUNTIME"; then
+      echo "ERROR: unknown_runtime: $RUNTIME (expected codex, claude, or opencode)" >&2; exit 2
+    fi
     ROLE="$CLI_ROLE"
     ROLE_SOURCE="cli"
     if [ -z "$ROLE" ] && [ -n "${AGENT_WORKFLOW_ROLE:-}" ]; then

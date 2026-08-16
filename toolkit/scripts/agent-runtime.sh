@@ -3,8 +3,10 @@
 # bash-3.2 compatible.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 RUNTIME=""; ROLE=""; MODE=""; CWD=""; PROMPT_FILE=""; MODEL=""; EFFORT=""; OPENCODE_PERMISSION_FILE=""; ISSUE_N=""; PRODUCE_REVIEW=0
-usage() { echo "usage: agent-runtime.sh capabilities --runtime codex|claude|opencode" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; }
+registry_runtime_pipe() { node "$RUNTIME_REGISTRY" pipe; }
+usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; }
 machine_error() { printf '{"ok":false,"code":"%s","detail":"%s"}\n' "$1" "$2" >&2; exit 3; }
 runtime_bin() {
   # dispatch-core may pin one absolute, capability-proved executable. Never
@@ -13,7 +15,10 @@ runtime_bin() {
     case "$AGENT_WORKFLOW_RUNTIME_BIN" in /*) printf '%s\n' "$AGENT_WORKFLOW_RUNTIME_BIN";; *) machine_error runtime_pin_not_absolute 'AGENT_WORKFLOW_RUNTIME_BIN must be absolute';; esac
     return
   fi
-  case "$1" in codex) printf '%s\n' "${AGENT_WORKFLOW_CODEX_BIN:-codex}";; claude) printf '%s\n' "${AGENT_WORKFLOW_CLAUDE_BIN:-claude}";; opencode) printf '%s\n' "${AGENT_WORKFLOW_OPENCODE_BIN:-opencode}";; *) machine_error unknown_runtime "runtime must be codex, claude, or opencode";; esac
+  # The runtime set and each runtime's pinned-binary env/default are registry
+  # data; this boundary never re-hardcodes the runtime names.
+  bin="$(node "$RUNTIME_REGISTRY" bin "$1")" || machine_error unknown_runtime "runtime must be codex, claude, or opencode"
+  printf '%s\n' "$bin"
 }
 runtime_path() { command -v "$1" 2>/dev/null || return 1; }
 runtime_version() { "$1" --version 2>/dev/null | head -n 1 | tr '\n' ' '; }
@@ -23,14 +28,33 @@ probe_runtime() {
   runtime="$1"; bin="$(runtime_bin "$runtime")"
   if ! command -v "$bin" >/dev/null 2>&1; then printf '{"runtime":"%s","available":false,"code":"runtime_unavailable"}\n' "$runtime"; return 1; fi
   path="$(runtime_path "$bin")"; version="$(runtime_version "$bin")"
+  # Each runtime's required help-token contract is registry data. This stays
+  # procedural: probe the documented help surfaces in order and fail closed
+  # on the first missing token, exactly like the previous inline chain. A
+  # registry that cannot answer fails closed too — an unchecked contract
+  # must never read as a passed one.
+  contract=1
+  probe_tokens="$(node "$RUNTIME_REGISTRY" probe-help-tokens "$runtime")" || { printf '{"runtime":"%s","available":false,"code":"runtime_registry_unavailable"}\n' "$runtime"; return 1; }
+  for token in $probe_tokens; do
+    has_help_token "$bin" "$token" || { contract=0; break; }
+  done
+  if [ "$contract" -eq 1 ]; then
+    probe_subcommand="$(node "$RUNTIME_REGISTRY" probe-subcommand "$runtime")" || { printf '{"runtime":"%s","available":false,"code":"runtime_registry_unavailable"}\n' "$runtime"; return 1; }
+    if [ -n "$probe_subcommand" ]; then
+      probe_subcommand_tokens="$(node "$RUNTIME_REGISTRY" probe-subcommand-help-tokens "$runtime")" || { printf '{"runtime":"%s","available":false,"code":"runtime_registry_unavailable"}\n' "$runtime"; return 1; }
+      for token in $probe_subcommand_tokens; do
+        subcommand_has_help_token "$bin" "$probe_subcommand" "$token" || { contract=0; break; }
+      done
+    fi
+  fi
   case "$runtime" in
-    codex) if has_help_token "$bin" exec && subcommand_has_help_token "$bin" exec --sandbox && subcommand_has_help_token "$bin" exec --cd && subcommand_has_help_token "$bin" exec --model && subcommand_has_help_token "$bin" exec --config && subcommand_has_help_token "$bin" exec --output-last-message; then printf '{"runtime":"codex","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"codex_workspace_write","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"codex","available":false,"code":"capability_missing_exec_contract"}'; return 1; fi;;
-    claude) if has_help_token "$bin" --print && has_help_token "$bin" --permission-mode && has_help_token "$bin" --output-format && has_help_token "$bin" --model && has_help_token "$bin" --effort; then printf '{"runtime":"claude","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"runtime_permission_mode","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"claude","available":false,"code":"capability_missing_print_permissions_output_model_or_effort"}'; return 1; fi;;
+    codex) if [ "$contract" -eq 1 ]; then printf '{"runtime":"codex","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"codex_workspace_write","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"codex","available":false,"code":"capability_missing_exec_contract"}'; return 1; fi;;
+    claude) if [ "$contract" -eq 1 ]; then printf '{"runtime":"claude","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"runtime_permission_mode","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"claude","available":false,"code":"capability_missing_print_permissions_output_model_or_effort"}'; return 1; fi;;
     # OpenCode documents OPENCODE_CONFIG_CONTENT as its inline runtime config
     # mechanism. --agent is the complementary CLI contract that makes the
     # configured, named primary agent explicit rather than accepting the CLI's
     # default-agent fallback behavior.
-    opencode) if subcommand_has_help_token "$bin" run --dir && subcommand_has_help_token "$bin" run --format && subcommand_has_help_token "$bin" run --agent && subcommand_has_help_token "$bin" run --model && subcommand_has_help_token "$bin" run --variant; then printf '{"runtime":"opencode","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"inline_deny_first_config_plus_explicit_agent","config_application":"OPENCODE_CONFIG_CONTENT","fallback":false,"requires":["opencode_permission_file","opencode_config_content","opencode_run_agent"]}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"opencode","available":false,"code":"capability_missing_run_contract"}'; return 1; fi;;
+    opencode) if [ "$contract" -eq 1 ]; then printf '{"runtime":"opencode","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"inline_deny_first_config_plus_explicit_agent","config_application":"OPENCODE_CONFIG_CONTENT","fallback":false,"requires":["opencode_permission_file","opencode_config_content","opencode_run_agent"]}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"opencode","available":false,"code":"capability_missing_run_contract"}'; return 1; fi;;
   esac
 }
 validate_opencode_permissions() {

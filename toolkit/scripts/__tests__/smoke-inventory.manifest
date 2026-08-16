@@ -26,6 +26,7 @@ review-publish.smoke.sh
 route.smoke.sh
 runtime-model-preflight.smoke.sh
 runtime-provenance-schema.smoke.sh
+runtime-registry-containment.smoke.sh
 sandbox-network-deny.smoke.sh
 target-verify.smoke.sh
 telemetry.smoke.sh

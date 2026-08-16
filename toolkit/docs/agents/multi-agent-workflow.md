@@ -28,6 +28,22 @@ repository release gate asserts the hand-authored receipt and telemetry
 schema enums stay in exact parity with it; the telemetry enum additionally
 keeps its legacy `local` value, which is not a registered adapter.
 
+The admitted runtime set is defined once in
+`scripts/lib/runtime-registry.cjs`, the runtime-axis twin of the transport
+registry. CLI runtime validation, the shared dispatch core (runtime
+admission, model-family effort-enum validation, and the model compatibility
+preflight membership gate), static route probing, the runtime boundary's
+binary resolution and help-token capability contract, and the watchdog's
+stash-ownership policy all read that registry at runtime instead of
+re-hardcoding the runtime literal. The registry also owns the model-family
+effort enums as a sub-dimension of the runtime axis — the `gpt-5[.-]6`
+family selects `none|low|medium|high|xhigh|max`, every other model selects
+`low|medium|high` — and the stash policy: Codex stashes partial work itself
+inside codex-safe.sh, while Claude Code and OpenCode are stashed by the
+watchdog. A containment smoke test keeps the full runtime-set literal out of
+the migrated call sites, so a registry lookup cannot silently coexist with a
+revived local case statement.
+
 Before admission, the public capability probe and shared core prove selected
 runtime/role/mode and selected transport. Missing capability, unsupported
 isolation, or invalid configuration fails before admission with a
