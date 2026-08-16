@@ -420,6 +420,7 @@ When verification runs — and how much of it — is fixed by this rule:
 - **Intermediate/mid-fix commits:** run only the specific `*.smoke.sh` file(s) covering the changed behavior, plus `bash -n` on changed shell files. Do not run the full suite here.
 - **Immediately before PR open/merge:** run `scripts/__tests__/run-all.sh` and the repository's own release-contract gate exactly once — this is the only full-suite gate.
 - **This applies uniformly across tiers** (trivial/standard/full_cluster). There is no tier exception, ever.
+- **Once a push's CI run is being watched as the merge gate, do not also run the full suite locally against that same commit.** The full-suite run belongs before the push that has no CI coverage yet, or when CI is unavailable/not being watched for that push — never both. This holds regardless of which CI system or repository is in play; the rule is about not duplicating an already-authoritative check, not about this repository's specific pipeline.
 
 ## Worktree Prep
 
