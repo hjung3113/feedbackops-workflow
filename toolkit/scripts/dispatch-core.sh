@@ -700,10 +700,13 @@ model_compatibility_preflight() {
       echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
       return 2
     fi
-  elif ! is_registered_runtime "$RUNTIME" || ! case "$RUNTIME" in
+  elif ! case "$RUNTIME" in
     codex) "$RUNTIME_BIN_PIN" exec --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
     claude) "$RUNTIME_BIN_PIN" --print --permission-mode plan --output-format text --model "$MODEL" --effort "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
     opencode) OPENCODE_CONFIG_CONTENT="$(cat "$RUNTIME_PERMISSION_FILE")" "$RUNTIME_BIN_PIN" run --dir "$ABS_WORKTREE" --format default --agent agent-workflow --model "$MODEL" --variant "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
+    # A registered runtime with no argv branch here must fail closed, not
+    # fall through the case as a silent pass (Opus scoped review, #135).
+    *) false ;;
   esac; then
     echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
     return 2
