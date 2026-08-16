@@ -9,7 +9,7 @@ for runtime in codex claude opencode; do
   cat > "$BIN/$runtime" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
-if [ "$1" = "--help" ] || [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --print --permission-mode --output-format --effort run --dir --format --agent --variant'; exit 0; fi
+if [ "$1" = "--help" ] || [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json --print --permission-mode --output-format --effort --include-partial-messages run --dir --format --agent --variant json'; exit 0; fi
 cat "$CONTROL_PROPOSAL"
 EOF
   chmod +x "$BIN/$runtime"

@@ -6,7 +6,7 @@ BIN="$TMP/bin"; WT="$TMP/wt"; mkdir -p "$BIN" "$WT"; printf 'p\n' > "$WT/prompt.
 cat > "$BIN/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
-if [ "$1" = "--help" ] || { [ "$1" = run ] && [ "$2" = "--help" ]; }; then echo 'run --dir --format --agent --model --variant'; exit 0; fi
+if [ "$1" = "--help" ] || { [ "$1" = run ] && [ "$2" = "--help" ]; }; then echo 'run --dir --format --agent --model --variant json'; exit 0; fi
 if [ "$OPENCODE_STUB_MODE" = fail ]; then exit 9; fi
 if [ "$OPENCODE_STUB_MODE" = authfail ]; then echo 'authentication failed: invalid api key' >&2; exit 9; fi
 if [ "$OPENCODE_STUB_MODE" = transient ]; then
@@ -29,7 +29,7 @@ cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
 if [ "$1" = "--help" ]; then echo exec; exit 0; fi
-if [ "$1" = exec ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message'; exit 0; fi
+if [ "$1" = exec ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
 if [ "$1" = exec ]; then printf '%s\n' "${CODEX_STUB_OUTPUT:-ok}"; exit 0; fi
 exit 2
 EOF

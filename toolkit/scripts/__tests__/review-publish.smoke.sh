@@ -65,7 +65,7 @@ sandbox=""
 if [ "${1:-}" = "--version" ]; then echo 'codex review smoke 1.0'; exit 0; fi
 if [ "${1:-}" = "--help" ]; then echo 'Commands: exec'; exit 0; fi
 if [ "${1:-}" = "exec" ] && [ "${2:-}" = "--help" ]; then
-  echo 'exec --sandbox --cd --model --config --output-last-message'
+  echo 'exec --sandbox --cd --model --config --output-last-message --json'
   exit 0
 fi
 while [ "$#" -gt 0 ]; do
