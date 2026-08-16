@@ -418,7 +418,7 @@ Hardening shipped alongside this decision: `scripts/__tests__/sandbox-network-de
 When verification runs — and how much of it — is fixed by this rule:
 
 - **Intermediate/mid-fix commits:** run only the specific `*.smoke.sh` file(s) covering the changed behavior, plus `bash -n` on changed shell files. Do not run the full suite here.
-- **Immediately before PR open/merge:** run `toolkit/scripts/__tests__/run-all.sh` and `.github/tests/release-contract.smoke.sh` exactly once — this is the only full-suite gate.
+- **Immediately before PR open/merge:** run `scripts/__tests__/run-all.sh` and the repository's own release-contract gate exactly once — this is the only full-suite gate.
 - **This applies uniformly across tiers** (trivial/standard/full_cluster). There is no tier exception, ever.
 
 ## Worktree Prep
