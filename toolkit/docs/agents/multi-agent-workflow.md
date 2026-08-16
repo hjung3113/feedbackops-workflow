@@ -413,6 +413,14 @@ Hardening shipped alongside this decision: `scripts/__tests__/sandbox-network-de
 - **The runner's own contract test is `scripts/__tests__/run-all-contract.test.sh`**, deliberately named `*.test.sh`, not `*.smoke.sh`. The runner discovers work by the `*.smoke.sh` suffix, so a smoke-named runner test would make the suite re-enter itself. It drives a copied runner against deliberate pass/fail fixtures in a throwaway directory and is run directly: `bash scripts/__tests__/run-all-contract.test.sh`.
 - **Asynchronous smoke fixtures wait on conditions, not clocks.** `cmux-dispatch.smoke.sh` exposes `wait_for_condition <name> <deadline-seconds> <command...>`, which polls until the condition holds and, on deadline expiry, fails with `condition not met within <N>s: <name>`. A missing asynchronous event is therefore reported by name rather than surfacing as an unrelated downstream failure. Do not reintroduce fixed sleeps for fixture coordination.
 
+## Verification cadence
+
+When verification runs — and how much of it — is fixed by this rule:
+
+- **Intermediate/mid-fix commits:** run only the specific `*.smoke.sh` file(s) covering the changed behavior, plus `bash -n` on changed shell files. Do not run the full suite here.
+- **Immediately before PR open/merge:** run `toolkit/scripts/__tests__/run-all.sh` and `.github/tests/release-contract.smoke.sh` exactly once — this is the only full-suite gate.
+- **This applies uniformly across tiers** (trivial/standard/full_cluster). There is no tier exception, ever.
+
 ## Worktree Prep
 
 A fresh `git worktree` is **NOT dispatch-ready**: it has no `node_modules` and no gitignored `.env`. Because the codex sandbox blocks network, deps and env cannot self-provision inside it — provisioning MUST happen host-side, **outside the sandbox**, before dispatch.
