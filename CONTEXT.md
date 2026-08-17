@@ -97,8 +97,12 @@ The four-valued state field every artifact carries: `draft | active | superseded
 _Avoid_: status, state (too generic)
 
 **ROUND-STATE**:
-The single canonical `.review/ISSUE-<n>-ROUND-STATE.json` that CONDUCTOR maintains as the normative contract state from dispatch 0, for Standard/Full Cluster work. CONDUCTOR is its semantic owner.
+The single canonical `.review/ISSUE-<n>-ROUND-STATE.json` that CONDUCTOR maintains as the normative contract state from dispatch 0, for Standard/Full Cluster work. CONDUCTOR is its semantic owner. Its `revision` field (no qualifier in its own schema) is what `--manifest-revision` and EXECUTION-PLAN's `manifest_revision` field both mean when they say "manifest" — ROUND-STATE is the manifest they're binding to a revision of.
 _Avoid_: none
+
+**EXECUTION-PLAN**:
+The canonical `.review/ISSUE-<n>-EXECUTION-PLAN.json` (`artifact_type: execution_plan`) CONDUCTOR creates when more than one write Seat is proposed for a round: `seats`, `integration_order`, `parallel_policy`, `required_evidence`, `candidate_closure`, bound to a `base_head` and to one ROUND-STATE revision via `manifest_revision`. Carries its own separate `plan_revision` for the plan document itself — do not conflate the two revision fields.
+_Avoid_: plan (unqualified — ambiguous with e.g. `docs/plans/`), manifest (that's ROUND-STATE, see above)
 
 **RUN state**:
 The status field of `ISSUE-<n>-RUN.json` (`artifact_type: agent_run`): `running | exited | killed_stall | refused | exhausted`. `exited` proves termination, not completion — no RUN shape has `completed` or `failed` status.
