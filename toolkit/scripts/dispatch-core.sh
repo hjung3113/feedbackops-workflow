@@ -37,8 +37,7 @@
 # Defaults:
 #   --prompt-file    <worktree>/.review/ISSUE-<N>-PROMPT.md
 #   --name           codex-<N>
-#   --poll-timeout   300   (poll interval 5s; AGENT_WORKFLOW_POLL_INTERVAL overrides,
-#                          CMUX_DISPATCH_POLL_INTERVAL is the legacy fallback name; test seam)
+#   --poll-timeout   300   (poll interval 5s; AGENT_WORKFLOW_POLL_INTERVAL overrides; test seam)
 #
 # Same-issue re-dispatch (e.g. a second prompt file for the same issue) is
 # supported: a pre-existing RUN.json/BLOCKER.json from a previous run is
@@ -95,8 +94,8 @@ EXECUTION_PLAN=""
 PLAN_SEAT=""
 POLL_TIMEOUT=300
 DRY_RUN=0
-POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-${CMUX_DISPATCH_POLL_INTERVAL:-5}}"
-PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}}"
+POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-5}"
+PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-0}"
 
 usage() {
   echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2

@@ -652,7 +652,7 @@ chmod +x "$RUNNER_BIN/cmux"
 
 runner_transport_out="$TMP_ROOT/runner-transport.out"
 WATCHDOG_ARGV_FILE="$TMP_ROOT/watchdog-argv.txt" \
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
 bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 333 --worktree "$DEEP_WT" \
   --read-only --model gpt-5.6-terra --effort medium \
   --first-progress-timeout 1500 --stall-timeout 900 --poll-timeout 3 >"$runner_transport_out" 2>&1
@@ -689,7 +689,7 @@ for help_mode in live direct; do
   printf '%s\n' "prompt body" > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
   cap_mode_out="$TMP_ROOT/capability-$help_mode.out"
   WATCHDOG_ARGV_FILE="$TMP_ROOT/capability-$help_mode-watchdog-argv.txt" \
-  CMUX_HELP_MODE="$help_mode" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+  CMUX_HELP_MODE="$help_mode" AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
     bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue "$capability_issue" --worktree "$CAP_WT" \
     --read-only --poll-timeout 3 >"$cap_mode_out" 2>&1
   ec=$?
@@ -702,7 +702,7 @@ for help_mode in live direct; do
 done
 printf '%s\n' "prompt body" > "$CAP_WT/.review/ISSUE-${capability_issue}-PROMPT.txt"
 cap_refusal_out="$TMP_ROOT/capability-unrelated.out"
-CMUX_HELP_MODE=unrelated CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+CMUX_HELP_MODE=unrelated AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
   bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue "$capability_issue" --worktree "$CAP_WT" \
   --read-only --poll-timeout 1 >"$cap_refusal_out" 2>&1
 ec=$?
@@ -716,7 +716,7 @@ fi
 printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-334-PROMPT.txt"
 produce_review_out="$TMP_ROOT/produce-review-runner.out"
 WATCHDOG_ARGV_FILE="$TMP_ROOT/produce-review-watchdog-argv.txt" \
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
 bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 334 --worktree "$DEEP_WT" \
   --produce-review --model gpt-5.6-sol --effort medium --poll-timeout 3 >"$produce_review_out" 2>&1
 ec=$?
@@ -757,13 +757,13 @@ chmod +x "$DEFERRED_BIN/cmux"
 
 DEFERRED_COMMANDS="$TMP_ROOT/deferred-commands.txt"
 : > "$DEFERRED_COMMANDS"
-DEFERRED_COMMANDS="$DEFERRED_COMMANDS" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
+DEFERRED_COMMANDS="$DEFERRED_COMMANDS" AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
 bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
   --prompt-file .review/ISSUE-335-PROMPT-A.txt --read-only --poll-timeout 5 >"$TMP_ROOT/overlap-a.out" 2>&1 &
 overlap_a_pid=$!
 wait_for_condition "seat A workspace create recorded its launch command" 3 \
   deferred_commands_at_least 1
-DEFERRED_COMMANDS="$DEFERRED_COMMANDS" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
+DEFERRED_COMMANDS="$DEFERRED_COMMANDS" AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$DEFERRED_BIN:$PATH" \
 bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
   --prompt-file .review/ISSUE-335-PROMPT-B.txt --read-only --poll-timeout 5 >"$TMP_ROOT/overlap-b.out" 2>&1 &
 overlap_b_pid=$!
@@ -1102,7 +1102,7 @@ exit 0
 EOF
 chmod +x "$ROUTE_ADMIT_BIN/cmux"
 route_admit_wrong_tier="$TMP_ROOT/route-admission-wrong-tier.out"
-AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
   bash "$DISPATCH" --issue 308 --worktree "$ROUTE_ADMIT_WT" --tier standard --round-state "$ROUTE_ADMIT_STATE" --manifest-revision 5 --poll-timeout 3 >"$route_admit_wrong_tier" 2>&1
 route_admit_wrong_tier_ec=$?
 if [ "$route_admit_wrong_tier_ec" -eq 3 ] && grep -q 'route_demand_invalid' "$route_admit_wrong_tier"; then
@@ -1111,7 +1111,7 @@ else
   fail "policy redispatch rejects a CLI tier that disagrees with ROUND-STATE (ec=$route_admit_wrong_tier_ec: $(cat "$route_admit_wrong_tier"))"
 fi
 route_admit_out="$TMP_ROOT/route-admission.out"
-AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
+AGENT_WORKFLOW_HOST_STATE="$ROUTE_ADMIT_HOST_STATE" AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ROUTE_ADMIT_BIN:$PATH" \
   bash "$DISPATCH" --issue 308 --worktree "$ROUTE_ADMIT_WT" --round-state "$ROUTE_ADMIT_STATE" --manifest-revision 5 --poll-timeout 3 >"$route_admit_out" 2>&1
 route_admit_ec=$?
 route_admit_root="$ROUTE_ADMIT_COMMON/agent-workflow/redispatch-admissions"
@@ -1170,10 +1170,10 @@ else
   fail "issue lock ownership protocol did not recover empty crash orphan safely"
 fi
 admission_first="$TMP_ROOT/admission-first.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_first" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_first" 2>&1
 first_ec=$?
 admission_second="$TMP_ROOT/admission-second.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_second" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 5 --poll-timeout 3 >"$admission_second" 2>&1
 second_ec=$?
 if [ "$first_ec" -eq 0 ] && [ "$second_ec" -eq 2 ] && grep -q "key=issue-307-dispatch-2" "$admission_first" && grep -q "unbound_last_admission" "$admission_second" \
   && node - "$admission_root/issue-307-dispatch-2/.admission-transaction.json" <<'NODE'
@@ -1191,7 +1191,7 @@ fi
 
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.revision=6; fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 admission_revision_bump="$TMP_ROOT/admission-revision-bump.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_revision_bump" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_revision_bump" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q "unbound_last_admission" "$admission_revision_bump"; then
   pass "manifest revision bump cannot bypass missing failure evidence"
@@ -1212,7 +1212,7 @@ NODE
 printf '%s\n' '{}' > "$RECREATED_WT/.review/ISSUE-307-RUN.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.worktree_path=process.argv[2]; fs.writeFileSync(f,JSON.stringify(v));' "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" "$RECREATED_WT"
 admission_recreated="$TMP_ROOT/admission-recreated.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECREATED_WT" --round-state "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_recreated" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECREATED_WT" --round-state "$RECREATED_WT/.review/ISSUE-307-ROUND-STATE.json" --manifest-revision 6 --poll-timeout 3 >"$admission_recreated" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q "unbound_last_admission" "$admission_recreated"; then
   pass "worktree recreation cannot bypass missing failure evidence"
@@ -1252,7 +1252,7 @@ rmdir "$legacy_ordinal" 2>/dev/null || true
 rmdir "$legacy_singleton" 2>/dev/null || true
 mkdir -p "$legacy_singleton"
 legacy_integrated="$TMP_ROOT/legacy-integrated-sentinel.out"
-if CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$legacy_integrated" 2>&1; then
+if AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$legacy_integrated" 2>&1; then
   legacy_integrated_ec=0
 else
   legacy_integrated_ec=$?
@@ -1274,7 +1274,7 @@ rmdir "$admit_rollback_marker" 2>/dev/null || true
 rmdir "$admit_rollback_singleton" 2>/dev/null || true
 rollback_state_hash="$(shasum -a 256 "$INTEGRATED_STATE" | awk '{print $1}')"
 integrated_rollback="$TMP_ROOT/integrated-rollback.out"
-AGENT_WORKFLOW_ADMISSION_ADVANCE_FAIL=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_rollback" 2>&1
+AGENT_WORKFLOW_ADMISSION_ADVANCE_FAIL=1 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_rollback" 2>&1
 integrated_rollback_ec=$?
 rollback_state_after="$(shasum -a 256 "$INTEGRATED_STATE" | awk '{print $1}')"
 if [ "$integrated_rollback_ec" -eq 2 ] && [ ! -e "$admit_rollback_marker" ] && [ ! -e "$admit_rollback_singleton" ] && [ "$rollback_state_hash" = "$rollback_state_after" ]; then
@@ -1289,7 +1289,7 @@ fi
 cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
 node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
 singleton_window="$TMP_ROOT/integrated-singleton-window.out"
-AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
+AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=1 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
   bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$singleton_window" 2>&1
 singleton_window_ec=$?
 if [ "$singleton_window_ec" -ne 0 ] && [ -f "$admit_rollback_singleton/.admission-transaction.json" ] && [ ! -e "$admit_rollback_marker" ]; then
@@ -1298,7 +1298,7 @@ else
   fail "singleton-publication crash was not journalled (ec=$singleton_window_ec: $(cat "$singleton_window"))"
 fi
 singleton_recover="$TMP_ROOT/integrated-singleton-recovery.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$singleton_recover" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$singleton_recover" 2>&1
 singleton_recover_ec=$?
 if [ "$singleton_recover_ec" -eq 0 ] && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/.issue-307-lock" ]; then
   pass "singleton-only crash is reclaimed and re-admitted"
@@ -1321,7 +1321,7 @@ cat > "$kill_window_child" <<'EOF'
 exec "$@"
 EOF
 chmod +x "$kill_window_child"
-AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=2 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
+AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=2 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
   "$kill_window_child" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$kill_window" 2>&1 &
 kill_window_pid=$!
 if wait "$kill_window_pid"; then
@@ -1336,7 +1336,7 @@ else
   fail "ordinal-creation crash left no transaction for orphan recovery"
 fi
 recover_window="$TMP_ROOT/integrated-kill-recovery.out"
-if CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$recover_window" 2>&1; then
+if AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$recover_window" 2>&1; then
   recover_window_ec=0
 else
   recover_window_ec=$?
@@ -1352,7 +1352,7 @@ fi
 cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
 node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
 advance_window="$TMP_ROOT/integrated-advance-window.out"
-AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=3 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
+AGENT_WORKFLOW_ADMISSION_KILL_WINDOW=3 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" \
   bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$advance_window" 2>&1
 advance_window_ec=$?
 node "$SCRIPT_DIR/../lib/admission-recover.cjs" recover "$admit_rollback_singleton" "$admit_rollback_marker" "$INTEGRATED_STATE" 307 >/dev/null 2>&1
@@ -1370,7 +1370,7 @@ cp "$INTEGRATED_READY_SNAPSHOT" "$INTEGRATED_STATE"
 node "$SCRIPT_DIR/../lib/admission-recover.cjs" rollback "$admit_rollback_singleton" "$admit_rollback_marker" >/dev/null 2>&1 || true
 
 integrated_first="$TMP_ROOT/integrated-first.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_first" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_first" 2>&1
 integrated_first_ec=$?
 if [ "$integrated_first_ec" -eq 0 ] && grep -q "redispatch admission: mode=integrated_fix" "$integrated_first"; then
   pass "first integrated fix consumes the issue singleton admission"
@@ -1384,7 +1384,7 @@ node -e '
   value.round_control.diagnosis.failure_ids=["F-1","F-2","F-3"]; value.round_control.diagnosis.integrated_fix_batch={dispatch_ordinal:value.round_control.next_dispatch_ordinal,failure_ids:["F-1","F-2","F-3"],status:"ready"}; fs.writeFileSync(file,JSON.stringify(value));
 ' "$SECOND_INTEGRATED_STATE"
 integrated_second="$TMP_ROOT/integrated-second.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$SECOND_INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_second" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$SECOND_INTEGRATED_STATE" --manifest-revision 6 --poll-timeout 3 >"$integrated_second" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ] && grep -q '"decision":"diagnosis_exhausted"' "$integrated_second" \
   && [ ! -e "$admit_common/agent-workflow/redispatch-admissions/issue-307-dispatch-4" ]; then
@@ -1397,7 +1397,7 @@ NORMAL_SAME_ORDINAL_STATE="$ADMIT_WT/.review/ISSUE-307-ROUND-STATE.json"
 cp "$INTEGRATED_READY_SNAPSHOT" "$NORMAL_SAME_ORDINAL_STATE"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.round_control.failures[1].primary_origin="test_oracle"; v.round_control.failures[1].next_action.kind="oracle_fix"; v.round_control.next_dispatch_ordinal=4; delete v.round_control.diagnosis; fs.writeFileSync(f,JSON.stringify(v));' "$NORMAL_SAME_ORDINAL_STATE"
 normal_same_ordinal="$TMP_ROOT/normal-same-ordinal.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ADMIT_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$ADMIT_WT" --round-state "$NORMAL_SAME_ORDINAL_STATE" --manifest-revision 6 --poll-timeout 3 >"$normal_same_ordinal" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ] && grep -q '"decision":"diagnosis_exhausted"' "$normal_same_ordinal"; then
   pass "a consumed integrated admission cannot replay under a corrected mode"
@@ -1434,7 +1434,7 @@ exit 0
 EOF
 chmod +x "$NOOP_BIN/cmux"
 stale_out="$TMP_ROOT/stale-timeout.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --read-only --poll-timeout 2 >"$stale_out" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --read-only --poll-timeout 2 >"$stale_out" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ]; then
   pass "stale RUN.json alone is not accepted (dispatch times out non-zero)"
@@ -1460,7 +1460,7 @@ exit 0
 EOF
 chmod +x "$FRESH_BIN/cmux"
 fresh_out="$TMP_ROOT/fresh-accept.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$FRESH_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --read-only --poll-timeout 5 >"$fresh_out" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$FRESH_BIN:$PATH" bash "$DISPATCH" --issue 304 --worktree "$STALE_WT" --read-only --poll-timeout 5 >"$fresh_out" 2>&1
 ec=$?
 if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$fresh_out" && grep -q "status=running" "$fresh_out"; then
   pass "fresh RUN.json (new started_at) is accepted after a stale one"
@@ -1473,7 +1473,7 @@ printf '%s\n' '{"artifact_type":"blocker","issue":305,"reason_code":"tier_escala
 touch -t 202607130000 "$STALE_WT/.review/ISSUE-305-BLOCKER.json" 2>/dev/null || true
 printf '%s\n' "prompt body" > "$STALE_WT/.review/ISSUE-305-PROMPT.txt"
 blocker_out="$TMP_ROOT/stale-blocker.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 305 --worktree "$STALE_WT" --read-only --poll-timeout 2 >"$blocker_out" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$NOOP_BIN:$PATH" bash "$DISPATCH" --issue 305 --worktree "$STALE_WT" --read-only --poll-timeout 2 >"$blocker_out" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ] && grep -q "waiting past stale BLOCKER.json" "$blocker_out"; then
   pass "stale BLOCKER.json alone is not accepted"
@@ -1512,7 +1512,7 @@ exit 0
 EOF
 chmod +x "$RECOVERY_BIN/cmux"
 recovery_out="$TMP_ROOT/blocker-recovery.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RECOVERY_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECOVERY_WT" --tier standard --round-state "$RECOVERY_STATE" --manifest-revision 1 --poll-timeout 3 >"$recovery_out" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RECOVERY_BIN:$PATH" bash "$DISPATCH" --issue 307 --worktree "$RECOVERY_WT" --tier standard --round-state "$RECOVERY_STATE" --manifest-revision 1 --poll-timeout 3 >"$recovery_out" 2>&1
 ec=$?
 recovery_raw="$(find "$RECOVERY_WT/.review" -name 'ISSUE-307-BLOCKER-QUARANTINED-*.json' -type f | head -1)"
 if [ "$ec" -eq 0 ] && [ ! -f "$RECOVERY_WT/.review/ISSUE-307-BLOCKER.json" ] && [ -n "$recovery_raw" ] && [ "$(shasum -a 256 "$recovery_raw" | awk '{print $1}')" = "$RECOVERY_BYTES_SHA" ] && node - "$RECOVERY_STATE" "$recovery_raw" <<'NODE'
@@ -1564,7 +1564,7 @@ EOF
 chmod +x "$ORDER_BIN/cmux"
 printf '%s\n' "prompt body" > "$STALE_WT/.review/ISSUE-310-PROMPT.txt"
 order_out="$TMP_ROOT/fresh-blocker-run-order.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$ORDER_BIN:$PATH" bash "$DISPATCH" --issue 310 --worktree "$STALE_WT" --read-only --poll-timeout 3 >"$order_out" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$ORDER_BIN:$PATH" bash "$DISPATCH" --issue 310 --worktree "$STALE_WT" --read-only --poll-timeout 3 >"$order_out" 2>&1
 ec=$?
 if [ "$ec" -ne 0 ] && grep -q "fresh BLOCKER.json is not schema-valid" "$order_out" && ! grep -q "fresh RUN.json present" "$order_out"; then
   pass "fresh malformed BLOCKER is not masked by fresh RUN.json"
@@ -1588,7 +1588,7 @@ exit 0
 EOF
 chmod +x "$FRESH306_BIN/cmux"
 first_out="$TMP_ROOT/first-dispatch.out"
-CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$FRESH306_BIN:$PATH" bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --tier standard --round-state "$INITIAL_306_STATE" --manifest-revision 1 --poll-timeout 5 >"$first_out" 2>&1
+AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$FRESH306_BIN:$PATH" bash "$DISPATCH" --issue 306 --worktree "$STALE_WT" --tier standard --round-state "$INITIAL_306_STATE" --manifest-revision 1 --poll-timeout 5 >"$first_out" 2>&1
 ec=$?
 if [ "$ec" -eq 0 ] && grep -q "fresh RUN.json present" "$first_out"; then
   pass "first dispatch with no pre-existing artifact still accepts a new RUN.json"
@@ -1628,9 +1628,9 @@ printf '%s\n' '{"id":"cmux-race"}'
 exit 0
 EOF
 chmod +x "$RACE_BIN/cmux"
-CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --tier standard --round-state "$INITIAL_308_STATE" --manifest-revision 1 --poll-timeout 3 >"$TMP_ROOT/race-one.out" 2>&1 &
+AGENT_WORKFLOW_PRE_MARKER_DELAY=1 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --tier standard --round-state "$INITIAL_308_STATE" --manifest-revision 1 --poll-timeout 3 >"$TMP_ROOT/race-one.out" 2>&1 &
 race_one_pid=$!
-CMUX_DISPATCH_PRE_MARKER_DELAY=1 CMUX_DISPATCH_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --tier standard --round-state "$INITIAL_308_STATE" --manifest-revision 1 --poll-timeout 3 >"$TMP_ROOT/race-two.out" 2>&1 &
+AGENT_WORKFLOW_PRE_MARKER_DELAY=1 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RACE_BIN:$PATH" bash "$DISPATCH" --issue 308 --worktree "$RACE_WT" --tier standard --round-state "$INITIAL_308_STATE" --manifest-revision 1 --poll-timeout 3 >"$TMP_ROOT/race-two.out" 2>&1 &
 race_two_pid=$!
 wait "$race_one_pid"; race_one_ec=$?
 wait "$race_two_pid"; race_two_ec=$?

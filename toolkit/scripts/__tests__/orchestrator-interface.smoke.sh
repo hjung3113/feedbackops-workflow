@@ -1403,10 +1403,13 @@ env_precedence_case() {
 # ever narrowing. The lower bound is left untouched — it is what actually
 # proves the poll interval/delay took effect.
 env_precedence_case "AC-119-1 AGENT_WORKFLOW_POLL_INTERVAL alone sets the poll interval" 613 "AGENT_WORKFLOW_POLL_INTERVAL=1" 2 8
-env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone still sets the poll interval" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 2 8
+# CMUX_DISPATCH_POLL_INTERVAL/CMUX_DISPATCH_PRE_MARKER_DELAY were removed as a
+# legacy fallback in #131 batch 4 — the legacy name is now fully inert and the
+# hardcoded default (5s poll / 0s pre-marker delay) applies as if unset.
+env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone is now inert, default interval applies" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 4 12
 env_precedence_case "AC-119-3 AGENT_WORKFLOW_POLL_INTERVAL wins over a set CMUX_DISPATCH_POLL_INTERVAL" 615 "AGENT_WORKFLOW_POLL_INTERVAL=1 CMUX_DISPATCH_POLL_INTERVAL=5" 2 8
 env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the write marker" 616 "AGENT_WORKFLOW_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 10
-env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 10
+env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone is now inert, default (no) delay applies" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 1 8
 env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 9
 
 # --- shared adapter helpers (issue 130) ----------------------------------------
