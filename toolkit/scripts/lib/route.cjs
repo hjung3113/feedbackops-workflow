@@ -3,6 +3,7 @@
 // Pure deterministic v1 route selector. This module deliberately has no
 // filesystem, subprocess, clock, telemetry, or network dependency.
 const crypto = require("crypto");
+const { effortValid } = require("./contract-validators.cjs");
 
 const isObject = value => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const hasOnly = (value, keys) => isObject(value) && Object.keys(value).every(key => keys.includes(key));
@@ -56,9 +57,7 @@ function validPolicy(value) {
 
 function validModelAlloc(value) {
   if (!hasOnly(value, ["model", "effort"]) || typeof value.model !== "string" || value.model.length === 0) return false;
-  return /^gpt-5[.-]6(?:-|$)/.test(value.model)
-    ? /^(none|low|medium|high|xhigh|max)$/.test(value.effort)
-    : /^(low|medium|high)$/.test(value.effort);
+  return effortValid(value.model, value.effort);
 }
 
 function decide({ demand, offer, policy, modelAlloc, now, policyDigest }) {
