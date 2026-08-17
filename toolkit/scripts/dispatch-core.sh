@@ -727,6 +727,7 @@ ADAPTER_SCRIPT="$SCRIPT_DIR/adapters/$ADAPTER.sh"
 [ -x "$ADAPTER_SCRIPT" ] || { echo "ERROR: required_capability_missing: adapter is missing or not executable: $ADAPTER_SCRIPT" >&2; exit 2; }
 ADAPTER_VERSION="dry-run"
 ADAPTER_CAPABILITIES_JSON="[]"
+ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="[]"
 if [ "$DRY_RUN" -eq 0 ]; then
   CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" 2>/dev/null)"
   capability_status=$?
@@ -741,7 +742,9 @@ if [ "$DRY_RUN" -eq 0 ]; then
     exit 2
   fi
   ADAPTER_VERSION="${CAPABILITY_FIELDS%%	*}"
-  ADAPTER_CAPABILITIES_JSON="${CAPABILITY_FIELDS#*	}"
+  CAPABILITY_FIELDS_REST="${CAPABILITY_FIELDS#*	}"
+  ADAPTER_CAPABILITIES_JSON="${CAPABILITY_FIELDS_REST%%	*}"
+  ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="${CAPABILITY_FIELDS_REST#*	}"
 fi
 
 # Preserve the legacy no-policy error ordering: mode classification is early,
@@ -1255,15 +1258,19 @@ fi
 LAUNCHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LAUNCH_JSON="$(bash "$ADAPTER_SCRIPT" launch --name "$WS_NAME" --worktree "$ABS_WORKTREE" --runner-relative "$RUNNER_RELATIVE")"
 launch_status=$?
-# A launch result is only acceptable when the adapter reports one of the two
-# legitimately observable lifecycles (launched, or Herdr's ambiguous
+# A launch result is only acceptable when the adapter reports "launched" or
+# one of its own capabilities-declared ambiguous lifecycles (e.g. Herdr's
 # command_unconfirmed) together with a non-blank handle. Any other lifecycle
 # value or a whitespace-only handle is rejected exactly like a missing handle:
 # no receipt, no runner/admission progression from this point.
-EXTERNAL_HANDLE="$(node - "$SCRIPT_DIR/lib/launch-result.cjs" "$LAUNCH_JSON" <<'NODE'
+EXTERNAL_HANDLE="$(node - "$SCRIPT_DIR/lib/launch-result.cjs" "$LAUNCH_JSON" "$ADAPTER_AMBIGUOUS_LIFECYCLES_JSON" <<'NODE'
 const { normalizeLaunchResult } = require(process.argv[2]);
 let result = null;
-try { result = normalizeLaunchResult(JSON.parse(process.argv[3])); } catch (e) { result = null; }
+try {
+  const ambiguous = JSON.parse(process.argv[4]);
+  const accepted = ["launched"].concat(Array.isArray(ambiguous) ? ambiguous : []);
+  result = normalizeLaunchResult(JSON.parse(process.argv[3]), accepted);
+} catch (e) { result = null; }
 if (!result) process.exit(2);
 process.stdout.write(result.external_handle);
 NODE

@@ -15,7 +15,8 @@ adapter_json() {
   available="$3"
   if [ "$available" = "true" ]; then
     node "$ADAPTER_JSON" capabilities herdr true available "$version" \
-      'session.inherited,workspace.create.cwd,workspace.create.label,workspace.create.no_focus,workspace.get.read_only,workspace.close,pane.run'
+      'session.inherited,workspace.create.cwd,workspace.create.label,workspace.create.no_focus,workspace.get.read_only,workspace.close,pane.run' \
+      'command_unconfirmed'
   else
     node "$ADAPTER_JSON" capabilities herdr false "$reason" unknown ''
   fi

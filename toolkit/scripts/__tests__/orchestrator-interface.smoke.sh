@@ -1248,11 +1248,13 @@ strict_launch_case AC-111-9-unknown-lifecycle '{"external_handle":"cmux-611","li
 strict_launch_case AC-111-9-missing-lifecycle '{"external_handle":"cmux-611"}'
 
 # The preserved Herdr-style ambiguous path: command_unconfirmed with a
-# non-zero launch exit is still accepted and still publishes its receipt.
+# non-zero launch exit is still accepted and still publishes its receipt,
+# as long as the adapter's own capabilities declare it as an ambiguous
+# lifecycle (adapter-declared, not core-hardcoded — see #131).
 unconfirmed_wt="$TMP_ROOT/strict-launch-unconfirmed-wt"
 make_worktree "$unconfirmed_wt" 613
 unconfirmed_out="$TMP_ROOT/strict-launch-unconfirmed.out"
-FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
+FAKE_CMUX_CAPABILITY_JSON='{"adapter":"cmux","available":true,"reason_code":"available","version":"0.64.18","capabilities":["workspace.create.cwd"],"ambiguous_lifecycles":["command_unconfirmed"]}' \
 FAKE_CMUX_LAUNCH_JSON='{"external_handle":"cmux-613","lifecycle":"command_unconfirmed"}' FAKE_CMUX_LAUNCH_STATUS=7 \
 AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
   bash "$CLI" dispatch --orchestrator cmux --issue 613 --worktree "$unconfirmed_wt" --read-only --poll-timeout 1 >"$unconfirmed_out" 2>&1
