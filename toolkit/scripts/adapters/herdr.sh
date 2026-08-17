@@ -15,7 +15,8 @@ adapter_json() {
   available="$3"
   if [ "$available" = "true" ]; then
     node "$ADAPTER_JSON" capabilities herdr true available "$version" \
-      'session.inherited,workspace.create.cwd,workspace.create.label,workspace.create.no_focus,workspace.get.read_only,workspace.close,pane.run'
+      'session.inherited,workspace.create.cwd,workspace.create.label,workspace.create.no_focus,workspace.get.read_only,workspace.close,pane.run' \
+      'command_unconfirmed'
   else
     node "$ADAPTER_JSON" capabilities herdr false "$reason" unknown ''
   fi
@@ -327,6 +328,26 @@ inspect() {
   return 0
 }
 
+preview() {
+  name=""; worktree=""; runner=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)
+        [ $# -ge 2 ] || exit 2
+        name="$2"; shift 2 ;;
+      --worktree)
+        [ $# -ge 2 ] || exit 2
+        worktree="$2"; shift 2 ;;
+      --runner-relative)
+        [ $# -ge 2 ] || exit 2
+        runner="$2"; shift 2 ;;
+      *) exit 2 ;;
+    esac
+  done
+  [ -n "$name" ] && [ -n "$worktree" ] && [ -n "$runner" ] || exit 2
+  echo "herdr launch --name \"$name\" --worktree \"$worktree\" --runner-relative \"$runner\""
+}
+
 case "$command_name" in
   capabilities)
     [ "${1:-}" = "--worktree" ] && [ $# -eq 2 ] || exit 2
@@ -337,6 +358,9 @@ case "$command_name" in
     ;;
   inspect)
     inspect "$@"
+    ;;
+  preview)
+    preview "$@"
     ;;
   *) exit 2 ;;
 esac

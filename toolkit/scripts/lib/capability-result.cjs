@@ -10,12 +10,18 @@
 // every available claim but still accepts a well-shaped unavailable
 // entry so the survey can report it as-is. Any other shape exits
 // non-zero in both modes.
-const CAPABILITY_RESULT_FIELDS = ["adapter", "available", "reason_code", "version", "capabilities"];
+const CAPABILITY_RESULT_FIELDS = ["adapter", "available", "reason_code", "version", "capabilities", "ambiguous_lifecycles"];
 
 function validateCapabilityResult(value, expectedAdapter) {
   if (value.adapter !== expectedAdapter || typeof value.available !== "boolean"
       || typeof value.version !== "string" || !Array.isArray(value.capabilities)
       || value.capabilities.some(entry => typeof entry !== "string")) return false;
+  // ambiguous_lifecycles is optional (older adapters/fixtures may omit it);
+  // when present it must be an array of non-blank strings.
+  if (value.ambiguous_lifecycles !== undefined) {
+    if (!Array.isArray(value.ambiguous_lifecycles)
+        || value.ambiguous_lifecycles.some(entry => typeof entry !== "string" || !entry.trim())) return false;
+  }
   if (value.available) {
     if (!value.version.trim()) return false;
     if (!value.capabilities.length) return false;
@@ -36,7 +42,8 @@ if (require.main === module) {
     if (!validateCapabilityResult(value, expected)) process.exit(2);
     if (value.available) {
       if (mode === "dispatch") {
-        process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities));
+        process.stdout.write(value.version + "\t" + JSON.stringify(value.capabilities)
+          + "\t" + JSON.stringify(value.ambiguous_lifecycles || []));
       }
     } else if (mode === "dispatch") {
       process.exit(2);

@@ -9,13 +9,14 @@
 //   node adapter-json.cjs lifecycle <lifecycle> <reason>
 const { CAPABILITY_RESULT_FIELDS } = require("./capability-result.cjs");
 
-function emitCapabilities(adapter, available, reasonCode, version, capabilities) {
+function emitCapabilities(adapter, available, reasonCode, version, capabilities, ambiguousLifecycles) {
   const source = {
     adapter,
     available: available === "true",
     reason_code: reasonCode,
     version,
-    capabilities
+    capabilities,
+    ambiguous_lifecycles: ambiguousLifecycles || []
   };
   const payload = {};
   for (const field of CAPABILITY_RESULT_FIELDS) payload[field] = source[field];
@@ -27,10 +28,11 @@ function emitLifecycle(lifecycle, reason) {
 }
 
 if (require.main === module) {
-  const [command, adapter, available, reasonCode, version, capabilitiesCsv] = process.argv.slice(2);
+  const [command, adapter, available, reasonCode, version, capabilitiesCsv, ambiguousLifecyclesCsv] = process.argv.slice(2);
   if (command === "capabilities" && adapter && (available === "true" || available === "false") && reasonCode && version !== undefined) {
     const capabilities = capabilitiesCsv ? capabilitiesCsv.split(",") : [];
-    process.stdout.write(emitCapabilities(adapter, available, reasonCode, version, capabilities));
+    const ambiguousLifecycles = ambiguousLifecyclesCsv ? ambiguousLifecyclesCsv.split(",") : [];
+    process.stdout.write(emitCapabilities(adapter, available, reasonCode, version, capabilities, ambiguousLifecycles));
   } else if (command === "lifecycle" && adapter && available) {
     const [lifecycle, reason] = [adapter, available];
     process.stdout.write(emitLifecycle(lifecycle, reason));

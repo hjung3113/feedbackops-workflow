@@ -1248,11 +1248,13 @@ strict_launch_case AC-111-9-unknown-lifecycle '{"external_handle":"cmux-611","li
 strict_launch_case AC-111-9-missing-lifecycle '{"external_handle":"cmux-611"}'
 
 # The preserved Herdr-style ambiguous path: command_unconfirmed with a
-# non-zero launch exit is still accepted and still publishes its receipt.
+# non-zero launch exit is still accepted and still publishes its receipt,
+# as long as the adapter's own capabilities declare it as an ambiguous
+# lifecycle (adapter-declared, not core-hardcoded — see #131).
 unconfirmed_wt="$TMP_ROOT/strict-launch-unconfirmed-wt"
 make_worktree "$unconfirmed_wt" 613
 unconfirmed_out="$TMP_ROOT/strict-launch-unconfirmed.out"
-FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
+FAKE_CMUX_CAPABILITY_JSON='{"adapter":"cmux","available":true,"reason_code":"available","version":"0.64.18","capabilities":["workspace.create.cwd"],"ambiguous_lifecycles":["command_unconfirmed"]}' \
 FAKE_CMUX_LAUNCH_JSON='{"external_handle":"cmux-613","lifecycle":"command_unconfirmed"}' FAKE_CMUX_LAUNCH_STATUS=7 \
 AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
   bash "$CLI" dispatch --orchestrator cmux --issue 613 --worktree "$unconfirmed_wt" --read-only --poll-timeout 1 >"$unconfirmed_out" 2>&1
@@ -1401,10 +1403,13 @@ env_precedence_case() {
 # ever narrowing. The lower bound is left untouched — it is what actually
 # proves the poll interval/delay took effect.
 env_precedence_case "AC-119-1 AGENT_WORKFLOW_POLL_INTERVAL alone sets the poll interval" 613 "AGENT_WORKFLOW_POLL_INTERVAL=1" 2 8
-env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone still sets the poll interval" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 2 8
+# CMUX_DISPATCH_POLL_INTERVAL/CMUX_DISPATCH_PRE_MARKER_DELAY were removed as a
+# legacy fallback in #131 batch 4 — the legacy name is now fully inert and the
+# hardcoded default (5s poll / 0s pre-marker delay) applies as if unset.
+env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone is now inert, default interval applies" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 4 12
 env_precedence_case "AC-119-3 AGENT_WORKFLOW_POLL_INTERVAL wins over a set CMUX_DISPATCH_POLL_INTERVAL" 615 "AGENT_WORKFLOW_POLL_INTERVAL=1 CMUX_DISPATCH_POLL_INTERVAL=5" 2 8
 env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the write marker" 616 "AGENT_WORKFLOW_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 10
-env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 10
+env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone is now inert, default (no) delay applies" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 1 8
 env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 9
 
 # --- shared adapter helpers (issue 130) ----------------------------------------

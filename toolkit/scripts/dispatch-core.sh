@@ -37,8 +37,7 @@
 # Defaults:
 #   --prompt-file    <worktree>/.review/ISSUE-<N>-PROMPT.md
 #   --name           codex-<N>
-#   --poll-timeout   300   (poll interval 5s; AGENT_WORKFLOW_POLL_INTERVAL overrides,
-#                          CMUX_DISPATCH_POLL_INTERVAL is the legacy fallback name; test seam)
+#   --poll-timeout   300   (poll interval 5s; AGENT_WORKFLOW_POLL_INTERVAL overrides; test seam)
 #
 # Same-issue re-dispatch (e.g. a second prompt file for the same issue) is
 # supported: a pre-existing RUN.json/BLOCKER.json from a previous run is
@@ -95,8 +94,8 @@ EXECUTION_PLAN=""
 PLAN_SEAT=""
 POLL_TIMEOUT=300
 DRY_RUN=0
-POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-${CMUX_DISPATCH_POLL_INTERVAL:-5}}"
-PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-${CMUX_DISPATCH_PRE_MARKER_DELAY:-0}}"
+POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-5}"
+PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-0}"
 
 usage() {
   echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
@@ -727,6 +726,7 @@ ADAPTER_SCRIPT="$SCRIPT_DIR/adapters/$ADAPTER.sh"
 [ -x "$ADAPTER_SCRIPT" ] || { echo "ERROR: required_capability_missing: adapter is missing or not executable: $ADAPTER_SCRIPT" >&2; exit 2; }
 ADAPTER_VERSION="dry-run"
 ADAPTER_CAPABILITIES_JSON="[]"
+ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="[]"
 if [ "$DRY_RUN" -eq 0 ]; then
   CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" 2>/dev/null)"
   capability_status=$?
@@ -741,7 +741,9 @@ if [ "$DRY_RUN" -eq 0 ]; then
     exit 2
   fi
   ADAPTER_VERSION="${CAPABILITY_FIELDS%%	*}"
-  ADAPTER_CAPABILITIES_JSON="${CAPABILITY_FIELDS#*	}"
+  CAPABILITY_FIELDS_REST="${CAPABILITY_FIELDS#*	}"
+  ADAPTER_CAPABILITIES_JSON="${CAPABILITY_FIELDS_REST%%	*}"
+  ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="${CAPABILITY_FIELDS_REST#*	}"
 fi
 
 # Preserve the legacy no-policy error ordering: mode classification is early,
@@ -1222,11 +1224,10 @@ RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --runtime $RUNTIME --role $ROLE --mode
 [ -n "$RUNTIME_PERMISSION_FILE" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --opencode-permission-file $RUNTIME_PERMISSION_FILE"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  if [ "$ADAPTER" = "cmux" ]; then
-    echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"bash $DRY_RUNNER_RELATIVE\""
-  else
-    echo "$ADAPTER launch --name \"$WS_NAME\" --worktree \"$ABS_WORKTREE\" --runner-relative \"$DRY_RUNNER_RELATIVE\""
-  fi
+  bash "$ADAPTER_SCRIPT" preview --name "$WS_NAME" --worktree "$ABS_WORKTREE" --runner-relative "$DRY_RUNNER_RELATIVE" || {
+    echo "ERROR: $ADAPTER adapter preview failed" >&2
+    exit 2
+  }
   echo "runner $DRY_RUNNER_RELATIVE: $RUNNER_PREVIEW"
   exit 0
 fi
@@ -1255,12 +1256,23 @@ fi
 LAUNCHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 LAUNCH_JSON="$(bash "$ADAPTER_SCRIPT" launch --name "$WS_NAME" --worktree "$ABS_WORKTREE" --runner-relative "$RUNNER_RELATIVE")"
 launch_status=$?
-# A launch result is only acceptable when the adapter reports one of the two
-# legitimately observable lifecycles (launched, or Herdr's ambiguous
+# A launch result is only acceptable when the adapter reports "launched" or
+# one of its own capabilities-declared ambiguous lifecycles (e.g. Herdr's
 # command_unconfirmed) together with a non-blank handle. Any other lifecycle
 # value or a whitespace-only handle is rejected exactly like a missing handle:
 # no receipt, no runner/admission progression from this point.
-EXTERNAL_HANDLE="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.external_handle !== "string" || !v.external_handle.trim() || (v.lifecycle !== "launched" && v.lifecycle !== "command_unconfirmed")) process.exit(2); process.stdout.write(v.external_handle); } catch(e) { process.exit(2); }' "$LAUNCH_JSON")" || {
+EXTERNAL_HANDLE="$(node - "$SCRIPT_DIR/lib/launch-result.cjs" "$LAUNCH_JSON" "$ADAPTER_AMBIGUOUS_LIFECYCLES_JSON" <<'NODE'
+const { normalizeLaunchResult } = require(process.argv[2]);
+let result = null;
+try {
+  const ambiguous = JSON.parse(process.argv[4]);
+  const accepted = ["launched"].concat(Array.isArray(ambiguous) ? ambiguous : []);
+  result = normalizeLaunchResult(JSON.parse(process.argv[3]), accepted);
+} catch (e) { result = null; }
+if (!result) process.exit(2);
+process.stdout.write(result.external_handle);
+NODE
+)" || {
   echo "ERROR: $ADAPTER adapter returned an invalid or ambiguous external handle or launch lifecycle" >&2
   if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; else exit 2; fi
 }

@@ -84,5 +84,18 @@ case "$command_name" in
     }
     node "$CMUX_HANDLES" inspect "$output" "$HANDLE"
     ;;
+  preview)
+    NAME=""; WORKTREE=""; RUNNER=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --name) NAME="$2"; shift 2 ;;
+        --worktree) WORKTREE="$2"; shift 2 ;;
+        --runner-relative) RUNNER="$2"; shift 2 ;;
+        *) exit 2 ;;
+      esac
+    done
+    [ -n "$NAME" ] && [ -n "$WORKTREE" ] && [ -n "$RUNNER" ] || exit 2
+    echo "cmux workspace create --name \"$NAME\" --cwd \"$WORKTREE\" --command \"bash $RUNNER\""
+    ;;
   *) exit 2 ;;
 esac
