@@ -141,13 +141,19 @@ function parseArgs(argv) {
   return out;
 }
 
+const DEFAULT_SCHEMA = path.join(__dirname, "..", "..", "schemas", "execution_plan.schema.json");
+const DEFAULT_VALIDATOR = path.join(__dirname, "json-schema-subset.cjs");
+
 const command = process.argv[2];
+if (command !== "decide" && command !== "admit") die("invalid_arguments", `unknown command: ${command}`);
 const args = parseArgs(process.argv.slice(3));
 const planFile = args.plan;
 const target = args.target || args.worktree;
-if (!command || !planFile || !target || !args.schema || !args.validator) die("invalid_arguments", "missing required arguments");
+const schemaFile = args.schema || DEFAULT_SCHEMA;
+const validatorFile = args.validator || DEFAULT_VALIDATOR;
+if (!planFile || !target) die("invalid_arguments", "missing required arguments");
 const plan = readJson(planFile, "invalid_execution_plan");
-validateSchema(plan, args.schema, args.validator);
+validateSchema(plan, schemaFile, validatorFile);
 const checked = semantic(plan, target);
 
 if (command === "decide") {
@@ -159,7 +165,6 @@ if (command === "decide") {
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
   process.exit(0);
 }
-if (command !== "admit") die("invalid_arguments", `unknown command: ${command}`);
 if (!args.issue || !args.revision || !args.seat || !args["round-state"]) die("invalid_arguments", "admit requires issue, revision, seat, and round-state");
 if (String(plan.issue) !== args.issue) die("plan_issue_mismatch", "plan issue differs from dispatch");
 if (String(plan.manifest_revision) !== args.revision) die("plan_revision_mismatch", "plan manifest revision differs from dispatch");

@@ -117,7 +117,7 @@ if [ "$aw_refusal_ec" -eq 2 ] && grep -F -q -- 'ERROR: unknown_runtime: bogus (e
 assert_contains "AC-135-3 dispatch-core.sh wires the runtime registry" "lib/runtime-registry.cjs" "$PRODUCT_ROOT/dispatch-core.sh"
 assert_contains "AC-135-3 dispatch-core.sh membership check names the registry helper" "is_registered_runtime" "$PRODUCT_ROOT/dispatch-core.sh"
 effort_delegations="$(grep -c -F -- 'effortValid(model, effort)' "$PRODUCT_ROOT/dispatch-core.sh")"
-if [ "$effort_delegations" -ge 2 ]; then ok "AC-135-3 both allocator validation snippets delegate effort enums to the registry"; else not_ok "AC-135-3 both allocator validation snippets delegate effort enums to the registry"; fi
+if [ "$effort_delegations" -ge 1 ]; then ok "AC-135-3 allocator validation delegates effort enums to the registry"; else not_ok "AC-135-3 allocator validation delegates effort enums to the registry"; fi
 bash "$PRODUCT_ROOT/dispatch-core.sh" >"$TMP_DIR/dc-usage.out" 2>&1
 dc_usage_ec=$?
 if [ "$dc_usage_ec" -eq 2 ] && grep -F -q -- '--runtime codex|claude|opencode' "$TMP_DIR/dc-usage.out"; then ok "AC-135-3 usage renders the runtime set from the registry byte-identically"; else not_ok "AC-135-3 usage renders the runtime set from the registry byte-identically"; fi

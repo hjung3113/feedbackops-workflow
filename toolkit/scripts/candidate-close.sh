@@ -17,4 +17,4 @@ exec node "$SCRIPT_DIR/lib/candidate-close.cjs" "$@" \
   --seat-schema "$SCRIPT_DIR/../schemas/seat_outcome.schema.json" \
   --blocker-schema "$SCRIPT_DIR/../schemas/blocker.schema.json" \
   --validator "$SCRIPT_DIR/lib/json-schema-subset.cjs" \
-  --planner "$SCRIPT_DIR/parallel-plan.sh"
+  --planner "$SCRIPT_DIR/lib/parallel-plan.cjs"

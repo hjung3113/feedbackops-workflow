@@ -57,7 +57,7 @@ PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 WATCHDOG="$SCRIPT_DIR/agent-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
 PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
-PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
+PARALLEL_PLAN="$SCRIPT_DIR/lib/parallel-plan.cjs"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
@@ -79,7 +79,6 @@ MODEL_SUPPLIED=0
 EFFORT_SUPPLIED=0
 ALLOCATE=0
 ALLOCATOR_ROLE=""
-ALLOC_EVIDENCE=""
 TIER=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
@@ -98,7 +97,7 @@ POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # is_registered_adapter <name> — membership in the transport registry, which is
@@ -328,7 +327,6 @@ while [ $# -gt 0 ]; do
     --effort) EFFORT="$2"; EFFORT_SUPPLIED=1; shift 2 ;;
     --allocate) ALLOCATE=1; shift 1 ;;
     --allocator-role) ALLOCATOR_ROLE="$2"; shift 2 ;;
-    --alloc-evidence) ALLOC_EVIDENCE="$2"; shift 2 ;;
     --tier) TIER="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
@@ -365,8 +363,8 @@ if [ "$ALLOCATE" -eq 1 ]; then
     *) echo "ERROR: --allocator-role must be implementation or reviewer" >&2; exit 2 ;;
   esac
 fi
-if [ "$ALLOCATE" -eq 0 ] && { [ -n "$ALLOCATOR_ROLE" ] || [ -n "$ALLOC_EVIDENCE" ]; }; then
-  echo "ERROR: --allocator-role and --alloc-evidence require --allocate" >&2
+if [ "$ALLOCATE" -eq 0 ] && [ -n "$ALLOCATOR_ROLE" ]; then
+  echo "ERROR: --allocator-role requires --allocate" >&2
   exit 2
 fi
 if [ "$READ_ONLY" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
@@ -586,26 +584,23 @@ fi
 # markers, launch runners, or transport side effects. Implementation allocation
 # remains Codex-only; reviewer allocation is runtime-specific and still needs
 # the selected runtime's independent compatibility preflight.
-if [ "$ALLOCATE" -eq 1 ]; then
+# resolve_model_allocation <role> <runner>: invoke model-alloc once and parse
+# its allocation into ALLOC_RESOLVED_MODEL/ALLOC_RESOLVED_EFFORT. model-alloc
+# owns config-path default resolution, so no caller duplicates it.
+resolve_model_allocation() {
+  local alloc_role="$1" alloc_runner="$2" alloc_json alloc_fields old_ifs
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
-  if [ -f "$ALLOC_CONFIG" ]; then
-    if [ -n "$ALLOC_EVIDENCE" ]; then
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    else
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    fi
-  else
-    if [ -n "$ALLOC_EVIDENCE" ]; then
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    else
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    fi
-  fi
-  ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), role=process.argv[3], key=role === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"]; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
-  oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
-  MODEL="${1:-}"; EFFORT="${2:-}"
+  alloc_json="$(bash "$MODEL_ALLOC" --role "$alloc_role" --runner "$alloc_runner")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+  alloc_fields="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), key=process.argv[3] === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"]; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$alloc_json" "$alloc_role")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
+  old_ifs=$IFS; IFS="$(printf '\t')"; set -- $alloc_fields; IFS=$old_ifs
+  ALLOC_RESOLVED_MODEL="${1:-}"
+  ALLOC_RESOLVED_EFFORT="${2:-}"
+}
+if [ "$ALLOCATE" -eq 1 ]; then
+  resolve_model_allocation "$ALLOCATOR_ROLE" "$RUNTIME"
+  MODEL="$ALLOC_RESOLVED_MODEL"
+  EFFORT="$ALLOC_RESOLVED_EFFORT"
   if [ -z "$MODEL" ]; then
     echo "ERROR: allocator returned no model for runtime=$RUNTIME; refusing dispatch" >&2
     exit 2
@@ -617,17 +612,9 @@ fi
 # implementation allocation through the same model allocator (no runtime
 # default and no fallback launch).
 if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
-  MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
-  [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
-  if [ -f "$ALLOC_CONFIG" ]; then
-    DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
-  else
-    DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
-  fi
-  DEFAULT_ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), model=v.impl_model, effort=v.impl_effort; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
-  oldIFS=$IFS; IFS="$(printf '\t')"; set -- $DEFAULT_ALLOC_FIELDS; IFS=$oldIFS
-  MODEL="${1:-}"; [ -n "$EFFORT" ] || EFFORT="${2:-}"
+  resolve_model_allocation implementation "$RUNTIME"
+  MODEL="$ALLOC_RESOLVED_MODEL"
+  [ -n "$EFFORT" ] || EFFORT="$ALLOC_RESOLVED_EFFORT"
   [ -n "$MODEL" ] && [ -n "$EFFORT" ] || { echo "ERROR: default allocation did not resolve model and effort" >&2; exit 2; }
 fi
 
@@ -669,6 +656,7 @@ case "$ABS_PROMPT_FILE" in
     case "$ROLE" in
       reviewer) OUTPUT_CONTRACT_ROLE="reviewer" ;;
       implementation) OUTPUT_CONTRACT_ROLE="implementation" ;;
+      architect) OUTPUT_CONTRACT_ROLE="architect" ;;
       *) OUTPUT_CONTRACT_ROLE="" ;;
     esac
     if [ -n "$OUTPUT_CONTRACT_ROLE" ]; then
@@ -826,11 +814,11 @@ NODE
     echo "ERROR: plan admission denied: use canonical path $CANONICAL_EXECUTION_PLAN" >&2
     exit 2
   fi
-  if [ ! -x "$PARALLEL_PLAN" ]; then
+  if [ ! -f "$PARALLEL_PLAN" ]; then
     echo "ERROR: plan admission gate is missing or not executable" >&2
     exit 2
   fi
-  PLAN_ADMISSION="$(bash "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume false)"
+  PLAN_ADMISSION="$(node "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume false)"
   plan_status=$?
   if [ "$plan_status" -ne 0 ]; then
     echo "ERROR: plan admission denied: $PLAN_ADMISSION" >&2
@@ -1176,7 +1164,7 @@ fi
 # redispatch check has passed, but before the existing write-attempt marker or
 # transport launch. The legacy no-plan path remains a conservative sequential seat.
 if [ -n "$EXECUTION_PLAN" ] && [ "$DRY_RUN" -eq 0 ]; then
-  PLAN_ADMISSION="$(bash "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume true)"
+  PLAN_ADMISSION="$(node "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume true)"
   plan_status=$?
   if [ "$plan_status" -ne 0 ]; then
     echo "ERROR: plan admission denied: $PLAN_ADMISSION" >&2

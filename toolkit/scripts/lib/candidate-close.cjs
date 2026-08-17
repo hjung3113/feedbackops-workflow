@@ -38,7 +38,7 @@ if (command === "inspect") {
 }
 if (command !== "evaluate") fatal("invalid_arguments");
 for (const key of ["plan", "target", "candidate-worktree", "integration", "evidence-set", "output", "plan-schema", "integration-schema", "evidence-schema", "closure-schema", "validator", "planner", "review-schema", "verify-schema", "verify-result", "pr-schema", "completion-schema", "seat-schema", "blocker-schema"]) if (!a[key]) fatal("invalid_arguments", `missing --${key}`);
-const planner = spawnSync("bash", [a.planner, "decide", "--plan", a.plan, "--target", a.target], { encoding: "utf8" });
+const planner = spawnSync(process.execPath, [a.planner, "decide", "--plan", a.plan, "--target", a.target], { encoding: "utf8" });
 if (planner.status !== 0) { process.stdout.write(planner.stdout || planner.stderr); process.exit(planner.status || 2); }
 const { validate } = require(a.validator);
 const plan = json(a.plan, "invalid_execution_plan"), integration = json(a.integration, "invalid_integration_result"), set = json(a["evidence-set"], "invalid_evidence_set");
