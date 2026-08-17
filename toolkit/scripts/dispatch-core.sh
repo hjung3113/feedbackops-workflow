@@ -669,6 +669,7 @@ case "$ABS_PROMPT_FILE" in
     case "$ROLE" in
       reviewer) OUTPUT_CONTRACT_ROLE="reviewer" ;;
       implementation) OUTPUT_CONTRACT_ROLE="implementation" ;;
+      architect) OUTPUT_CONTRACT_ROLE="architect" ;;
       *) OUTPUT_CONTRACT_ROLE="" ;;
     esac
     if [ -n "$OUTPUT_CONTRACT_ROLE" ]; then
