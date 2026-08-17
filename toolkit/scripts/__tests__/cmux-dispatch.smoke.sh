@@ -597,6 +597,7 @@ cp "$ROOT/schemas/transport_receipt.schema.json" "$TMP_ROOT/schemas/transport_re
 cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-subset.cjs"
 cp "$SCRIPT_DIR/../lib/capability-result.cjs" "$RUNNER_FIXTURE/lib/capability-result.cjs"
 cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
+cp "$SCRIPT_DIR/../lib/launch-result.cjs" "$RUNNER_FIXTURE/lib/launch-result.cjs"
 cp "$SCRIPT_DIR/../lib/transport-registry.cjs" "$RUNNER_FIXTURE/lib/transport-registry.cjs"
 cp "$SCRIPT_DIR/../lib/runtime-registry.cjs" "$RUNNER_FIXTURE/lib/runtime-registry.cjs"
 cp "$SCRIPT_DIR/../lib/semver.cjs" "$RUNNER_FIXTURE/lib/semver.cjs"

@@ -1261,7 +1261,14 @@ launch_status=$?
 # command_unconfirmed) together with a non-blank handle. Any other lifecycle
 # value or a whitespace-only handle is rejected exactly like a missing handle:
 # no receipt, no runner/admission progression from this point.
-EXTERNAL_HANDLE="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (typeof v.external_handle !== "string" || !v.external_handle.trim() || (v.lifecycle !== "launched" && v.lifecycle !== "command_unconfirmed")) process.exit(2); process.stdout.write(v.external_handle); } catch(e) { process.exit(2); }' "$LAUNCH_JSON")" || {
+EXTERNAL_HANDLE="$(node - "$SCRIPT_DIR/lib/launch-result.cjs" "$LAUNCH_JSON" <<'NODE'
+const { normalizeLaunchResult } = require(process.argv[2]);
+let result = null;
+try { result = normalizeLaunchResult(JSON.parse(process.argv[3])); } catch (e) { result = null; }
+if (!result) process.exit(2);
+process.stdout.write(result.external_handle);
+NODE
+)" || {
   echo "ERROR: $ADAPTER adapter returned an invalid or ambiguous external handle or launch lifecycle" >&2
   if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; else exit 2; fi
 }
