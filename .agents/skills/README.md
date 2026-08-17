@@ -10,8 +10,7 @@ The selection is intentionally limited to workflows that fit this repository:
 
 - planning and issue flow: `setup-matt-pocock-skills`, `to-spec`, `to-tickets`, `triage`, `wayfinder`;
 - implementation quality: `implement`, `tdd`, `code-review`, `codebase-design`;
-- investigation and continuity: `diagnosing-bugs`, `research`, `handoff`, `domain-modeling`;
-- skill maintenance: `writing-great-skills`.
+- investigation and continuity: `diagnosing-bugs`, `research`, `handoff`, `domain-modeling`.
 
 The repository's `AGENTS.md` and `toolkit/docs/agents/multi-agent-workflow.md` remain authoritative when an imported skill describes a conflicting branch, commit, review, verification, or external-write procedure.
 
