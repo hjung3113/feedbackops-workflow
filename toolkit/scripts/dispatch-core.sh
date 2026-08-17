@@ -79,7 +79,6 @@ MODEL_SUPPLIED=0
 EFFORT_SUPPLIED=0
 ALLOCATE=0
 ALLOCATOR_ROLE=""
-ALLOC_EVIDENCE=""
 TIER=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
@@ -98,7 +97,7 @@ POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation [--alloc-evidence JSON]] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # is_registered_adapter <name> — membership in the transport registry, which is
@@ -328,7 +327,6 @@ while [ $# -gt 0 ]; do
     --effort) EFFORT="$2"; EFFORT_SUPPLIED=1; shift 2 ;;
     --allocate) ALLOCATE=1; shift 1 ;;
     --allocator-role) ALLOCATOR_ROLE="$2"; shift 2 ;;
-    --alloc-evidence) ALLOC_EVIDENCE="$2"; shift 2 ;;
     --tier) TIER="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
@@ -365,8 +363,8 @@ if [ "$ALLOCATE" -eq 1 ]; then
     *) echo "ERROR: --allocator-role must be implementation or reviewer" >&2; exit 2 ;;
   esac
 fi
-if [ "$ALLOCATE" -eq 0 ] && { [ -n "$ALLOCATOR_ROLE" ] || [ -n "$ALLOC_EVIDENCE" ]; }; then
-  echo "ERROR: --allocator-role and --alloc-evidence require --allocate" >&2
+if [ "$ALLOCATE" -eq 0 ] && [ -n "$ALLOCATOR_ROLE" ]; then
+  echo "ERROR: --allocator-role requires --allocate" >&2
   exit 2
 fi
 if [ "$READ_ONLY" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 1 ]; then
@@ -591,17 +589,9 @@ if [ "$ALLOCATE" -eq 1 ]; then
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
   ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
   if [ -f "$ALLOC_CONFIG" ]; then
-    if [ -n "$ALLOC_EVIDENCE" ]; then
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    else
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    fi
+    ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
   else
-    if [ -n "$ALLOC_EVIDENCE" ]; then
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --evidence "$ALLOC_EVIDENCE")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    else
-      ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-    fi
+    ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
   fi
   ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), role=process.argv[3], key=role === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"]; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
   oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
