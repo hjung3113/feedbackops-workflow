@@ -7,4 +7,14 @@
 // never redefine them.
 const { effortValid } = require("./runtime-registry.cjs");
 
-module.exports = { effortValid };
+// Fail-closed HEAD/identity freshness predicate: a live HEAD (read via
+// `git rev-parse HEAD` at the call site) matches a recorded head/content
+// digest only when both sides are non-empty strings and exactly equal.
+// Missing, empty, or non-string recorded values never match.
+function headMatches(liveHead, recordedHead) {
+  return typeof liveHead === "string" && typeof recordedHead === "string"
+    && liveHead.length > 0 && recordedHead.length > 0
+    && liveHead === recordedHead;
+}
+
+module.exports = { effortValid, headMatches };

@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const { validate } = require("./json-schema-subset.cjs");
 const { validArtifact } = require("./verify-artifact.cjs");
 const { contentSha256 } = require("./worktree-content-id.cjs");
+const { headMatches } = require("./contract-validators.cjs");
 
 const [profileArg, issueArg] = process.argv.slice(2);
 const fail = (message, code = 2) => { console.error(`target-verify: ${message}`); process.exit(code); };
@@ -86,7 +87,7 @@ let runs = [currentRun];
 if (fs.existsSync(artifactPath)) {
   let old;
   try { old = JSON.parse(fs.readFileSync(artifactPath, "utf8")); } catch { fail("existing canonical artifact is malformed", 1); }
-  if (old.head_sha === head && old.content_sha256 === contentSha) {
+  if (headMatches(head, old.head_sha) && headMatches(contentSha, old.content_sha256)) {
     const oldSchemaErrors = validate(JSON.parse(fs.readFileSync(verifySchemaPath)), old);
     if (oldSchemaErrors.length || !validArtifact(old)) fail("existing same-HEAD canonical artifact failed schema or aggregate validation", 1);
     if (old.issue !== Number(issueArg) || old.branch !== branch || old.cwd !== root || old.target_profile !== profile.id) {
@@ -107,7 +108,7 @@ fs.writeFileSync(temp, `${JSON.stringify(artifact, null, 2)}\n`, { mode: 0o600 }
 let currentContentSha;
 try { currentContentSha = contentSha256(root); }
 catch (error) { fs.unlinkSync(temp); fail(`unable to recalculate stable worktree content identity: ${error.message}`, 1); }
-if (execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim() !== head || currentContentSha !== contentSha) { fs.unlinkSync(temp); fail("worktree changed during verification", 1); }
+if (!headMatches(execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(), head) || !headMatches(currentContentSha, contentSha)) { fs.unlinkSync(temp); fail("worktree changed during verification", 1); }
 fs.renameSync(temp, artifactPath);
 console.log(`${artifact.classifier}: ${groups.length} required groups at ${head}`);
 process.exit(artifact.classifier === "PASS" ? 0 : 1);
