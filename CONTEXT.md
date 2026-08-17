@@ -40,8 +40,12 @@ _Avoid_: monitor, poller (watchdog is the specific liveness-authority component,
 ## Dispatch & Admission
 
 **Dispatch**:
-The public `agent-workflow.sh` subcommand that launches work along independent distribution-profile, runtime, role, and transport axes.
+The public `agent-workflow.sh` subcommand that launches work along independent tier, runtime, role, and transport axes.
 _Avoid_: launch, invoke
+
+**Tier**:
+The work-scale axis of a dispatch: `Trivial | Standard | Full Cluster`, set via `--tier` and recorded as `ROUND-STATE.tier.name`. Trivial initial writes stay `pr_draft`-only; Standard/Full Cluster initial writes require the complete canonical ROUND-STATE.
+_Avoid_: distribution-profile (a stale CONTEXT.md phrasing with no code counterpart — the real axis is tier)
 
 **Admission**:
 The pre-launch gate where missing capability, unsupported isolation, or invalid configuration fails before admission with a machine-readable reason. Write launches validate prompt, ROUND-STATE, and contract bindings before consuming admission.
@@ -121,3 +125,9 @@ _Avoid_: rejection, error, failure
 **Routing outcome**:
 An immutable, advisory-only join of a validated Route binding with attempt telemetry and closure evidence.
 _Avoid_: result, record
+
+## Installation
+
+**Install profile**:
+The `profile` field `install-into.sh` writes into a target repo's `install-profile.json`. Previously a choice of `feedbackops | generic`; the `feedbackops` compatibility path (DB-verify scripts, its own `install-into.sh` copy, and related fixtures) was removed, so the field is now a fixed `generic`.
+_Avoid_: distribution-profile, profile (unqualified — collides with the Tier axis)
