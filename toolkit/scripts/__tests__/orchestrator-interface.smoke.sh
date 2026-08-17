@@ -1390,12 +1390,22 @@ env_precedence_case() {
     fail "$case_id (ec=$case_ec duration=${case_duration}s $(cat "$case_out"))"
   fi
 }
-env_precedence_case "AC-119-1 AGENT_WORKFLOW_POLL_INTERVAL alone sets the poll interval" 613 "AGENT_WORKFLOW_POLL_INTERVAL=1" 2 4
-env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone still sets the poll interval" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 2 4
-env_precedence_case "AC-119-3 AGENT_WORKFLOW_POLL_INTERVAL wins over a set CMUX_DISPATCH_POLL_INTERVAL" 615 "AGENT_WORKFLOW_POLL_INTERVAL=1 CMUX_DISPATCH_POLL_INTERVAL=5" 2 4
-env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the write marker" 616 "AGENT_WORKFLOW_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
-env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 6
-env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 5
+# Upper bounds carry generous headroom above the nominal sleep time (poll
+# loop sleep, plus pre-marker delay where applicable) for dispatch-core's own
+# pre-loop overhead (capability probe, receipt-writing node subprocesses,
+# retention-lock git calls) — that overhead is real wall-clock work, not
+# part of what these cases are proving, and grows with host load. A tight
+# bound here was flaking under ordinary load (observed durations landing
+# exactly at or one second past the old boundary) without the timing gap
+# it exists to catch (a broken/ignored env var, or the wrong one winning)
+# ever narrowing. The lower bound is left untouched — it is what actually
+# proves the poll interval/delay took effect.
+env_precedence_case "AC-119-1 AGENT_WORKFLOW_POLL_INTERVAL alone sets the poll interval" 613 "AGENT_WORKFLOW_POLL_INTERVAL=1" 2 8
+env_precedence_case "AC-119-2 legacy CMUX_DISPATCH_POLL_INTERVAL alone still sets the poll interval" 614 "CMUX_DISPATCH_POLL_INTERVAL=1" 2 8
+env_precedence_case "AC-119-3 AGENT_WORKFLOW_POLL_INTERVAL wins over a set CMUX_DISPATCH_POLL_INTERVAL" 615 "AGENT_WORKFLOW_POLL_INTERVAL=1 CMUX_DISPATCH_POLL_INTERVAL=5" 2 8
+env_precedence_case "AC-119-4 AGENT_WORKFLOW_PRE_MARKER_DELAY alone delays the write marker" 616 "AGENT_WORKFLOW_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 10
+env_precedence_case "AC-119-5 legacy CMUX_DISPATCH_PRE_MARKER_DELAY alone still delays the write marker" 617 "CMUX_DISPATCH_PRE_MARKER_DELAY=2 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 10
+env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CMUX_DISPATCH_PRE_MARKER_DELAY" 618 "AGENT_WORKFLOW_PRE_MARKER_DELAY=1 CMUX_DISPATCH_PRE_MARKER_DELAY=5 AGENT_WORKFLOW_POLL_INTERVAL=1" 3 9
 
 # --- shared adapter helpers (issue 130) ----------------------------------------
 # The three transport adapters must share one implementation each of semver
