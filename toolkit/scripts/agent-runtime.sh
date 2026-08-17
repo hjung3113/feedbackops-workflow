@@ -80,7 +80,31 @@ NODE
 [ "$#" -ge 1 ] || { usage; exit 2; }; COMMAND="$1"; shift
 while [ "$#" -gt 0 ]; do case "$1" in --runtime) RUNTIME="$2"; shift 2;; --role) ROLE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --cwd) CWD="$2"; shift 2;; --prompt-file) PROMPT_FILE="$2"; shift 2;; --issue) ISSUE_N="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --effort) EFFORT="$2"; shift 2;; --opencode-permission-file) OPENCODE_PERMISSION_FILE="$2"; shift 2;; --produce-review) PRODUCE_REVIEW=1; shift;; *) usage; machine_error unknown_argument "$1";; esac; done
 [ -n "$RUNTIME" ] || machine_error runtime_required 'pass --runtime'
-case "$COMMAND" in capabilities) probe_runtime "$RUNTIME"; exit $?;; run) ;; *) usage; machine_error unknown_command "$COMMAND";; esac
+case "$COMMAND" in capabilities) probe_runtime "$RUNTIME"; exit $?;; permission-file)
+    # Runtime-owned permission-file resolution (mode-to-permission mapping is
+    # the Runtime axis's concern; dispatch-core calls through this subcommand
+    # instead of branching on a runtime name). Runtimes without a permission
+    # file print nothing and exit 0.
+    [ -n "$ROLE" ] || machine_error role_required 'pass --role'
+    [ -d "$CWD" ] || machine_error worktree_invalid 'worktree must exist'
+    case "$RUNTIME" in
+      opencode)
+        if [ -z "$OPENCODE_PERMISSION_FILE" ]; then
+          if [ "$ROLE" = "implementation" ]; then
+            OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-write.json"
+          else
+            OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-read.json"
+          fi
+        fi
+        case "$OPENCODE_PERMISSION_FILE" in
+          /*) ;;
+          *) OPENCODE_PERMISSION_FILE="$CWD/$OPENCODE_PERMISSION_FILE" ;;
+        esac
+        [ -r "$OPENCODE_PERMISSION_FILE" ] || { echo "ERROR: opencode_permission_config_missing: $OPENCODE_PERMISSION_FILE" >&2; exit 2; }
+        printf '%s\n' "$OPENCODE_PERMISSION_FILE";;
+    esac
+    exit 0;;
+run) ;; *) usage; machine_error unknown_command "$COMMAND";; esac
 case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) machine_error unsupported_role 'role must be explicit';; esac
 case "$MODE" in read|write) ;; *) machine_error unsupported_mode 'mode must be read or write';; esac
 [ -d "$CWD" ] || machine_error cwd_invalid 'cwd must exist'; [ -f "$PROMPT_FILE" ] || machine_error prompt_missing 'prompt file must exist'
