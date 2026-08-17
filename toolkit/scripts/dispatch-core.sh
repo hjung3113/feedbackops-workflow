@@ -1223,11 +1223,10 @@ RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --runtime $RUNTIME --role $ROLE --mode
 [ -n "$RUNTIME_PERMISSION_FILE" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --opencode-permission-file $RUNTIME_PERMISSION_FILE"
 
 if [ "$DRY_RUN" -eq 1 ]; then
-  if [ "$ADAPTER" = "cmux" ]; then
-    echo "cmux workspace create --name \"$WS_NAME\" --cwd \"$ABS_WORKTREE\" --command \"bash $DRY_RUNNER_RELATIVE\""
-  else
-    echo "$ADAPTER launch --name \"$WS_NAME\" --worktree \"$ABS_WORKTREE\" --runner-relative \"$DRY_RUNNER_RELATIVE\""
-  fi
+  bash "$ADAPTER_SCRIPT" preview --name "$WS_NAME" --worktree "$ABS_WORKTREE" --runner-relative "$DRY_RUNNER_RELATIVE" || {
+    echo "ERROR: $ADAPTER adapter preview failed" >&2
+    exit 2
+  }
   echo "runner $DRY_RUNNER_RELATIVE: $RUNNER_PREVIEW"
   exit 0
 fi
