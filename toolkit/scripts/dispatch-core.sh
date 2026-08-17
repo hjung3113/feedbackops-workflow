@@ -713,7 +713,7 @@ if [ "$ROUTE_POLICY_ACTIVE" -eq 0 ]; then
 fi
 
 if [ -z "$WS_NAME" ]; then
-  if [ "$RUNTIME" = "codex" ] && [ "$ROLE" = "implementation" ]; then
+  if [ "$(node "$RUNTIME_REGISTRY" ws-short-impl "$RUNTIME")" = "true" ] && [ "$ROLE" = "implementation" ]; then
     WS_NAME="codex-${ISSUE_N}"
   else
     WS_NAME="$RUNTIME-$ROLE-${ISSUE_N}"

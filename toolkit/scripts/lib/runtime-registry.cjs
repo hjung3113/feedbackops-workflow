@@ -17,6 +17,15 @@ const STASH_BY = {
   opencode: "watchdog",
 };
 
+// Workspace naming: whether the runtime keeps the historical short
+// workspace name (`<runtime>-<issue>`) for implementation dispatches
+// instead of the general `<runtime>-<role>-<issue>` shape (#174).
+const WS_SHORT_IMPL = {
+  codex: true,
+  claude: false,
+  opencode: false,
+};
+
 // Pinned-binary resolution: dispatch-core may pin one absolute,
 // capability-proved executable through the env var; otherwise the runtime's
 // default command name resolves from PATH.
@@ -97,7 +106,7 @@ function effortValid(model, effort) {
   return effortPattern(family).test(effort);
 }
 
-module.exports = { RUNTIMES, STASH_BY, BIN, PROBE, PROGRESS, MODEL_FAMILY_REGEX, EFFORT_ENUMS, effortValid };
+module.exports = { RUNTIMES, STASH_BY, WS_SHORT_IMPL, BIN, PROBE, PROGRESS, MODEL_FAMILY_REGEX, EFFORT_ENUMS, effortValid };
 
 if (require.main === module) {
   const command = process.argv[2] || "lines";
@@ -121,6 +130,7 @@ if (require.main === module) {
     case "probe-subcommand": write(PROBE[registered(process.argv[3])].subcommand); break;
     case "probe-subcommand-help-tokens": PROBE[registered(process.argv[3])].subcommand_help_tokens.forEach(write); break;
     case "stash-by": write(STASH_BY[registered(process.argv[3])]); break;
+    case "ws-short-impl": write(WS_SHORT_IMPL[registered(process.argv[3])] ? "true" : "false"); break;
     case "effort-valid": process.exit(effortValid(process.argv[3], process.argv[4]) ? 0 : 1); break;
     case "progress-flags": PROGRESS[registered(process.argv[3])].flags.forEach(write); break;
     case "progress-stream": write(PROGRESS[registered(process.argv[3])].stream); break;
@@ -148,7 +158,7 @@ if (require.main === module) {
       break;
     }
     default:
-      process.stderr.write("usage: runtime-registry.cjs [lines|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | stash-by <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
+      process.stderr.write("usage: runtime-registry.cjs [lines|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
       process.exit(2);
   }
 }
