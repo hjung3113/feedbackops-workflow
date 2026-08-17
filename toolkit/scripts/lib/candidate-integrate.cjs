@@ -31,7 +31,7 @@ const args = parse(process.argv.slice(2));
 for (const key of ["plan", "target", "candidate-worktree", "output", "schema", "validator", "planner"]) {
   if (!args[key]) failEarly("invalid_arguments", `missing --${key}`);
 }
-const planner = spawnSync("bash", [args.planner, "decide", "--plan", args.plan, "--target", args.target], { encoding: "utf8" });
+const planner = spawnSync(process.execPath, [args.planner, "decide", "--plan", args.plan, "--target", args.target], { encoding: "utf8" });
 if (planner.status !== 0) { process.stdout.write(planner.stdout || planner.stderr); process.exit(planner.status || 2); }
 let plan, schema, validate;
 try {

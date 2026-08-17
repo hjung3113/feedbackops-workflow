@@ -57,7 +57,7 @@ PRODUCT_HOME="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 WATCHDOG="$SCRIPT_DIR/agent-watchdog.sh"
 REDISPATCH_CHECK="$SCRIPT_DIR/redispatch-check.sh"
 PROMPT_AC_CHECK="$SCRIPT_DIR/prompt-ac-check.sh"
-PARALLEL_PLAN="$SCRIPT_DIR/parallel-plan.sh"
+PARALLEL_PLAN="$SCRIPT_DIR/lib/parallel-plan.cjs"
 ROUND_STATE_SCHEMA="$SCRIPT_DIR/../schemas/round_state.schema.json"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
 TRANSPORT_REGISTRY="$SCRIPT_DIR/lib/transport-registry.cjs"
@@ -826,11 +826,11 @@ NODE
     echo "ERROR: plan admission denied: use canonical path $CANONICAL_EXECUTION_PLAN" >&2
     exit 2
   fi
-  if [ ! -x "$PARALLEL_PLAN" ]; then
+  if [ ! -f "$PARALLEL_PLAN" ]; then
     echo "ERROR: plan admission gate is missing or not executable" >&2
     exit 2
   fi
-  PLAN_ADMISSION="$(bash "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume false)"
+  PLAN_ADMISSION="$(node "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume false)"
   plan_status=$?
   if [ "$plan_status" -ne 0 ]; then
     echo "ERROR: plan admission denied: $PLAN_ADMISSION" >&2
@@ -1176,7 +1176,7 @@ fi
 # redispatch check has passed, but before the existing write-attempt marker or
 # transport launch. The legacy no-plan path remains a conservative sequential seat.
 if [ -n "$EXECUTION_PLAN" ] && [ "$DRY_RUN" -eq 0 ]; then
-  PLAN_ADMISSION="$(bash "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume true)"
+  PLAN_ADMISSION="$(node "$PARALLEL_PLAN" admit --plan "$ABS_EXECUTION_PLAN" --target "$ABS_WORKTREE" --round-state "$ABS_ROUND_STATE" --issue "$ISSUE_N" --revision "$MANIFEST_REVISION" --seat "$PLAN_SEAT" --consume true)"
   plan_status=$?
   if [ "$plan_status" -ne 0 ]; then
     echo "ERROR: plan admission denied: $PLAN_ADMISSION" >&2

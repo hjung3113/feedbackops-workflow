@@ -129,7 +129,7 @@ assert_current_content() {
   assert_true "$label includes Herdr adapter" test -x "$target/.agent-workflow/scripts/adapters/herdr.sh"
   assert_true "$label includes receipt schema" test -e "$target/.agent-workflow/schemas/transport_receipt.schema.json"
   assert_true "$label includes workflow config example" test -e "$target/.agent-workflow/docs/agents/workflow-config.example.json"
-  assert_true "$label includes parallel planner" test -x "$target/.agent-workflow/scripts/parallel-plan.sh"
+  assert_true "$label includes parallel planner" test -f "$target/.agent-workflow/scripts/lib/parallel-plan.cjs"
   assert_true "$label includes candidate integrator" test -x "$target/.agent-workflow/scripts/candidate-integrate.sh"
   assert_true "$label includes candidate closure" test -x "$target/.agent-workflow/scripts/candidate-close.sh"
   # Lifecycle-guard behavior (final REVIEW / active PR-DRAFT closure evidence)

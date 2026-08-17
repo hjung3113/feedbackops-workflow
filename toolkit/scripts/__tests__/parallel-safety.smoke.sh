@@ -5,7 +5,7 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-PLAN="$ROOT/scripts/parallel-plan.sh"
+PLAN="$ROOT/scripts/lib/parallel-plan.cjs"
 INTEGRATE="$ROOT/scripts/candidate-integrate.sh"
 CLOSE="$ROOT/scripts/candidate-close.sh"
 TMP="$(mktemp -d)"
@@ -55,30 +55,30 @@ GOOD_PLAN="$TMP/good-plan.json"
 write_plan "$GOOD_PLAN" "$BASE_HEAD" exact src/api/base.txt exact src/ui/base.txt ""
 
 out1="$TMP/decision-1.json"; out2="$TMP/decision-2.json"
-bash "$PLAN" decide --plan "$GOOD_PLAN" --target "$BASE" > "$out1"
-bash "$PLAN" decide --plan "$GOOD_PLAN" --target "$BASE" > "$out2"
+node "$PLAN" decide --plan "$GOOD_PLAN" --target "$BASE" > "$out1"
+node "$PLAN" decide --plan "$GOOD_PLAN" --target "$BASE" > "$out2"
 if cmp -s "$out1" "$out2" && grep -q 'parallel_eligible' "$out1" && grep -q 'disjoint_exact_write_sets' "$out1"; then pass "deterministic disjoint plan is byte-equivalent and parallel eligible"; else fail "deterministic disjoint decision"; fi
 
 OVERLAP="$TMP/overlap.json"; write_plan "$OVERLAP" "$BASE_HEAD" exact src/shared/a exact src/shared ""
 UNKNOWN="$TMP/unknown.json"; write_plan "$UNKNOWN" "$BASE_HEAD" unknown ignored exact src/ui ""
 DEPEND="$TMP/depend.json"; write_plan "$DEPEND" "$BASE_HEAD" exact src/api exact src/ui api
-if bash "$PLAN" decide --plan "$OVERLAP" --target "$BASE" | grep -q 'write_set_overlap' \
-  && bash "$PLAN" decide --plan "$UNKNOWN" --target "$BASE" | grep -q 'unproven_write_set' \
-  && bash "$PLAN" decide --plan "$DEPEND" --target "$BASE" | grep -q 'dependency_order'; then
+if node "$PLAN" decide --plan "$OVERLAP" --target "$BASE" | grep -q 'write_set_overlap' \
+  && node "$PLAN" decide --plan "$UNKNOWN" --target "$BASE" | grep -q 'unproven_write_set' \
+  && node "$PLAN" decide --plan "$DEPEND" --target "$BASE" | grep -q 'dependency_order'; then
   pass "overlap, unknown, and dependency constraints serialize conservatively"
 else fail "conservative serialization reasons"; fi
 ISOLATION="$TMP/isolation.json"; cp "$GOOD_PLAN" "$ISOLATION"
 node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.parallel_policy.environment_isolation="unproven";fs.writeFileSync(f,JSON.stringify(v));' "$ISOLATION"
 ONE="$TMP/one-seat.json"; cp "$GOOD_PLAN" "$ONE"
 node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.seats=[v.seats[0]];v.integration_order=["api"];fs.writeFileSync(f,JSON.stringify(v));' "$ONE"
-if bash "$PLAN" decide --plan "$ISOLATION" --target "$BASE" | grep -q isolation_or_budget_unproven \
-  && bash "$PLAN" decide --plan "$ONE" --target "$BASE" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.exit(JSON.parse(s).pairs.length===0?0:1));'; then
+if node "$PLAN" decide --plan "$ISOLATION" --target "$BASE" | grep -q isolation_or_budget_unproven \
+  && node "$PLAN" decide --plan "$ONE" --target "$BASE" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.exit(JSON.parse(s).pairs.length===0?0:1));'; then
   pass "unproven isolation serializes and a sequential one-seat plan remains valid"
 else fail "isolation and one-seat compatibility"; fi
 
 CYCLE="$TMP/cycle.json"; cp "$DEPEND" "$CYCLE"
 node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.seats[0].depends_on=["ui"];fs.writeFileSync(f,JSON.stringify(v));' "$CYCLE"
-cycle_out="$TMP/cycle.out"; bash "$PLAN" decide --plan "$CYCLE" --target "$BASE" > "$cycle_out"; ec=$?
+cycle_out="$TMP/cycle.out"; node "$PLAN" decide --plan "$CYCLE" --target "$BASE" > "$cycle_out"; ec=$?
 if [ "$ec" -eq 2 ] && grep -Eq 'dependency_cycle|dependency_cycle_or_order' "$cycle_out"; then pass "dependency cycle is rejected"; else fail "dependency cycle rejection"; fi
 
 TRAVERSAL="$TMP/traversal.json"; cp "$GOOD_PLAN" "$TRAVERSAL"
@@ -86,9 +86,9 @@ node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f
 mkdir -p "$TMP/outside"; ln -s "$TMP/outside" "$BASE/escape-link"
 SYMLINK="$TMP/symlink.json"; cp "$GOOD_PLAN" "$SYMLINK"
 node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.seats[0].write_set.paths=["escape-link/file"];fs.writeFileSync(f,JSON.stringify(v));' "$SYMLINK"
-if ! bash "$PLAN" decide --plan "$TRAVERSAL" --target "$BASE" > "$TMP/traversal.out" \
+if ! node "$PLAN" decide --plan "$TRAVERSAL" --target "$BASE" > "$TMP/traversal.out" \
   && grep -q invalid_write_path "$TMP/traversal.out" \
-  && ! bash "$PLAN" decide --plan "$SYMLINK" --target "$BASE" > "$TMP/symlink.out" \
+  && ! node "$PLAN" decide --plan "$SYMLINK" --target "$BASE" > "$TMP/symlink.out" \
   && grep -q symlink_escape "$TMP/symlink.out"; then pass "traversal and symlink escape are rejected"; else fail "path containment"; fi
 
 # Real source repos and candidate for integration.
@@ -145,12 +145,12 @@ bash "$ROOT/scripts/cmux-dispatch.sh" --issue 14 --worktree "$ADMIT" --tier "$AD
   --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --manifest-revision 1 \
   --execution-plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --seat api --dry-run > "$planned_dry" 2>&1; ec=$?
 if [ "$ec" -eq 0 ] && grep -q 'cmux workspace create' "$planned_dry"; then pass "dispatch consumes a validated canonical plan binding before launch"; else fail "planned dispatch admission ($(cat "$planned_dry"))"; fi
-bash "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume true > "$TMP/admit-one.out" & p1=$!
-bash "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume true > "$TMP/admit-two.out" & p2=$!
+node "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume true > "$TMP/admit-one.out" & p1=$!
+node "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume true > "$TMP/admit-two.out" & p2=$!
 wait "$p1"; e1=$?; wait "$p2"; e2=$?; successes=0; [ "$e1" -eq 0 ] && successes=$((successes+1)); [ "$e2" -eq 0 ] && successes=$((successes+1))
 if [ "$successes" -eq 1 ] && { grep -q parallel_admission_already_consumed "$TMP/admit-one.out" || grep -q parallel_admission_already_consumed "$TMP/admit-two.out"; }; then pass "concurrent same-seat plan admission is single-use"; else fail "concurrent plan admission"; fi
 node -e 'const fs=require("fs"),f=process.argv[1],v=JSON.parse(fs.readFileSync(f));v.contract.touch_allowlist=["src/ui/base.txt"];fs.writeFileSync(f,JSON.stringify(v));' "$ADMIT/.review/ISSUE-14-ROUND-STATE.json"
-if ! bash "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume false > "$TMP/write-mismatch.out" \
+if ! node "$PLAN" admit --plan "$ADMIT/.review/ISSUE-14-EXECUTION-PLAN.json" --target "$ADMIT" --round-state "$ADMIT/.review/ISSUE-14-ROUND-STATE.json" --issue 14 --revision 1 --seat api --consume false > "$TMP/write-mismatch.out" \
   && grep -q plan_write_set_mismatch "$TMP/write-mismatch.out"; then pass "plan admission binds seat write set before launch"; else fail "write-set admission mismatch"; fi
 
 # Build canonical candidate evidence at the integrated HEAD.

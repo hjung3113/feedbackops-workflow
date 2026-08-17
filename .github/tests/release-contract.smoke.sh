@@ -124,7 +124,7 @@ assert_exists "transport receipt schema" "$PRODUCT_ROOT/schemas/transport_receip
 assert_exists "routing receipt fixture" "$PRODUCT_ROOT/schemas/fixtures/transport_receipt.routing.valid.json"
 assert_exists "review capsule schema" "$PRODUCT_ROOT/schemas/review_capsule.schema.json"
 assert_exists "review capsule renderer" "$PRODUCT_ROOT/scripts/review-capsule.sh"
-assert_exists "parallel planner" "$PRODUCT_ROOT/scripts/parallel-plan.sh"
+assert_exists "parallel planner" "$PRODUCT_ROOT/scripts/lib/parallel-plan.cjs"
 assert_exists "candidate integrator" "$PRODUCT_ROOT/scripts/candidate-integrate.sh"
 assert_exists "candidate closure gate" "$PRODUCT_ROOT/scripts/candidate-close.sh"
 assert_exists "shared RFC3339 parser" "$PRODUCT_ROOT/scripts/lib/rfc3339.cjs"
