@@ -375,12 +375,14 @@ EOF
   mkdir -p "$worktree/.review"
   printf '%s\n' 'worktree-owned evidence' > "$worktree/.review/keep.txt"
   printf '%s\n' 'worker prompt' > "$worktree/.review/ISSUE-62-PROMPT.md"
-  bash "$product_home/scripts/output-contract.sh" render --role implementation >> "$worktree/.review/ISSUE-62-PROMPT.md"
+  # The dispatch below is --read-only (architect seat); the prompt must carry
+  # the architect contract for output-contract admission.
+  bash "$product_home/scripts/output-contract.sh" render --role architect >> "$worktree/.review/ISSUE-62-PROMPT.md"
   printf '%s\n' '{"orchestrator":"cmux"}' > "$product_home/workflow-config.json"
 
   assert_true "fresh linked worktree omits ignored product home" test ! -e "$worktree/.agent-workflow"
   assert_true "product-home output contract renders in fresh linked worktree" grep -F -q 'agent-workflow:output-contract' "$worktree/.review/ISSUE-62-PROMPT.md"
-  assert_exit "product-home output contract checks fresh linked worktree prompt" PASS bash "$product_home/scripts/output-contract.sh" check --role implementation --prompt-file "$worktree/.review/ISSUE-62-PROMPT.md"
+  assert_exit "product-home output contract checks fresh linked worktree prompt" PASS bash "$product_home/scripts/output-contract.sh" check --role architect --prompt-file "$worktree/.review/ISSUE-62-PROMPT.md"
   dispatch_out="$TMP_DIR/product-home-dispatch.out"
   PATH="$transport_bin:$PATH" AGENT_WORKFLOW_CODEX_BIN="$AGENT_WORKFLOW_CODEX_BIN" \
     bash "$product_home/scripts/agent-workflow.sh" dispatch --issue 62 --worktree "$worktree" --read-only --dry-run >"$dispatch_out" 2>&1

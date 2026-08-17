@@ -20,14 +20,22 @@ FAILURES=0
 pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 
+set_prompt_contract() {
+  path="$1"
+  issue="$2"
+  role="${3:-implementation}"
+  printf '%s\n' 'worker prompt' > "$path/.review/ISSUE-${issue}-PROMPT.md"
+  "$ROOT/scripts/output-contract.sh" render --role "$role" >> "$path/.review/ISSUE-${issue}-PROMPT.md"
+}
+
 make_worktree() {
   path="$1"
   issue="$2"
+  role="${3:-implementation}"
 mkdir -p "$path/.review"
   git init -q "$path"
   git -C "$path" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
-  printf '%s\n' 'worker prompt' > "$path/.review/ISSUE-${issue}-PROMPT.md"
-  "$ROOT/scripts/output-contract.sh" render --role implementation >> "$path/.review/ISSUE-${issue}-PROMPT.md"
+  set_prompt_contract "$path" "$issue" "$role"
 }
 
 BIN="$TMP_ROOT/bin"
@@ -407,7 +415,7 @@ export AGENT_WORKFLOW_CODEX_BIN="$BIN/codex"
 unset AGENT_WORKFLOW_RUNTIME_BIN
 
 WT="$TMP_ROOT/choice"
-make_worktree "$WT" 501
+make_worktree "$WT" 501 architect
 printf '%s\n' '{"orchestrator":"orca"}' > "$PRODUCT_HOME/workflow-config.json"
 choice_out="$TMP_ROOT/choice.out"
 AGENT_WORKFLOW_ORCHESTRATOR=orca bash "$CLI" dispatch --orchestrator cmux --issue 501 --worktree "$WT" --read-only --dry-run >"$choice_out" 2>&1
@@ -445,7 +453,7 @@ if [ "$ec" -eq 2 ] && grep -q 'unknown_orchestrator' "$unknown_out"; then pass "
 # lacks that context must refuse before admission, runners, receipts, or any
 # other transport are touched.
 HERDR_REFUSAL_WT="$TMP_ROOT/herdr-session-refusal-wt"
-make_worktree "$HERDR_REFUSAL_WT" 509
+make_worktree "$HERDR_REFUSAL_WT" 509 architect
 HERDR_REFUSAL_OUT="$TMP_ROOT/herdr-session-refusal.out"
 env -u HERDR_ENV -u HERDR_SOCKET_PATH TRANSPORT_USED="$TMP_ROOT/herdr-session-refusal-transport" \
 PATH="$BIN:$PATH" bash "$CLI" dispatch --orchestrator herdr --issue 509 --worktree "$HERDR_REFUSAL_WT" --read-only --poll-timeout 1 >"$HERDR_REFUSAL_OUT" 2>&1
@@ -597,6 +605,9 @@ EOF
 chmod +x "$BAD_BIN/orca" "$BAD_BIN/cmux"
 unavailable_out="$TMP_ROOT/unavailable.out"
 FALLBACK_LOG="$TMP_ROOT/fallback.log"
+# Issue 501 now dispatches a write (trivial implementation) seat; its prompt
+# must carry the implementation contract instead of the architect one.
+set_prompt_contract "$WT" 501 implementation
 FALLBACK_LOG="$FALLBACK_LOG" PATH="$BAD_BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 501 --worktree "$WT" --tier trivial >"$unavailable_out" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q 'required_capability_missing' "$unavailable_out" \
@@ -821,7 +832,7 @@ NODE
 then pass "Herdr inspect reports missing session context as typed JSON"; else fail "Herdr inspect session context ($(cat "$HERDR_INSPECT_SESSION_OUT"))"; fi
 
 HERDR_DISPATCH_WT="$TMP_ROOT/herdr-dispatch-wt"
-make_worktree "$HERDR_DISPATCH_WT" 602
+make_worktree "$HERDR_DISPATCH_WT" 602 architect
 HERDR_DISPATCH_STATE="$TMP_ROOT/herdr-dispatch-state"
 HERDR_DISPATCH_OUT="$TMP_ROOT/herdr-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DISPATCH_STATE" \
@@ -869,7 +880,7 @@ NODE
 if [ "$?" -eq 0 ]; then pass "Herdr public receipt remains schema-valid"; else fail "Herdr public receipt schema"; fi
 
 HERDR_AMBIGUOUS_WT="$TMP_ROOT/herdr-ambiguous-dispatch-wt"
-make_worktree "$HERDR_AMBIGUOUS_WT" 603
+make_worktree "$HERDR_AMBIGUOUS_WT" 603 architect
 HERDR_AMBIGUOUS_STATE="$TMP_ROOT/herdr-ambiguous-dispatch-state"
 HERDR_AMBIGUOUS_OUT="$TMP_ROOT/herdr-ambiguous-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_STATE" \
@@ -885,7 +896,7 @@ if [ "$herdr_ambiguous_ec" -eq 0 ] && [ -f "$HERDR_AMBIGUOUS_WT/.review/ISSUE-60
 else fail "Herdr ambiguous fresh-evidence dispatch (ec=$herdr_ambiguous_ec out=$(cat "$HERDR_AMBIGUOUS_OUT"))"; fi
 
 HERDR_AMBIGUOUS_ABSENT_WT="$TMP_ROOT/herdr-ambiguous-absent-wt"
-make_worktree "$HERDR_AMBIGUOUS_ABSENT_WT" 604
+make_worktree "$HERDR_AMBIGUOUS_ABSENT_WT" 604 architect
 HERDR_AMBIGUOUS_ABSENT_STATE="$TMP_ROOT/herdr-ambiguous-absent-state"
 HERDR_AMBIGUOUS_ABSENT_OUT="$TMP_ROOT/herdr-ambiguous-absent.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_AMBIGUOUS_ABSENT_STATE" \
@@ -901,7 +912,7 @@ if [ "$herdr_ambiguous_absent_ec" -eq 7 ] && [ -f "$HERDR_AMBIGUOUS_ABSENT_WT/.r
 else fail "Herdr ambiguous absent-evidence dispatch (ec=$herdr_ambiguous_absent_ec out=$(cat "$HERDR_AMBIGUOUS_ABSENT_OUT"))"; fi
 
 HERDR_DEFINITE_WT="$TMP_ROOT/herdr-definite-dispatch-wt"
-make_worktree "$HERDR_DEFINITE_WT" 605
+make_worktree "$HERDR_DEFINITE_WT" 605 architect
 HERDR_DEFINITE_STATE="$TMP_ROOT/herdr-definite-dispatch-state"
 HERDR_DEFINITE_OUT="$TMP_ROOT/herdr-definite-dispatch.out"
 HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_STATE_DIR="$HERDR_DEFINITE_STATE" \
@@ -1025,6 +1036,9 @@ old_cmux_runner="$cmux_runner"
 # the now-superseded receipt runner without touching the pending runner.
 rm -f "${old_cmux_runner%/launch.sh}/.receipt-published"
 TRANSPORT_USED="$TMP_ROOT/cmux-redispatch-used" CMUX_ARGV="$TMP_ROOT/cmux-redispatch-argv" ORCA_ARGV="$TMP_ROOT/unused-orca" \
+# The 502 redispatch is a read-only (architect) seat; switch its prompt to the
+# architect contract before admission.
+set_prompt_contract "$CMUX_WT" 502 architect
 AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --read-only --poll-timeout 3 >"$TMP_ROOT/cmux-redispatch.out" 2>&1
 cmux_redispatch_ec=$?
 current_cmux_runner="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).runner.path)' "$CMUX_WT/.review/ISSUE-502-TRANSPORT.json")"
@@ -1209,7 +1223,7 @@ STRICT_CAPABILITY='{"adapter":"cmux","available":true,"reason_code":"available",
 strict_capability_case() {
   case_name="$1"; expected_reason="$2"; payload="$3"
   case_wt="$TMP_ROOT/strict-cap-$case_name-wt"
-  make_worktree "$case_wt" 610
+  make_worktree "$case_wt" 610 architect
   case_out="$TMP_ROOT/strict-cap-$case_name.out"
   FAKE_CMUX_CAPABILITY_JSON="$payload" AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" \
     bash "$CLI" dispatch --orchestrator cmux --issue 610 --worktree "$case_wt" --read-only --poll-timeout 1 >"$case_out" 2>&1
@@ -1230,7 +1244,7 @@ strict_capability_case AC-111-unavailable-reason-preserved binary_not_found '{"a
 strict_launch_case() {
   case_name="$1"; launch_json="$2"; launch_status="${3:-0}"
   case_wt="$TMP_ROOT/strict-launch-$case_name-wt"
-  make_worktree "$case_wt" 611
+  make_worktree "$case_wt" 611 architect
   case_out="$TMP_ROOT/strict-launch-$case_name.out"
   FAKE_CMUX_CAPABILITY_JSON="$STRICT_CAPABILITY" \
   FAKE_CMUX_LAUNCH_JSON="$launch_json" FAKE_CMUX_LAUNCH_STATUS="$launch_status" \
@@ -1252,7 +1266,7 @@ strict_launch_case AC-111-9-missing-lifecycle '{"external_handle":"cmux-611"}'
 # as long as the adapter's own capabilities declare it as an ambiguous
 # lifecycle (adapter-declared, not core-hardcoded — see #131).
 unconfirmed_wt="$TMP_ROOT/strict-launch-unconfirmed-wt"
-make_worktree "$unconfirmed_wt" 613
+make_worktree "$unconfirmed_wt" 613 architect
 unconfirmed_out="$TMP_ROOT/strict-launch-unconfirmed.out"
 FAKE_CMUX_CAPABILITY_JSON='{"adapter":"cmux","available":true,"reason_code":"available","version":"0.64.18","capabilities":["workspace.create.cwd"],"ambiguous_lifecycles":["command_unconfirmed"]}' \
 FAKE_CMUX_LAUNCH_JSON='{"external_handle":"cmux-613","lifecycle":"command_unconfirmed"}' FAKE_CMUX_LAUNCH_STATUS=7 \
