@@ -161,4 +161,10 @@ _Avoid_: result, record
 
 **Install profile**:
 The `profile` field `install-into.sh` writes into a target repo's `install-profile.json`. Previously a choice of `feedbackops | generic`; the `feedbackops` compatibility path (DB-verify scripts, its own `install-into.sh` copy, and related fixtures) was removed, so the field is now a fixed `generic`.
-_Avoid_: distribution-profile, profile (unqualified — collides with the Tier axis)
+_Avoid_: distribution-profile, profile (unqualified — collides with the Tier axis and with Target profile, see Verification below)
+
+## Verification
+
+**Target profile**:
+A target repo's own `target-profile.schema.json`-shaped config (`id`, `runtime.executables`, `environment`, `setup`, `verification`) telling `target-verify.sh`/`lib/target-verify.mjs` how to run that repo's verification. Its `id` is written verbatim into the `target_profile` field of the `verify_result` artifact.
+_Avoid_: profile (unqualified — collides with Install profile and the Tier axis), verify config
