@@ -13,7 +13,7 @@
 - macOS stock Bash 3.2 호환 셸 (`declare -A`, `mapfile`, `${var,,}`를 사용하지 않음)
 - Git, 명시적으로 선택·capability-probe 된 Codex·Claude Code·OpenCode 중 하나, 그리고 명시적으로 선택한 cmux·Orca·Herdr CLI
 - 설치된 타겟의 Git checkout 또는 plain checkout
-- 병렬 작업마다 별도 worktree와, FeedbackOps 스타일 DB 테스트라면 별도 일회성 DB
+- 병렬 작업마다 별도 worktree와, 상태 저장 서비스를 공유하는 테스트라면 별도 일회성 서비스 인스턴스
 
 신선한 설치는 네 개의 managed leaf를 **self-contained 복사본**으로 배포합니다. 설치는 원본 toolkit을 가리키는 절대 symlink를 만들지 않으며, 타겟 저장소와 함께 커밋하거나 다른 머신으로 옮길 수 있습니다.
 
@@ -21,30 +21,27 @@
 
 | 영역 | 현재 계약 |
 |---|---|
-| dispatch, watchdog, artifact lifecycle | distribution profile·runtime·role·transport를 독립 선택하는 Git 저장소에서 재사용 가능 |
-| `prepare-worktree.sh` | pnpm 및 root/`apps/backend` 환경 구조 |
-| `tier-probe.sh` | TypeScript/TSX exported-contract 휴리스틱 |
-| `target-verify.sh <profile> <issue>` | target-neutral required-group verifier |
-| `verify.sh` | 명시적 FeedbackOps pnpm/Vitest/Postgres 호환 어댑터 |
-| `prepare-verify-db.sh` | 이슈별 local PostgreSQL DB |
-| branch/cluster helpers | `feature/*`, pane-label, integration-branch 관례 |
+| dispatch, watchdog, artifact lifecycle | runtime·role·transport를 독립 선택하는 Git 저장소에서 재사용 가능 |
+| `target-verify.sh <profile> <issue>` | target-neutral required-group verifier (유일한 verifier) |
+| worktree 준비·tier routing | target profile의 `setup[]` 명령과 risk 사실이 소유 |
+| branch helpers | `feature/*`, pane-label, integration-branch 관례 |
 
-따라서 새 저장소에 적용하기 전에 [적용 가이드의 compatibility interview](.claude/skills/agent-workflow/references/adoption.md)를 실행하세요. 두 번째 실제 타겟이 생기기 전까지 worktree 준비·risk probe·verification·DB 생성은 일반화하지 않습니다. 의도된 분리는 안정적인 coordination core와 타겟별 install 명령, env 경로, branch 패턴, tier trigger, verification 명령, service isolation을 담는 작은 adapter입니다.
+새 저장소에 적용하기 전에 [적용 가이드의 compatibility interview](.claude/skills/agent-workflow/references/adoption.md)를 실행하세요. 타겟별 install 명령, env 경로, branch 패턴, tier trigger, verification 명령, service isolation은 모두 target profile이 소유합니다.
 
 ### 설치할까요, 업그레이드할까요?
 
-기존 FeedbackOps 호환 타겟에는 명시적으로 `feedbackops` profile을, 관련 없는 저장소에는 `generic` profile을 선택합니다. generic은 FeedbackOps의 tracker, labels, domain, Vitest, PostgreSQL, pnpm layout 또는 maintainer 규칙을 설치하지 않습니다.
+설치는 target-neutral 단일 모드입니다. 과거의 `--profile feedbackops` 호환 분포는 제거되었고, 그 adapter들(`verify.sh`, `prepare-worktree.sh`, `prepare-verify-db.sh`, `tier-probe.sh`)도 제품에서 삭제되었습니다.
 
 최신 toolkit checkout/export에서 타겟에 처음 적용하면 **install**입니다.
 
 ```bash
-scripts/install-into.sh ../my-project --profile generic
+scripts/install-into.sh ../my-project
 ```
 
 기존의 완전한 copy 설치 또는 인식된 current/legacy absolute-link 설치를 바꾸면 **upgrade**입니다.
 
 ```bash
-scripts/install-into.sh ../feedbackops-target --profile feedbackops --upgrade
+scripts/install-into.sh ../my-project --upgrade
 ```
 
 설치/업그레이드는 `.agent-workflow`, `.agent-workflow/docs`, `.claude`, `.claude/skills`, `.review`, `.review/agent-workflow-install-backups`가 타겟 안의 실제 디렉터리일 때만 진행합니다. 교체 범위는 정확히 다음 네 leaf입니다.
@@ -208,32 +205,9 @@ scripts/redispatch-check.sh \
     "$PRODUCT_HOME/target-profile.json" 123)
 ```
 
-`$PRODUCT_HOME/target-profile.json`은 target이 소유합니다. `schemas/target-profile.schema.json`으로 검증하고 `schemas/profiles/`의 Node/Go/Python 예시 중 가까운 것을 복사해 target 명령으로 고치세요. 명령은 argv 배열과 선택적 repository-relative cwd/env allowlist뿐이며 shell string/eval은 허용하지 않습니다. Generic canonical VERIFY가 PASS이려면 모든 required group command의 `exit_code`가 0이고, profile이 test-count extractor를 선언해 evidence에 `test_count`가 있으면 그 값이 정수이면서 0보다 커야 합니다. schema와 installed generic에도 포함되는 `scripts/lib/verify-artifact.cjs` semantic validator가 이 조건을 각각 검사합니다. extractor가 출력과 일치하지 않으면 `test_count:null`인 canonical FAIL 증거를 게시하며, 이를 0개 실행이나 PASS로 해석하지 않습니다. VERIFY records both `head_sha` and `content_sha256`; the latter is a stable digest of Git-visible worktree content excluding `.review/`. Only same-HEAD-and-content evidence appends, so a corrected uncommitted tree starts fresh evidence while an unchanged red latch cannot be overwritten. A worktree change during verification fails closed. 명령 출력의 `output_bytes`는 UTF-8 byte 상한이고 `output_truncated`는 실제 byte 초과 여부입니다. VERIFY schema는 FeedbackOps legacy의 `db_target + clean_state` 또는 generic의 `target_profile + groups` 중 정확히 하나를 요구하며, 증거 없는 empty PASS를 거부합니다. 실제 `node --test`의 `ℹ tests N` 형식을 포함한 Node/Go/Python 예시는 `schemas/profiles/`에 있습니다. 그룹에 `"stateful": true`를 선언하면 그 그룹이 target 소유의 라이브 상태(세션 데이터, 시드된 fixture 등)를 리셋·변형한다는 뜻이며, CONDUCTOR는 그런 상태가 살아 있는 동안 "적용 가능한 스위트를 돌려라" 같은 관행적 지시에 해당 그룹을 포함시키지 않고, 그 그룹 실행은 상태를 지워도 되는 시점에 한해 별도로 의도적으로만 수행합니다.
+`$PRODUCT_HOME/target-profile.json`은 target이 소유합니다. `schemas/target-profile.schema.json`으로 검증하고 `schemas/profiles/`의 Node/Go/Python 예시 중 가까운 것을 복사해 target 명령으로 고치세요. 명령은 argv 배열과 선택적 repository-relative cwd/env allowlist뿐이며 shell string/eval은 허용하지 않습니다. Canonical VERIFY가 PASS이려면 모든 required group command의 `exit_code`가 0이고, profile이 test-count extractor를 선언해 evidence에 `test_count`가 있으면 그 값이 정수이면서 0보다 커야 합니다. schema와 설치본에 모두 포함되는 `scripts/lib/verify-artifact.cjs` semantic validator가 이 조건을 각각 검사합니다. extractor가 출력과 일치하지 않으면 `test_count:null`인 canonical FAIL 증거를 게시하며, 이를 0개 실행이나 PASS로 해석하지 않습니다. VERIFY records both `head_sha` and `content_sha256`; the latter is a stable digest of Git-visible worktree content excluding `.review/`. Only same-HEAD-and-content evidence appends, so a corrected uncommitted tree starts fresh evidence while an unchanged red latch cannot be overwritten. A worktree change during verification fails closed. 명령 출력의 `output_bytes`는 UTF-8 byte 상한이고 `output_truncated`는 실제 byte 초과 여부입니다. VERIFY schema는 `target_profile + groups` 증거를 요구하며, 증거 없는 empty PASS를 거부합니다. 실제 `node --test`의 `ℹ tests N` 형식을 포함한 Node/Go/Python 예시는 `schemas/profiles/`에 있습니다. 그룹에 `"stateful": true`를 선언하면 그 그룹이 target 소유의 라이브 상태(세션 데이터, 시드된 fixture 등)를 리셋·변형한다는 뜻이며, CONDUCTOR는 그런 상태가 살아 있는 동안 "적용 가능한 스위트를 돌려라" 같은 관행적 지시에 해당 그룹을 포함시키지 않고, 그 그룹 실행은 상태를 지워도 되는 시점에 한해 별도로 의도적으로만 수행합니다.
 
 REVIEWER는 `agent-workflow.sh dispatch --orchestrator <cmux|orca|herdr> --runtime <codex|claude|opencode> --role reviewer --produce-review --model <model> --effort <effort>`로 실행합니다. 또는 `--allocate --allocator-role reviewer`로 runtime별 reviewer tuple을 명시적으로 요청할 수 있습니다. 선택 runtime은 capability-probed read mode를 제공해야 하며, non-Codex stdout의 prose-wrapped fenced JSON은 마지막 parseable block만 transcription 후보가 됩니다. Host-side는 그 뒤에도 JSON schema, producer, issue, live HEAD를 검증한 뒤 Git linked-worktree HEAD/ref lock 아래 canonical `.review/ISSUE-123-REVIEW.json`과 immutable snapshot을 원자 게시합니다. lock은 concurrent commit이 publication 사이에 끼어드는 것을 막고 실패 시 안전하게 해제됩니다. legacy `--read-only`는 liveness-only이며 canonical REVIEW publication을 대신하지 않습니다.
-
-## FeedbackOps compatibility alternative
-
-아래는 **`--profile feedbackops`로 설치한 target에만** 적용됩니다. generic install에는 이 adapter들이 없으므로 위의 generic worktree와 target-profile 경로를 사용하세요.
-
-```bash
-"$PRODUCT_HOME/scripts/prepare-worktree.sh" ../wt-123 --env-profile ../env/issue-123.env
-
-eval "$("$PRODUCT_HOME/scripts/prepare-verify-db.sh" \
-  --issue 123 \
-  --target ../wt-123 \
-  --base-url "$PGADMIN_URL" | tail -1)"
-
-cd ../wt-123
-VERIFY_ISSUE=123 \
-VERIFY_DATABASE_URL="$VERIFY_DATABASE_URL" \
-VERIFY_CLEAN_COMMAND="./scripts/verify-clean-state.sh" \
-  "$PRODUCT_HOME/scripts/verify.sh"
-```
-
-`verify.sh`는 FeedbackOps pnpm/Vitest/Postgres 호환 adapter입니다. 인자 없는 실행은 backend 전체 모듈을 검증하며 `VERIFY_DATABASE_URL`과 target-owned `VERIFY_CLEAN_COMMAND`를 요구합니다.
-
-`VERIFY_DB_ROLE`로 admin과 다른 verifier 역할을 선택할 때는 raw verifier 비밀번호를 `VERIFY_DB_PASSWORD`로 함께 설정해야 합니다. Role은 letter/digit/dot/underscore/hyphen만 허용하며, `prepare-verify-db.sh`는 admin URL의 비밀번호를 재사용하지 않고 마지막 `VERIFY_DATABASE_URL=...` handoff 줄에만 URL-encoded verifier credential을 넣습니다. 따라서 위처럼 stdout을 바로 capture하고, `tee`나 로그에 이 명령의 stdout을 남기지 마세요.
 
 ## Mental model
 
@@ -270,11 +244,10 @@ Release Captain merge decision
 | 목적 | 주요 진입점 | 상세 권위 |
 |---|---|---|
 | 설치·업그레이드 | `install-into.sh` | [적용 가이드](.claude/skills/agent-workflow/references/adoption.md) |
-| worktree·env 준비 | `prepare-worktree.sh` | [운영 플레이북](docs/agents/multi-agent-workflow.md#worktree-prep) |
+| worktree·env 준비 | target profile `setup[]` 명령 | [운영 플레이북](docs/agents/multi-agent-workflow.md#worktree-prep) |
 | visible dispatch·liveness | `agent-workflow.sh`, `dispatch-core.sh`, transport adapters, `agent-watchdog.sh`, `agent-runtime.sh` (`codex-watchdog.sh`는 #127에서 제거) | [디스패치 오퍼레이터 규칙](docs/agents/multi-agent-workflow.md#dispatch-liveness-operator-rules) |
 | 계약·완료 gate | `prompt-ac-check.sh`, `ac-check.sh`, `completion-check.sh`, `redispatch-check.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
-| 범용 검증 | `target-verify.sh`, target profile | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
-| FeedbackOps 호환 검증 | `prepare-verify-db.sh`, `verify.sh` | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
+| 검증 | `target-verify.sh`, target profile | [VERIFIER protocol](docs/agents/multi-agent-workflow.md#verifier-protocol) |
 | 상태 복원·보존 | `conductor-rebuild.sh`, `artifact-fresh.sh`, `review-archive.sh` | [Artifact lifecycle](docs/agents/artifact-lifecycle.md) |
 
 `schemas/`의 JSON Schema가 산출물 계약의 정본입니다.

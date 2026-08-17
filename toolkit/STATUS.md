@@ -17,13 +17,16 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
   fresh linked worktrees invoke its scripts with `--worktree`, while workflow
   selection and allocation config stay in PRODUCT_HOME and prompt paths remain
   worktree-relative.
-- Output-producing prompts use one schema-derived output-contract module. Implementation prompts carry canonical PR-DRAFT plus BLOCKER schemas; the shared runtime boundary requires a fresh schema-valid PR-DRAFT bound to its issue, live HEAD, and real worktree before recording exit, while CODEX validates canonical BLOCKER output before returning. Dispatch rejects malformed fresh BLOCKER liveness, and selected-runtime model refusals are terminal. Model allocation records runner availability and fails before admission; upgrades warn FeedbackOps-profile targets without `VERIFY_CLEAN_COMMAND` and install a product-neutral executable clean-probe reference.
+- Output-producing prompts use one schema-derived output-contract module. Implementation prompts carry canonical PR-DRAFT plus BLOCKER schemas; the shared runtime boundary requires a fresh schema-valid PR-DRAFT bound to its issue, live HEAD, and real worktree before recording exit, while CODEX validates canonical BLOCKER output before returning. Dispatch rejects malformed fresh BLOCKER liveness, and selected-runtime model refusals are terminal. Model allocation records runner availability and fails before admission.
 - REVIEW publication now retains an immutable head-bound snapshot from the same already-validated bytes as its canonical evidence, preventing mutable-output rereads; a later failing REVIEW may explicitly supersede a subset of prior ACs through checked `closed_by.kind:"superseded_by"`. Malformed pre-existing BLOCKER bytes follow a host-owned quarantine/recovery path that records reason and permits one fresh monotonic-ordinal admission without canonicalizing worker evidence.
 - Schema-derived prompts now embed the complete canonical requested schema rather than a lossy projection. Completion requires an exact `new_file_allowlist` entry for every base-absent changed path, and dispatch requires that entry to remain inside `touch_allowlist`; partial supersession must carry every remaining AC into later active failure evidence; host ordinals are exact-next and `last_admission_key` is failure-bound.
 
-- Installation has explicit `feedbackops|generic` profiles. FeedbackOps remains
-  a named compatibility path; generic installed assets must not inherit its
-  verification, tracker, labels, domain, layout, or maintainer assumptions.
+- Installation is a single target-neutral mode. The former `--profile
+  feedbackops` compatibility distribution and its adapters (`verify.sh`,
+  `prepare-verify-db.sh`, `prepare-worktree.sh`, `tier-probe.sh`,
+  `uds-pg-relay.mjs`, `lib/verify-result.cjs`) were removed; installed assets
+  carry no target-specific verification, tracker, labels, domain, layout, or
+  maintainer assumptions.
 - The source-only smoke suite is excluded from every installed PRODUCT_HOME;
   an installed target uses its workflow commands and target-owned verification,
   while maintainers run smoke from the source checkout.
@@ -80,7 +83,7 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
 ## Current integrated capabilities
 
 - Added one draft-07 target profile authority with structured argv/cwd/env commands, representative Node/Go/Python profiles, and a target-neutral verifier that executes every required group, records UTF-8 byte-bounded evidence, publishes extractor misses as `test_count:null` FAIL evidence, and red-latches same-HEAD failures only after schema plus semantic aggregate validation.
-- Generalized canonical VERIFY evidence with an exclusive contract: generic artifacts require `target_profile + groups`, while the FeedbackOps `verify.sh` adapter and legacy artifacts require `db_target + clean_state`; empty PASS artifacts are schema-invalid. Generic PASS command exits must all be zero and any recorded test count must be a positive integer, enforced independently by schema and the target-neutral `verify-artifact.cjs` semantic validator, which ships with generic installs while the private Vitest classifier remains excluded. The Node example and smoke use actual `node --test` TAP output (`ℹ tests N`). `prepare-worktree.sh` and `tier-probe.sh` remain documented compatibility seams until they can share the same parser without divergent precedence.
+- Canonical VERIFY evidence has one exclusive shape: artifacts require `target_profile + groups`; empty PASS artifacts are schema-invalid. PASS command exits must all be zero and any recorded test count must be a positive integer, enforced independently by schema and the target-neutral `verify-artifact.cjs` semantic validator. The Node example and smoke use actual `node --test` TAP output (`ℹ tests N`). Worktree setup and tier routing are target-profile concerns.
 
 - Re-review now uses a deterministic, schema-validated capsule derived from canonical ROUND-STATE, the full implementation prompt, final REVIEW, PR-DRAFT, and live HEAD. Canonical structured prohibitions, strict PR-DRAFT worktree/base binding, whole-prompt cumulative budgets with explicit omission counts, source digests, secret/path guards, and a capsule-Markdown-bound dispatch gate prevent freehand review drift without creating a second authority.
 
@@ -98,7 +101,7 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
 - A later locally-green run returns nonzero while that same-content aggregate remains red; corrected uncommitted content starts a new aggregate even when `HEAD` is unchanged. The verifier rejects a worktree that changes while verification is running, and CONDUCTOR requires both live HEAD and content identity before reporting verified. Legacy flat v1 artifacts remain accepted as one synthetic run.
 - CONDUCTOR reconstruction schema-validates the complete canonical VERIFY from its source/installed product home before aggregate checks, while redispatch closure validation rejects forged aggregate top-level claims. A VERIFY closure needs a matching passing run for `contract.verify_filter`, not merely a top-level command string. Canonical publication validates a same-directory temporary file before atomic replacement, preserving prior evidence on publication failure.
 
-The toolkit is operational and dogfooded against FeedbackOps. The current release includes:
+The toolkit is operational. The current release includes:
 
 - isolated worktree preparation and explicit cmux/Orca/Herdr dispatch through one shared correctness core, with a retained atomic launch runner so the selected adapter receives only a short relative command even when the watchdog argv contains deep paths;
 - runtime-neutral dispatch with capability-probed Codex, Claude Code, or OpenCode execution; Codex write/review delegates to its hardened sandbox wrapper;
@@ -106,7 +109,6 @@ The toolkit is operational and dogfooded against FeedbackOps. The current releas
 - shared process + filesystem liveness, per-runtime retry/refusal probes, and runtime-provenance RUN markers;
 - JSON artifact schemas, freshness/archive rules, and disk-only CONDUCTOR reconstruction;
 - independent REVIEWER and host-side VERIFIER gates;
-- a stable `verify.sh` CLI seam whose Vitest classification and canonical VERIFY payload construction live in the internal `scripts/lib/verify-result.cjs` module;
 - an explicit runtime-neutral REVIEWER publication path that requires read mode, holds linked-worktree Git HEAD/ref locks through publication, and host-validates final JSON before atomically publishing the sole canonical REVIEW artifact;
 - pre-review AC-ID existence checking, with implementation prompts requiring each test name to carry its canonical AC-ID;
 - CONDUCTOR-calculated completion checking against live diffs and target-native test discovery;
@@ -164,11 +166,11 @@ bash scripts/__tests__/run-all-contract.test.sh
 
 ### v0.18 — verifier clean-state and machine failures
 
-- Canonical issue verification now requires a target-owned clean probe whose sanitized JSON carries exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborts before Vitest, passing evidence is embedded in the existing VERIFY artifact, and the reference adapter maps supported libpq TLS URL options to `PG*` variables without placing credential-bearing URLs in `psql` argv, rejecting unrecognized or empty query options before `psql` starts.
+- (Historical v0.18, compatibility adapter since removed.) Canonical issue verification required a target-owned clean probe whose sanitized JSON carried exactly `sentinel` and `migration_hash` expected/actual checks plus actual role/superuser evidence; dirty, privileged, or invalid state aborted before the suite ran, and the reference adapter mapped supported libpq TLS URL options to `PG*` variables without placing credential-bearing URLs in `psql` argv.
 - Every classifier failure exposes typed machine data, and failed canonical artifacts retain the same `code`/`expected`/`actual` records. Existing human diagnostics remain available.
 - REVIEW closure admission now documents and independently checks `lifecycle:"final"`, `status:"pass"`, and an all-met checklist; its existing `failure_closure_not_verified` machine code carries a stable predicate detail for lifecycle, status, or checklist failure.
-- No-filter invocation runs the full backend module by default. A `postgres` verifier role fails closed instead of warning, and `verify.sh` never creates or drops databases; the unimplemented `--fresh` and `--parse-db-url` flags were removed as dead code.
-- `verify.sh` remains the sole operator interface while `scripts/lib/verify-result.cjs` owns result classification, clean-probe validation, and VERIFY payload construction.
+- (Historical v0.18, adapter since removed.) No-filter invocation ran the full backend module by default, a `postgres` verifier role failed closed instead of warning, and the verifier never created or dropped databases.
+- (Historical v0.18, adapter since removed.) `verify.sh` was the sole operator interface while `scripts/lib/verify-result.cjs` owned result classification, clean-probe validation, and VERIFY payload construction.
 
 ### v0.17 — dispatch liveness operator contract
 
@@ -186,7 +188,7 @@ bash scripts/__tests__/run-all-contract.test.sh
 
 ### v0.1 — artifact and verifier foundation
 
-Introduced `.review/` JSON schemas, CODEX/REVIEWER handoffs, and the first false-green-proof Vitest classifier.
+Introduced `.review/` JSON schemas, CODEX/REVIEWER handoffs, and the first false-green-proof test-result classifier (historically Vitest-based).
 
 ### v0.2 — host preparation and reconstructable state
 
@@ -198,7 +200,7 @@ Proved that Codex `workspace-write` blocks network egress including loopback TCP
 
 ### v0.4 — dispatch and DB fail-closed fixes
 
-Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt resolution, stale RUN/BLOCKER acceptance, per-issue DB creation fail-open behavior, and `verify.sh`'s unsafe `.env` DB fallback.
+Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt resolution, stale RUN/BLOCKER acceptance, per-issue DB creation fail-open behavior, and the then-verifier's unsafe `.env` DB fallback.
 
 ### v0.5 — wrapper contracts, acceptance gate, and portable skill entrypoint
 
@@ -285,23 +287,17 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 |---|---|
 | Dispatch, watchdog, artifact lifecycle | Reusable across Git repositories with cmux, Orca, or Herdr plus Codex, Claude Code, or OpenCode |
 | target profile + `target-verify.sh` | Reusable structured setup/runtime/verification contract |
-| `prepare-worktree.sh` | pnpm plus root/`apps/backend` env layout |
-| `tier-probe.sh` | TypeScript/TSX exported-contract heuristics |
-| `verify.sh` | FeedbackOps pnpm/Vitest/Postgres compatibility adapter |
-| `prepare-verify-db.sh` | local PostgreSQL per-issue DBs |
 | branch/cluster helpers | retain `feature/*`, pane-label, and integration-branch conventions |
 
-Profile-driven preparation and tier routing remain deferred until they can consume the same authority without a second parser or precedence path. See `.claude/skills/agent-workflow/references/adoption.md`.
+Worktree preparation and tier routing are target-profile concerns. See `.claude/skills/agent-workflow/references/adoption.md`.
 
 ## Key operating facts
 
 - A process exit or worker prose is not completion evidence. Review and verification must match the live HEAD.
 - Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected cmux/Orca/Herdr adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `cmux-dispatch.sh` remains a compatibility path, and `codex-watchdog.sh` was removed (#127).
 - Read-only seats use `--read-only`; optional first-progress/stall budgets are forwarded only when supplied.
-- Parallel write chunks require separate worktrees. FeedbackOps-style DB suites also require separate throwaway databases.
+- Parallel write chunks require separate worktrees. Suites sharing a stateful service require separate throwaway service instances.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
-- `VERIFY_ISSUE` without `VERIFY_DATABASE_URL` fails closed instead of using a shared `.env` DB.
-- `prepare-verify-db.sh` requires `VERIFY_DB_PASSWORD` whenever `VERIFY_DB_ROLE` selects a verifier identity; it never reuses the admin password, and only its final captured handoff line contains the URL-encoded verifier credential.
 - Generic transient failures require two failed selected-runtime probes separated by the configured gap before `status:"refused"`. Reviewer non-zero output and explicit auth/model/permission/capability diagnostics are terminal refusals immediately; stalls retry up to the configured limit.
 - Write-capable Codex receives only the resolved Git metadata dir for either a linked worktree or plain checkout, never a broader checkout or parent root.
 
@@ -317,7 +313,7 @@ GitHub issues are the live roadmap; this section is a readable index, not a seco
 
 ## Provenance
 
-The workflow was extracted from FeedbackOps on 2026-05-24 with path-scoped `git filter-repo` history. This repository is the canonical home for workflow scripts, schemas, playbooks, and the project skill. FeedbackOps remains product-only and consumes the toolkit through installation rather than carrying a second copy.
+The workflow was originally extracted from a prior product repository on 2026-05-24 with path-scoped `git filter-repo` history. This repository is the canonical home for workflow scripts, schemas, playbooks, and the project skill, and the product is target-neutral: no target-specific adapter ships in the distribution.
 
 ## Maintenance rule
 

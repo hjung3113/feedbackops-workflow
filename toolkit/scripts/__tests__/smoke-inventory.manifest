@@ -15,8 +15,6 @@ model-alloc.smoke.sh
 orchestrator-interface.smoke.sh
 output-contract.smoke.sh
 parallel-safety.smoke.sh
-prepare-verify-db.smoke.sh
-prepare-worktree.smoke.sh
 prompt-ac-check.smoke.sh
 rebase-inflight.smoke.sh
 redispatch-check.smoke.sh
@@ -30,7 +28,4 @@ runtime-registry-containment.smoke.sh
 sandbox-network-deny.smoke.sh
 target-verify.smoke.sh
 telemetry.smoke.sh
-tier-probe.smoke.sh
-uds-pg-relay.smoke.sh
-verify.smoke.sh
 workflow-stash.smoke.sh

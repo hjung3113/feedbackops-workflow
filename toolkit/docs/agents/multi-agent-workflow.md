@@ -4,14 +4,11 @@ This file is the detailed operating authority for the transport-selectable cmux/
 
 ## Distribution, runtime, role, and transport axes
 
-`install-into.sh <target> --profile feedbackops|generic` is the sole
-distribution selector. `feedbackops` preserves the named compatibility
-adapters and their pnpm, Vitest, PostgreSQL, tracker, labels, domain, layout,
-and maintainer conventions. `generic` installs target-neutral docs and skill
-only; it inherits none of those facts. The installed generic assets under
-`scripts/install-profiles/generic/` are the generic distribution authority.
+`install-into.sh <target>` is the sole distribution command and installs the
+target-neutral product only; the former `--profile feedbackops` compatibility
+distribution was removed and its flag fails closed with guidance.
 
-Dispatch has independent distribution profile, runtime
+Dispatch has independent runtime
 (`codex|claude|opencode`), role
 (`conductor|architect|implementation|reviewer|verifier|visual|release`), and
 transport (`cmux|orca|herdr`) axes. Profile supplies target adoption facts; runtime
@@ -62,7 +59,7 @@ agent-workflow`; it never accepts OpenCode's default-agent fallback. A model
 choice cannot waive this gate. Codex, Claude Code, and OpenCode may each
 conduct or perform any role only after their own capability probe passes.
 
-The coordination model consumes one target-owned profile (`schemas/target-profile.schema.json`) for target facts. `target-verify.sh` is target-neutral; `verify.sh` remains the explicit FeedbackOps pnpm/Vitest/Postgres compatibility adapter. `prepare-worktree.sh` and `tier-probe.sh` retain their legacy adapters in this wave; profile-driven setup/tier migration is deferred to avoid two competing partial parsers. Read `.claude/skills/agent-workflow/references/adoption.md` before adoption.
+The coordination model consumes one target-owned profile (`schemas/target-profile.schema.json`) for target facts. `target-verify.sh` is target-neutral and is the sole verifier; worktree setup commands come from the same profile. Read `.claude/skills/agent-workflow/references/adoption.md` before adoption.
 
 ## Product home and repository context
 
@@ -100,15 +97,9 @@ Every issue is one of three tiers. The tier picks the agent set.
 
 ### Pre-dispatch tier probe
 
-Before assigning the **Trivial** tier, run the probe over the touched files:
+Tier routing is a CONDUCTOR judgment call against the target profile's own facts (risk triggers, exported-contract surfaces, migration/auth/shared-shell paths). When the profile or repository documents its own exported-contract search, run it over the touched files before assigning **Trivial**; a hit forbids Trivial — escalate.
 
-```
-scripts/tier-probe.sh <touched-file> [<touched-file>...]
-```
-
-A non-zero exit **forbids Trivial — escalate.** The probe disallows Trivial when the diff changes an exported contract (`export interface|type|class|enum|function|const`, `export default`, named/star re-exports, `... from` re-exports, `constructor(`, `as const`, generic-constraint changes), when an `index.ts`/`index.tsx` barrel is touched at all, or — the catch-all anti-false-negative bias — when an exported-TS file's diff is not provably comment/whitespace-only.
-
-The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is this change safe?". It is biased to disallow: **false positives (disallowing Trivial when it might've been fine) are acceptable; false negatives (allowing Trivial when a contract changed) are the harm.** The probe is advisory; `scripts/verify.sh --typecheck` is the precise blast-radius oracle and must still cover importing modules.
+The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is this change safe?". It is biased to disallow: **false positives (disallowing Trivial when it might've been fine) are acceptable; false negatives (allowing Trivial when a contract changed) are the harm.** The probe is advisory; the profile's typecheck command is the precise blast-radius oracle and must still cover importing modules.
 
 This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
 
@@ -163,7 +154,7 @@ Each immutable failure entry has one `primary_origin`—`environment`, `dispatch
 After that preservation, and **before implementation redispatch**, CONDUCTOR collects the failure-class-specific evidence on the host. This is a required diagnosis step after every failed VERIFY or REVIEW, not work delegated to the implementation worker:
 
 - **Test failure:** the failing host verification command, its exit status, and the exact failing test/assertion output.
-- **Database failure:** the VERIFIER's host-side `db_target`, `clean_state`, and the relevant typed failure diagnostic or database-test output.
+- **Database/service failure:** the VERIFIER's host-side failing command/exit evidence and the relevant typed failure diagnostic or service-test output from the target profile's verification groups.
 - **Runtime failure:** a host reproduction command, exit status, and the relevant service/process log or observed response.
 - **Visual failure:** the VISUAL-REVIEWER's host-browser screenshot/reference and the failed interaction-script step with its observed result.
 - **Review failure:** the immutable failed REVIEW snapshot's exact finding/checklist text, including its cited file/line or acceptance criterion.
@@ -228,7 +219,7 @@ Workload scaling (v1): review depth scales with the actual diff — ≤~50 chang
 - **Authoring context stops at the prompt-file boundary.** CONDUCTOR's context dump and user reverse-question conversation never enter the worker session; CODEX receives only the compressed prompt file.
 - **Clean context is non-negotiable; review capability is enforced by default.** Using the source-dated LiveBench table, `model-alloc.sh` compares the deterministic unweighted sum `static_coding + reasoning` for reviewer and selected implementation models. It rejects a lower reviewer score unless the project sets `allow_review_below_implementation: true`; only that explicit relaxation emits the allocation warning.
 - **Do not run two workspace-write Codex jobs in the same repo at the same time.** `codex-safe.sh` stashes partial work on failure; concurrent jobs in one checkout can race on stash state. Parallel implementation requires separate prepared worktrees.
-- **Clear `NODE_OPTIONS=` before codex/node dispatch and verification.** cmux or shell preloads can leak `--require` instrumentation into codex/vitest children. `verify.sh` uses an explicit env allowlist, but operators should still dispatch with a clean `NODE_OPTIONS`.
+- **Clear `NODE_OPTIONS=` before codex/node dispatch and verification.** cmux or shell preloads can leak `--require` instrumentation into codex/node children, so operators should dispatch with a clean `NODE_OPTIONS`.
 
 ## CONDUCTOR
 
@@ -236,7 +227,7 @@ The **CONDUCTOR** is the orchestrator role, executed by the explicitly selected 
 
 - **READ-ONLY on product code.** CONDUCTOR never edits source files — any source edit is *role bleed*, a defect. It reads `.review/*.json` and dispatches.
 - **Disk is truth.** It reads worker state EXCLUSIVELY from `.review/*.json` via `scripts/conductor-rebuild.sh` — never inferred from pane scrollback or prose. It holds no in-memory-only state and is rotatable/reconstructable.
-- **Owns:** serial vs parallel, task split, role/model/persona assignment, tier (via `scripts/tier-probe.sh`).
+- **Owns:** serial vs parallel, task split, role/model/persona assignment, tier (from the target profile's risk facts).
 - **Anti-bottleneck:** ARCHITECT may make routine intra-chunk choices (within-module refactors, adding tests, doc fixes, implementation details inside a scoped chunk) WITHOUT waiting on CONDUCTOR; CONDUCTOR is consulted only for cross-chunk/contract/tier decisions.
 
 Full operating prompt: **`docs/agents/conductor-persona.md`**.
@@ -441,15 +432,15 @@ RUN/BLOCKER files are issue-scoped and can be overwritten by read-heavy, REVIEWE
 8. A growing attempt stderr file is an additional liveness signal. If stderr stays small and frozen while the process remains alive and there is no filesystem/heartbeat progress, a small frozen stderr file plus a live process can indicate a stdin block; check whether an unsanctioned wrapper omitted the required stdin redirection before killing the process.
 9. Bind REVIEW and VERIFY evidence to the live HEAD. Commits and canonical evidence decide completion; RUN status, process absence, and pane prose do not.
 
-### Sandbox network containment — why the worker can't self-verify DB tests (v0.3)
+### Sandbox network containment — why the worker can't self-verify service tests (v0.3)
 
-`workspace-write` blocks **all** network egress, including **loopback**. A v0.3 spike proved this is total: a probe run inside the sandbox cannot `connect()` even to `127.0.0.1` (TCP) **nor** to a Unix-domain socket placed inside the writable root — both fail with `EPERM`. (Repro: host-side relay `scripts/uds-pg-relay.mjs` + in-sandbox `scripts/__tests__/uds-sandbox-probe.mjs`; the TCP-loopback case is the live layer of the network-deny smoke below.) So there is **no containment-preserving way** to give a sandboxed worker access to the local Postgres on current codex (0.133.0):
+`workspace-write` blocks **all** network egress, including **loopback**. A v0.3 spike proved this is total: a probe run inside the sandbox cannot `connect()` even to `127.0.0.1` (TCP) **nor** to a Unix-domain socket placed inside the writable root — both fail with `EPERM`. (Historical repro: a host-side UDS relay plus an in-sandbox probe; the TCP-loopback case is the live layer of the network-deny smoke below.) So there is **no containment-preserving way** to give a sandboxed worker access to a local network service on current codex (0.133.0):
 
 - A loopback-only network allowance is **not shipped** (codex issue #6737 open; #6807 closed-folded). `network_access` is all-or-nothing.
-- The "UDS proxy" idea (front Postgres with a socket in a writable root) was **rejected** — Seatbelt denies AF_UNIX `connect()` too.
+- The "UDS proxy" idea (fronting a local service with a socket in a writable root) was **rejected** — Seatbelt denies AF_UNIX `connect()` too.
 - A full-egress `dbtest` profile (`network_access=true`) was **rejected** as a standing workflow: with the principled UDS fallback dead, it is a pure risk-trade (tests run arbitrary dep/app code → exfil surface), and VERIFIER already runs the same tests cleanly outside the sandbox.
 
-**Decision: status-quo.** The worker stays network-denied; the **VERIFIER runs DB tests outside the sandbox** (see VERIFIER protocol). Revisit only when (a) codex ships loopback-only network (#6737), or (b) data shows DB-test verifier churn is a real throughput bottleneck.
+**Decision: status-quo.** The worker stays network-denied; the **VERIFIER runs service-dependent tests outside the sandbox** (see VERIFIER protocol). Revisit only when (a) codex ships loopback-only network (#6737), or (b) data shows service-test verifier churn is a real throughput bottleneck.
 
 Hardening shipped alongside this decision: `scripts/__tests__/sandbox-network-deny.smoke.sh` guards against regression. Layer 1 (offline) asserts `codex-safe.sh` still pins `--sandbox workspace-write` and grants no `danger-full-access`/`network_access`; Layer 2 (opt-in, `RUN_LIVE_SANDBOX_PROBE=1`) runs `scripts/__tests__/net-deny-probe.mjs` inside the sandbox and asserts loopback is `BLOCKED`. Machine-global Codex defaults are operator configuration and are not installed or assumed by this repository.
 
@@ -474,17 +465,15 @@ When verification runs — and how much of it — is fixed by this rule:
 
 ## Worktree Prep
 
-A fresh `git worktree` is **NOT dispatch-ready**: it has no `node_modules` and no gitignored `.env`. Because the codex sandbox blocks network, deps and env cannot self-provision inside it — provisioning MUST happen host-side, **outside the sandbox**, before dispatch.
+A fresh `git worktree` is **NOT dispatch-ready**: it has no dependencies installed and no gitignored local config. Because the codex sandbox blocks network, provisioning cannot self-provision inside it — it MUST happen host-side, **outside the sandbox**, before dispatch.
 
-Run `"$PRODUCT_HOME/scripts/prepare-worktree.sh" <wt>` on the host, where PRODUCT_HOME is the absolute `.agent-workflow` directory in the installed checkout, not the fresh worktree. It installs deps from the frozen lockfile (`pnpm install --frozen-lockfile`) and copies env files (`.env`, `apps/backend/.env`), printing every copied key (values redacted) and loudly flagging high-risk keys (DATABASE_URL, WORKSPACE_ID, PORT, anything with STORAGE/BUCKET/S3/SECRET/TOKEN/KEY/PASSWORD/CREDENTIAL).
+Worktree preparation is target-owned: run the setup commands recorded in the target's profile (`schemas/target-profile.schema.json` `setup[]`) on the host, where PRODUCT_HOME is the absolute `.agent-workflow` directory in the installed checkout, not the fresh worktree. Record executable setup answers (dependency install, env/config destination) in the profile; do not hardcode a package manager or env layout in the coordination core. A dispatch-ready check before launch remains the operator's responsibility.
 
-The legacy `scripts/cmux-cluster.sh` cluster bootstrapper was removed (#127); `prepare-worktree.sh` is the sole worktree-prep authority, and a dispatch-ready check is the operator's responsibility before launch.
+**Env is shared-state coupling.** Copying one env/config file into multiple worktrees points them all at the same mutable service endpoints and identifiers — parallel clusters corrupt each other. Give each parallel worktree its own env/config instance whenever the target's services hold state (databases, queues, storage buckets), and treat any shared-state service as a declared isolation requirement in the profile's parallel policy.
 
-**Env is shared-state coupling.** Copying one `.env` into multiple worktrees points them all at the same mutable DATABASE_URL / WORKSPACE_ID / storage bucket — parallel clusters corrupt each other. When ANY other prepared worktree already exists (>=1 other), prepare-worktree.sh refuses to copy env unless you pass `--env-profile <path>` (per-worktree env file, recommended) or `--allow-shared-env` (explicitly accept the risk). So the first worktree prepares without a flag; the second and beyond require one. Profile mode writes the same profile to both `<wt>/.env` and `<wt>/apps/backend/.env` so a stale backend env cannot override the profile later; the profile must therefore be self-contained for the target's verification needs.
+**Rebasing in-flight worktrees when the integration branch advances.** When a merge lands on the integration branch (commonly `develop`), in-flight `feature/*` worktrees drift behind it. From the branch that just advanced, run `scripts/rebase-inflight.sh --onto <branch>` (default onto = current branch) to rebase every sibling feature worktree. It is **dirty-safe** — it REFUSES to rebase a worktree with uncommitted changes (loud SKIP, never clobbers work) — and **conflict-aborting** — on a rebase conflict it runs `git rebase --abort` so a worktree is never left mid-rebase; that worktree is flagged for a manual rebase and the others continue. A single failure never hard-fails the command (exit 0; exit 1/2 only on lock contention or bad args). After a successful rebase it prints a generic suggestion to run the target profile's verification command for the affected area — it never auto-runs tests. A `mkdir`-based lock under `.review/.rebase-inflight.lock` serializes concurrent invocations. A host repository may add a warn-only post-merge hook that points at this script, but automatic rebasing inside a hook is too risky; rebasing remains an explicit operator/CONDUCTOR action.
 
-**Rebasing in-flight worktrees when the integration branch advances.** When a merge lands on the integration branch (commonly `develop`), in-flight `feature/*` worktrees drift behind it. From the branch that just advanced, run `scripts/rebase-inflight.sh --onto <branch>` (default onto = current branch) to rebase every sibling feature worktree. It is **dirty-safe** — it REFUSES to rebase a worktree with uncommitted changes (loud SKIP, never clobbers work) — and **conflict-aborting** — on a rebase conflict it runs `git rebase --abort` so a worktree is never left mid-rebase; that worktree is flagged for a manual rebase and the others continue. A single failure never hard-fails the command (exit 0; exit 1/2 only on lock contention or bad args). After a successful rebase it prints a generic suggestion to run `scripts/verify.sh <test-name-filter>` for the affected area — it never auto-runs tests, and it deliberately does NOT emit a package name (the arg is a vitest name/path filter, not a package selector). A `mkdir`-based lock under `.review/.rebase-inflight.lock` serializes concurrent invocations. A host repository may add a warn-only post-merge hook that points at this script, but automatic rebasing inside a hook is too risky; rebasing remains an explicit operator/CONDUCTOR action.
-
-**Parallel-cluster DB isolation (Trial 3).** Running two clusters in parallel requires **one throwaway database per cluster** — NOT a shared DB with distinct schema or `WORKSPACE_ID`. The backend hardcodes Postgres schemas `core`/`permission` (drizzle `schemaFilter`), and instance-global state (`pg_locks`, sequences) plus shared schema objects mean schema/workspace isolation only separates workspace-scoped *rows*, not the tables/locks two suites contend on. Procedure: `createdb -O fops_migrate feedbackops_<cluster>` (needs a superuser — `fops_migrate` lacks `CREATEDB`), `drizzle-kit migrate` with `DATABASE_URL_MIGRATE` → the new DB, then **seed with BOTH `DATABASE_URL` and `DATABASE_URL_MIGRATE` targeted at it** (the seed's VOC owner team is created via the migrate role). Point each worktree at its DB via `prepare-worktree.sh --env-profile`. Validated: `create-voc` 31/31 in two DBs concurrently, zero cross-contamination. See `docs/agents/workflow-trial-log.md` Trial 3.
+**Parallel-cluster service isolation (Trial 3, historical).** Running two clusters whose suites share one stateful service in parallel requires **one throwaway service instance per cluster** — NOT a shared instance with distinct schema or workspace identifiers. Instance-global state (locks, sequences) plus shared schema objects mean such isolation only separates scoped *rows*, not the tables/locks two suites contend on. The validated procedure (one throwaway Postgres per cluster, migrate + seed, per-worktree env pointing at its own instance) is recorded in `docs/agents/workflow-trial-log.md` Trial 3; generalize it to the target's own services through the target profile.
 
 ## Artifact Lifecycle
 
@@ -570,57 +559,36 @@ Dispatch the re-review with explicit `--re-review` and canonical `--review-capsu
 
 ## VERIFIER protocol
 
-For generic targets, run `scripts/target-verify.sh <profile.json> <issue>`. The closed draft-07 profile contains only identity, runtime/setup/environment facts and required verification command groups. Commands are structured argv plus optional repository-relative cwd and env allowlist; no shell evaluation or plugin registry exists. The verifier checks runtime/environment requirements, executes every required command, records exit/duration/output, and applies `output_bytes` as a UTF-8 byte ceiling without publishing a partial code point. `output_truncated` is true exactly when the original combined output exceeded that byte ceiling. A declared test-count extractor must prove a count above zero; an extractor miss is published as schema-valid canonical FAIL evidence with `test_count:null`, not discarded and not represented as a known zero. The bundled Node profile recognizes actual `node --test` TAP summaries including `ℹ tests N` (and the older `# tests N` form). Evidence is bound to the live Git HEAD and a stable Git-visible content identity, and atomically published.
+Run `scripts/target-verify.sh <profile.json> <issue>`. The closed draft-07 profile contains only identity, runtime/setup/environment facts and required verification command groups. Commands are structured argv plus optional repository-relative cwd and env allowlist; no shell evaluation or plugin registry exists. The verifier checks runtime/environment requirements, executes every required command, records exit/duration/output, and applies `output_bytes` as a UTF-8 byte ceiling without publishing a partial code point. `output_truncated` is true exactly when the original combined output exceeded that byte ceiling. A declared test-count extractor must prove a count above zero; an extractor miss is published as schema-valid canonical FAIL evidence with `test_count:null`, not discarded and not represented as a known zero. The bundled Node profile recognizes actual `node --test` TAP summaries including `ℹ tests N` (and the older `# tests N` form). Evidence is bound to the live Git HEAD and a stable Git-visible content identity, and atomically published.
 
-Canonical VERIFY has exactly one evidence family: the FeedbackOps compatibility adapter supplies `db_target + clean_state`, while a generic profile supplies `target_profile + groups`. The schema rejects neither/both shapes and rejects PASS with zero passed checks or non-empty failures. For generic PASS evidence, every command in every required group has `exit_code:0`; when a group carries the profile-declared `test_count`, it is an integer greater than zero. Both the schema PASS branch and the installed target-neutral `scripts/lib/verify-artifact.cjs` semantic validator enforce these predicates; the FeedbackOps Vitest classifier remains private to its compatibility adapter. Before appending at the same HEAD and `content_sha256`, `target-verify.sh` validates the existing artifact against the same schema and independently validates run semantics plus the derived aggregate; an invalid same-content aggregate is left untouched and fails closed. A valid failed run remains red for unchanged content; corrected uncommitted content or a different HEAD starts a fresh aggregate, and a worktree that changes during verification is rejected.
+Canonical VERIFY has exactly one evidence family: a target profile supplies `target_profile + groups`. The schema rejects missing evidence and rejects PASS with zero passed checks or non-empty failures. For PASS evidence, every command in every required group has `exit_code:0`; when a group carries the profile-declared `test_count`, it is an integer greater than zero. Both the schema PASS branch and the installed `scripts/lib/verify-artifact.cjs` semantic validator enforce these predicates. Before appending at the same HEAD and `content_sha256`, `target-verify.sh` validates the existing artifact against the same schema and independently validates run semantics plus the derived aggregate; an invalid same-content aggregate is left untouched and fails closed. A valid failed run remains red for unchanged content; corrected uncommitted content or a different HEAD starts a fresh aggregate, and a worktree that changes during verification is rejected.
 
-`schemas/profiles/` contains Node/node:test, Go, Python/pytest, and FeedbackOps compatibility examples. The generic verifier does not know pnpm, Vitest, PostgreSQL, package layout, or service topology. Profile unknown keys/version and cwd traversal fail closed.
-
-For the FeedbackOps compatibility profile, VERIFIER MUST confirm green by running `scripts/verify.sh` for the full backend module by default, or `scripts/verify.sh <filter>` only when the narrower name/path filter demonstrably covers the touched behavior — never by eyeballing test output and never by running a bare `pnpm test`.
+`schemas/profiles/` contains Node/node:test, Go, and Python/pytest examples. The verifier does not know any package manager, test runner, database, package layout, or service topology. Profile unknown keys/version and cwd traversal fail closed.
 
 VERIFIER and REVIEWER must be different agents/sessions from the implementer. A worker's own "I ran tests" claim is not verification evidence; the canonical evidence is the VERIFIER-owned `ISSUE-<n>-VERIFY.json` plus the review artifact where applicable.
 
-The verify oracle currently assumes a pnpm workspace package named `backend` tested with Vitest. With no filter it runs that full module. An optional `<filter>` is a **Vitest test name/path filter scoped to the backend package**, **not** a package selector — e.g. `scripts/verify.sh create-voc` runs backend tests whose path/name matches "create-voc"; passing a package name like `backend` would be treated as a name filter and likely match nothing. `scripts/verify.sh --typecheck` likewise assumes the target has `pnpm --filter backend run typecheck`. Generalizing these commands is deferred until there is a second real target and fixture.
+The verifier treats as a **FAIL**:
 
-`scripts/verify.sh` is the stable verifier CLI seam: it loads env (`.env` and `apps/backend/.env` if present), runs the scoped vitest filter via the JSON reporter, and delegates result classification plus canonical VERIFY payload construction to the internal `scripts/lib/verify-result.cjs` module. Callers and tests use `verify.sh`; the internal module is not a second operator interface. The verifier treats as a **FAIL**:
+- any required-group command exiting non-zero (the run crashed or tests failed; output may be partial),
+- a declared test-count extractor that does not match the real command output (the count is unproven),
+- an extracted count of zero (nothing was actually proven to run),
+- a missing or unparseable command output (fail closed).
 
-- a fully-skipped suite (`numPassedTests + numFailedTests == 0` — discovered but pending),
-- any failed test (`numFailedTests > 0`),
-- a failed suite (`numFailedTestSuites > 0` — setup/import failure even with 0 failed tests),
-- a top-level `success === false`,
-- any `testResults[]` entry with `status === "failed"`,
-- a non-zero vitest exit code (the run crashed; JSON may be stale/partial),
-- a missing, empty, or unparseable report (fail closed).
+A PASS is reported only when every required command exits zero and every declared extractor proves a positive count.
 
-A PASS is reported only when none of the above trip.
+### Verifier hardening principles (v0.3 lineage)
 
-### Verifier hardening (v0.3)
+Because the VERIFIER runs tests **outside** the sandbox (full host access), targets should record hardening facts in their own profile rather than expecting the toolkit to enforce them:
 
-Because the VERIFIER runs tests **outside** the sandbox (full host access), the filter-mode run is hardened:
-
-- **Local-DB guard (fail closed).** `verify.sh` extracts the `DATABASE_URL` host and **refuses with `exit 3`** if it is not local (`localhost`/`127.0.0.1`/`::1`/`[::1]`/empty unix-socket form). The verifier must never run against a remote/staging/prod DB.
-- **Least-privilege role (fail closed).** Set `VERIFY_DATABASE_URL` (and optionally `VERIFY_DATABASE_URL_MIGRATE`) to point the run at a low-privilege role; it overrides `DATABASE_URL` for the run only. The superuser role `postgres` is rejected with exit 3 and typed failure code `privileged_database_role`. Pair with an isolated per-issue or clean persistent DB so a verifier run cannot mutate shared state.
-- **No silent `.env` fallback in issue mode (fail closed, `exit 4`).** When `VERIFY_ISSUE` is set but `VERIFY_DATABASE_URL` is unset or empty, `verify.sh` **refuses with `exit 4`** ("refusing to fall back to .env DATABASE_URL") instead of inheriting the worktree `.env`'s `DATABASE_URL`. Incident (2026-07-13): an upstream `eval $(prepare-verify-db.sh ... | tail -1)` of empty stdout left `VERIFY_DATABASE_URL` unset, the suite ran against the shared dev DB `feedbackops`, and produced a garbage FAIL artifact. Run `prepare-verify-db.sh` and export its printed `VERIFY_DATABASE_URL` first.
-- **Effective DB assertion.** Before running Vitest, `verify.sh` prints the effective database host/name/role injected into the child process, using the same redacted parser that writes `db_target` into the VERIFY artifact. Passwords are never printed or recorded.
-- **Env scrub (default-deny allowlist).** The vitest child runs under `env -i` with only an allowlist passed through (`PATH HOME SHELL TERM LANG LC_ALL TMPDIR TMP USER LOGNAME PWD NODE_OPTIONS NODE_ENV DATABASE_URL DATABASE_URL_MIGRATE WORKSPACE_ID CI`, plus `PNPM_*`/`npm_config_*`, plus any names in `VERIFY_ENV_ALLOW`). Arbitrary host secrets (tokens/keys) do **not** leak into test/app code.
-- **Clean-state and privilege preflight.** Canonical `VERIFY_ISSUE` runs require `VERIFY_CLEAN_COMMAND`. This target-owned command prints one sanitized JSON object with exactly two checks—`sentinel` and `migration_hash`, each carrying string `expected` and `actual`—plus `role:{name,superuser}` measured from the actual connection. The bundled reference adapter passes PostgreSQL connection details through `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD` environment variables to `psql`, never as a connection URL argument. It maps supported libpq TLS URL options (mode, CA/client cert/key, CRL/CRL directory, password, protocol bounds, negotiation, compression, and SNI) to the corresponding `PG*` variables; an unrecognized or empty URL query option fails closed before `psql` starts. Targets must preserve that no-URL/no-credential-argv contract. Any mismatch, URL-role identity mismatch, superuser evidence, undeclared field, missing/duplicate check, invalid JSON, or probe exit aborts before Vitest. `verify.sh --verify-clean` runs only this preflight. A successful canonical run projects only the declared fields into `clean_state.{sentinel,migration_hash,role}` in the existing VERIFY artifact; no second clean-state artifact is created. `verify.sh` never creates or drops databases.
-- **Machine-readable failures.** Verifier failures retain human `FAIL:` diagnostics and also emit one or more cause-specific `VERIFY_FAILURE_JSON=` lines containing typed `code`/`expected`/`actual` records. The same classifier records appear in a failed canonical artifact's `failures[]`; values must be sanitized and must never contain URLs, credentials, or customer data.
-- **Canonical provenance artifact.** When `VERIFY_ISSUE=<n>` is set, `verify.sh` writes `.review/ISSUE-<n>-VERIFY.json` (schema `schemas/verify.schema.json`, `artifact_type: "verify_result"`, `producer_role: "VERIFIER"`): branch, `head_sha`, required `content_sha256`, cwd, `verify_cmd`, `env_profile`, `db_target` (host/database/role — **never a password**), `clean_state`, `verdict` (passed/failed/pending/exit_code), `classifier` (PASS/FAIL), `failures`, and `created_at`. `content_sha256` covers the Git-visible worktree content while excluding `.review/`, and the verifier refuses publication if that identity changes during the run. This makes verifier output the canonical readiness signal, not worker prose. If a green run cannot write and re-read a valid artifact, the run fails closed with exit 5; evidence is the product. If the test run is already failing, an artifact-write failure preserves that failing classifier exit and never turns it green. With `VERIFY_ISSUE` unset, behavior is unchanged (no artifact).
-
-### Per-issue verify DB provisioning (`prepare-verify-db.sh`)
-
-`scripts/prepare-verify-db.sh --issue <N>` provisions the ephemeral `verify_issue_<N>` database and prints `VERIFY_DATABASE_URL=<url>` as its **last stdout line** — that line is the contract; consumers capture it with `eval $(... | tail -1)`. Two hardening rules (both from the 2026-07-13 incident):
-
-- **Fail closed on any mandatory step.** If the base-url connection, `CREATE DATABASE`, or a supplied `--migrate-cmd`/`--seed-cmd` fails, the script exits non-zero and the `VERIFY_DATABASE_URL` line is **never printed** — printing it for a DB that doesn't exist poisons every downstream eval pipeline. (Previously a failed create was warned past and the line still printed.)
-- **All DDL goes through `psql`, never the `createdb`/`dropdb` clients.** Those clients do not accept `-d <url>` (their `-d`-shaped option is `--maintenance-db`); on modern pg clients the old `createdb -d "$BASE_URL"` invocation failed with `invalid option -- d`. `psql` accepts the connection URI directly.
-- **The admin URL's role must have the `CREATEDB` privilege.** On a stock `docker-compose.dev.yml` box only `postgres` (port 5434) can create databases — `fops_migrate` cannot. Use e.g. `PGADMIN_URL=postgres://postgres:...@localhost:5434/postgres` for provisioning, then hand the tests a low-privilege role via `VERIFY_DB_ROLE`/`VERIFY_DATABASE_URL`.
-- **Role override credentials are explicit.** If `VERIFY_DB_ROLE` is set, set the raw low-privilege password in `VERIFY_DB_PASSWORD` too. Role names may contain only letters, digits, dot, underscore, and hyphen; this keeps the final eval-compatible assignment safe. The script never reuses or prints the admin URL password; it percent-encodes the verifier password only in its final `VERIFY_DATABASE_URL=...` handoff line. Capture that line directly with the documented `eval "$(... | tail -1)"` pattern and never `tee` or otherwise log its stdout. A role override without `VERIFY_DB_PASSWORD` fails before provisioning or emitting a URL, rather than producing a passwordless URL with ambiguous authentication behavior.
+- **Least privilege.** Verification commands should run with the least privilege that still executes the suite (a low-privilege role/connection, an isolated per-issue or clean persistent service instance) so a verifier run cannot mutate shared state.
+- **Fail closed on provisioning.** When the target's setup commands provision an ephemeral service/database for verification, a failed mandatory step must fail the run before tests start; a partially provisioned environment poisons every downstream judgment.
+- **No silent env fallback.** The profile's env allowlist is explicit; verification must not silently inherit broader environment state than the profile declares.
+- **Machine-readable failures.** Canonical failures carry typed `code`/`expected`/`actual` records in `failures[]`; values must be sanitized and must never contain URLs, credentials, or customer data.
+- **Canonical provenance artifact.** `target-verify.sh` writes `.review/ISSUE-<n>-VERIFY.json` (schema `schemas/verify.schema.json`, `artifact_type: "verify_result"`, `producer_role: "VERIFIER"`): branch, `head_sha`, required `content_sha256`, cwd, `verify_cmd`, `target_profile`, `verdict` (passed/failed/pending/exit_code), `classifier` (PASS/FAIL), `failures`, `groups`, and `created_at`. `content_sha256` covers the Git-visible worktree content while excluding `.review/`, and the verifier refuses publication if that identity changes during the run. This makes verifier output the canonical readiness signal, not worker prose. If a green run cannot write and re-read a valid artifact, the run fails closed; evidence is the product. If the test run is already failing, an artifact-write failure preserves that failing classifier and never turns it green.
 
 ### Baseline-aware typecheck
 
-Typecheck is **baseline-aware**: VERIFIER runs `scripts/verify.sh --typecheck`. It runs `pnpm --filter backend run typecheck`, extracts `error TS…` lines, and diffs them against `.review/typecheck-baseline.txt`. It fails **only** on errors absent from that baseline — i.e. NEW compile errors the change introduced. A pre-existing baseline error is never permission to merge a NEW compile error. If the typecheck command itself fails without any parseable `error TS...` lines, the oracle fails closed; an empty parsed result from a crashed command is not a pass.
-
-Refresh `.review/typecheck-baseline.txt` (noting it in the commit) **only** when a pre-existing error is independently fixed — never to silence a new error.
+When the target declares a typecheck command (in its profile or `contract.chunk_boundary.typecheck_command`), treat it as **baseline-aware**: it fails **only** on errors absent from the target's declared baseline — i.e. NEW compile errors the change introduced. A pre-existing baseline error is never permission to merge a NEW compile error. If the typecheck command itself fails without any parseable error lines, the oracle fails closed; an empty parsed result from a crashed command is not a pass. Refresh a baseline (noting it in the commit) **only** when a pre-existing error is independently fixed — never to silence a new error.
 
 ### Dispatch scope and REVIEW byte identity
 

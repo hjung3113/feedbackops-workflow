@@ -46,7 +46,7 @@ write_pr() {
   "base_sha": "%s",
   "head_sha": "%s",
   "files_touched": [ { "path": "file.txt", "change": "edit" } ],
-  "verify_cmd": "verify.sh case-%s",
+  "verify_cmd": "target-verify.sh case-%s",
   "status": "%s",
   "verify_result": { "verified_head_sha": "%s", "passed": 999, "failed": 0, "exit_code": 0 }%b
 }
@@ -68,13 +68,22 @@ write_verify() {
   "head_sha": "$sha",
   "content_sha256": "$content_sha256",
   "cwd": "$worktree",
-  "verify_cmd": "verify.sh case-$issue",
+  "verify_cmd": "target-verify.sh case-$issue",
   "env_profile": "scrubbed",
-  "db_target": { "host": "127.0.0.1", "database": "verify_smoke", "role": "fops_app" },
-  "clean_state": { "sentinel": { "expected": "clean", "actual": "clean" }, "migration_hash": { "expected": "same", "actual": "same" }, "role": { "name": "fops_app", "superuser": false } },
+  "target_profile": "smoke-profile",
   "verdict": { "passed": $passed, "failed": $failed, "pending": 0, "exit_code": $exit_code },
   "classifier": "$class",
   "failures": [],
+  "groups": [
+    {
+      "id": "test",
+      "required": true,
+      "commands": [
+        { "argv": ["fake-test"], "cwd": ".", "exit_code": 0, "duration_ms": 5, "output": "3 tests\n", "output_truncated": false }
+      ],
+      "test_count": 3
+    }
+  ],
   "created_at": "2026-07-12T00:00:00Z"
 }
 EOF
@@ -146,7 +155,7 @@ cat > "$REVIEW/ISSUE-112-BLOCKER.json" <<EOF
   "head_sha": "$SHA1",
   "reason_code": "missing_dependency",
   "blocking_fact": "module foo not found in src/bar.ts",
-  "attempted_commands": [ "pnpm test" ],
+  "attempted_commands": [ "target-verify.sh target-profile" ],
   "needed_decision": "ARCHITECT must add dependency"
 }
 EOF
@@ -160,8 +169,9 @@ write_pr 113 "feat/113" "$SHA13" "ready_for_review" "$REPO13"
 write_verify 113 "feat/113" "$SHA13" "VERIFIER" "PASS" 0 8 0 113
 node -e '
   const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8"));
-  const failed={verify_cmd:"verify.sh failing-filter",clean_state:{sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"fops_app",superuser:false}},verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-21T00:00:00Z"};
-  const passed={...failed,verify_cmd:"verify.sh passing-filter",verdict:{passed:8,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[],created_at:"2026-07-21T00:01:00Z"};
+  const groups=o.groups;
+  const failed={verify_cmd:"target-verify.sh failing-filter",groups,verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-21T00:00:00Z"};
+  const passed={...failed,verify_cmd:"target-verify.sh passing-filter",verdict:{passed:8,failed:0,pending:0,exit_code:0},classifier:"PASS",failures:[]};
   o.runs=[failed,passed]; fs.writeFileSync(f,JSON.stringify(o,null,2)+"\n");
 ' "$REVIEW/ISSUE-113-VERIFY.json"
 REPO14="$TMP_DIR/wt-114"
@@ -182,7 +192,7 @@ write_pr 116 "feat/116" "$SHA16" "ready_for_review" "$REPO16"
 write_verify 116 "feat/116" "$SHA16" "VERIFIER" "PASS" 0 5 0 116
 node -e '
   const fs=require("fs"); const f=process.argv[1]; const o=JSON.parse(fs.readFileSync(f,"utf8"));
-  o.runs=[{verify_cmd:o.verify_cmd,clean_state:o.clean_state,verdict:o.verdict,classifier:o.classifier,failures:o.failures,created_at:o.created_at,unexpected:"schema-invalid"}];
+  o.runs=[{verify_cmd:o.verify_cmd,verdict:o.verdict,classifier:o.classifier,failures:o.failures,created_at:o.created_at,unexpected:"schema-invalid"}];
   fs.writeFileSync(f,JSON.stringify(o));
 ' "$REVIEW/ISSUE-116-VERIFY.json"
 

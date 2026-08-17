@@ -132,20 +132,5 @@ fi
 "$CONTRACT" render --role reviewer >> "$WT/.review/ISSUE-12-REVIEW-PROMPT.md"
 if AGENT_WORKFLOW_CODEX_BIN="$RUNTIME" bash "$SCRIPT_DIR/../cmux-dispatch.sh" --issue 12 --worktree "$WT" --prompt-file "$WT/.review/ISSUE-12-REVIEW-PROMPT.md" --produce-review --model gpt-5.6-sol --effort medium --dry-run >/dev/null 2>&1; then ok "schema-derived reviewer contract reaches admission"; else bad "schema-derived reviewer contract reaches admission"; fi
 
-cat > "$BIN/psql" <<'EOF'
-#!/usr/bin/env bash
-printf '%s|sslmode=%s|root=%s|cert=%s|key=%s|crl=%s|crldir=%s|min=%s|max=%s\n' "$*" "${PGSSLMODE:-}" "${PGSSLROOTCERT:-}" "${PGSSLCERT:-}" "${PGSSLKEY:-}" "${PGSSLCRL:-}" "${PGSSLCRLDIR:-}" "${PGSSLMINPROTOCOLVERSION:-}" "${PGSSLMAXPROTOCOLVERSION:-}" >> "${PSQL_ARGS_LOG:?}"
-case "$*" in
-  *current_user*) echo 'probe|false' ;;
-  *) echo x ;;
-esac
-EOF
-chmod +x "$BIN/psql"
-PROBE_OUT="$TMP/probe.out"
-PSQL_ARGS_LOG="$TMP/psql-args.log" VERIFY_CLEAN_APP_DATABASE_URL='postgres://leak:secret@db/private?sslmode=require&sslrootcert=%2Fca.pem&sslcert=%2Fclient.crt&sslkey=%2Fclient.key&sslcrl=%2Frevocations.pem&sslcrldir=%2Fcrls&ssl_min_protocol_version=TLSv1.2&ssl_max_protocol_version=TLSv1.3' VERIFY_CLEAN_MIGRATE_DATABASE_URL='postgres://leak:secret@db/private?sslmode=require&sslrootcert=%2Fca.pem&sslcert=%2Fclient.crt&sslkey=%2Fclient.key&sslcrl=%2Frevocations.pem&sslcrldir=%2Fcrls&ssl_min_protocol_version=TLSv1.2&ssl_max_protocol_version=TLSv1.3' VERIFY_CLEAN_SENTINEL_EXPECTED=x VERIFY_CLEAN_MIGRATION_HASH_EXPECTED=x VERIFY_CLEAN_SENTINEL_QUERY='select 1' VERIFY_CLEAN_MIGRATION_HASH_QUERY='select 1' PATH="$BIN:$PATH" node "$ROOT/docs/agents/verify-clean-probe.example.mjs" >"$PROBE_OUT" 2>&1
-if ! grep -F -q 'secret' "$PROBE_OUT" && ! grep -F -q 'postgres://' "$PROBE_OUT" && ! grep -F -q 'postgres://' "$TMP/psql-args.log" && ! grep -F -q 'secret' "$TMP/psql-args.log" && grep -F -q 'sslmode=require|root=/ca.pem|cert=/client.crt|key=/client.key|crl=/revocations.pem|crldir=/crls|min=TLSv1.2|max=TLSv1.3' "$TMP/psql-args.log"; then ok "clean-probe preserves TLS URL options in PG env without URL argv"; else bad "clean-probe URL transport or TLS mapping was unsafe"; fi
-PSQL_ARGS_LOG="$TMP/unsupported-args.log" VERIFY_CLEAN_APP_DATABASE_URL='postgres://leak:secret@db/private?sslunknown=enabled' VERIFY_CLEAN_MIGRATE_DATABASE_URL='postgres://leak:secret@db/private?sslunknown=enabled' VERIFY_CLEAN_SENTINEL_EXPECTED=x VERIFY_CLEAN_MIGRATION_HASH_EXPECTED=x VERIFY_CLEAN_SENTINEL_QUERY='select 1' VERIFY_CLEAN_MIGRATION_HASH_QUERY='select 1' PATH="$BIN:$PATH" node "$ROOT/docs/agents/verify-clean-probe.example.mjs" >"$TMP/unsupported.out" 2>&1
-if [ "$?" -ne 0 ] && ! grep -F -q 'secret' "$TMP/unsupported.out" && ! grep -F -q 'postgres://' "$TMP/unsupported.out" && [ ! -s "$TMP/unsupported-args.log" ]; then ok "clean-probe rejects unsupported URL options before psql"; else bad "clean-probe must fail closed for unsupported URL options"; fi
-
 if [ "$failures" -eq 0 ]; then echo "ALL TESTS PASS"; exit 0; fi
 exit 1

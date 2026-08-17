@@ -234,11 +234,13 @@ assert_exists "canonical product skill" "$PRODUCT_ROOT/.claude/skills/agent-work
 assert_exists "product adoption guide" "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
 assert_exists "workflow config example" "$PRODUCT_ROOT/docs/agents/workflow-config.example.json"
 
-assert_command "generic quickstart avoids FeedbackOps-only adapters" \
+assert_command "product scripts contain no FeedbackOps-only adapters" \
+  test -z "$(ls "$PRODUCT_ROOT/scripts/verify.sh" "$PRODUCT_ROOT/scripts/prepare-verify-db.sh" "$PRODUCT_ROOT/scripts/prepare-worktree.sh" "$PRODUCT_ROOT/scripts/tier-probe.sh" "$PRODUCT_ROOT/scripts/uds-pg-relay.mjs" "$PRODUCT_ROOT/scripts/lib/verify-result.cjs" "$PRODUCT_ROOT/schemas/profiles/feedbackops.example.json" 2>/dev/null)"
+assert_command "quickstart avoids removed compatibility adapters" \
   awk '
     /^## 5분 안에 첫 controlled run/ { quickstart = 1; next }
-    /^## FeedbackOps compatibility alternative/ { quickstart = 0 }
-    quickstart && /prepare-worktree\.sh|prepare-verify-db\.sh|scripts\/verify\.sh/ { failed = 1 }
+    /^## / && quickstart { quickstart = 0 }
+    quickstart && /prepare-worktree\.sh|prepare-verify-db\.sh|scripts\/verify\.sh|tier-probe\.sh/ { failed = 1 }
     END { exit failed }
   ' "$PRODUCT_ROOT/README.md"
 
@@ -474,9 +476,7 @@ assert_command "copy skill is not symlinked to source" test ! -L "$copy_target/.
 assert_command "installed Herdr transport adapter is executable" test -x "$copy_target/.agent-workflow/scripts/adapters/herdr.sh"
 assert_transport_guidance_files "installed transport guidance" "$copy_target" \
   ".agent-workflow/docs/agents/multi-agent-workflow.md" \
-  ".agent-workflow/docs/agents/conductor-persona.md" \
-  ".claude/skills/agent-workflow/SKILL.md" \
-  ".claude/skills/agent-workflow/references/adoption.md"
+  ".claude/skills/agent-workflow/SKILL.md"
 # Installed-copy admission is behavior, not source text: with the same hermetic
 # fake runtime/transport shapes cmux-dispatch.smoke.sh uses, the installed
 # dispatch must complete a trivial dry-run yet refuse a full_cluster initial
@@ -517,7 +517,7 @@ printf '%s\n' '[source-only](../../../README.md)' \
   > "$copy_target/.agent-workflow/docs/agents/release-contract-negative.md"
 assert_rejects "installed target-owned Markdown link fails" 'escapes its documented context' \
   node "$SCRIPT_DIR/release-contract-check.cjs" installed "$copy_target"
-assert_absent "copy excludes Matt skills" "$copy_target/.agents"
+assert_absent "copy excludes Matt skills" "$copy_target/.agents/skills/code-review"
 assert_absent "copy excludes Matt lockfile" "$copy_target/skills-lock.json"
 assert_absent "copy excludes root instructions" "$copy_target/AGENTS.md"
 assert_absent "copy excludes maintainer tracker" "$copy_target/docs/agents/issue-tracker.md"

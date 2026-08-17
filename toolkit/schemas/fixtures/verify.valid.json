@@ -7,14 +7,10 @@
   "branch": "fix/33-artifact-fresh",
   "head_sha": "0123456789abcdef0123456789abcdef01234567",
   "content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "cwd": "/workspace/feedbackops",
-  "verify_cmd": "scripts/verify.sh --filter voc-list",
+  "cwd": "/workspace/target-wt",
+  "verify_cmd": "target-verify.sh target-profile",
+  "target_profile": "target-profile",
   "env_profile": "scrubbed",
-  "db_target": {
-    "host": "localhost",
-    "database": "feedbackops",
-    "role": "fops_verifier"
-  },
   "verdict": {
     "passed": 12,
     "failed": 0,
@@ -23,22 +19,46 @@
   },
   "classifier": "PASS",
   "failures": [],
-  "clean_state": {
-    "sentinel": { "expected": "clean", "actual": "clean" },
-    "migration_hash": { "expected": "sha256:expected", "actual": "sha256:expected" },
-    "role": { "name": "fops_verifier", "superuser": false }
-  },
+  "groups": [
+    {
+      "id": "test",
+      "required": true,
+      "commands": [
+        {
+          "argv": ["node", "--test"],
+          "cwd": ".",
+          "exit_code": 0,
+          "duration_ms": 4200,
+          "output": "ℹ tests 12\n",
+          "output_truncated": false
+        }
+      ],
+      "test_count": 12
+    }
+  ],
   "runs": [
     {
-      "verify_cmd": "scripts/verify.sh --filter voc-list",
-      "clean_state": {
-        "sentinel": { "expected": "clean", "actual": "clean" },
-        "migration_hash": { "expected": "sha256:expected", "actual": "sha256:expected" },
-        "role": { "name": "fops_verifier", "superuser": false }
-      },
+      "verify_cmd": "target-verify.sh target-profile",
       "verdict": { "passed": 12, "failed": 0, "pending": 0, "exit_code": 0 },
       "classifier": "PASS",
       "failures": [],
+      "groups": [
+        {
+          "id": "test",
+          "required": true,
+          "commands": [
+            {
+              "argv": ["node", "--test"],
+              "cwd": ".",
+              "exit_code": 0,
+              "duration_ms": 4200,
+              "output": "ℹ tests 12\n",
+              "output_truncated": false
+            }
+          ],
+          "test_count": 12
+        }
+      ],
       "created_at": "2026-05-24T09:00:00Z"
     }
   ],

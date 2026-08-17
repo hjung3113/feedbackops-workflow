@@ -109,7 +109,7 @@ parse_verify_artifact() {
         exit_code: allPass ? 0 : 1
       };
       const expectedFailures = o.runs.reduce((all, run) => all.concat(run.failures), []);
-      if (o.verify_cmd !== latest.verify_cmd || !sameJson(o.clean_state, latest.clean_state)
+      if (o.verify_cmd !== latest.verify_cmd
           || !sameJson(o.verdict, expectedVerdict) || o.classifier !== (allPass ? "PASS" : "FAIL")
           || !sameJson(o.failures, expectedFailures) || o.created_at !== latest.created_at) process.exit(3);
     }

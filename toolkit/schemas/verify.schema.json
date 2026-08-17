@@ -3,27 +3,11 @@
   "title": "Verify Result Artifact",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "content_sha256", "cwd", "verify_cmd", "verdict", "classifier", "failures", "created_at"],
+  "required": ["schema_version", "artifact_type", "producer_role", "issue", "branch", "head_sha", "content_sha256", "cwd", "verify_cmd", "target_profile", "groups", "verdict", "classifier", "failures", "created_at"],
   "allOf": [
     {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": ["db_target", "clean_state"],
-          "allOf": [
-            { "not": { "type": "object", "required": ["target_profile"] } },
-            { "not": { "type": "object", "required": ["groups"] } }
-          ]
-        },
-        {
-          "type": "object",
-          "required": ["target_profile", "groups"],
-          "allOf": [
-            { "not": { "type": "object", "required": ["db_target"] } },
-            { "not": { "type": "object", "required": ["clean_state"] } }
-          ]
-        }
-      ]
+      "type": "object",
+      "required": ["target_profile", "groups"]
     },
     {
       "oneOf": [
@@ -64,16 +48,6 @@
     "target_profile": { "type": "string", "minLength": 1 },
     "groups": { "type": "array", "minItems": 1, "items": { "$ref": "#/definitions/groupEvidence" } },
     "env_profile": { "type": "string", "description": "optional: verifier environment profile (e.g. 'scrubbed')" },
-    "db_target": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["host", "database", "role"],
-      "properties": {
-        "host": { "type": "string" },
-        "database": { "type": "string" },
-        "role": { "type": "string" }
-      }
-    },
     "verdict": {
       "type": "object",
       "additionalProperties": false,
@@ -99,40 +73,6 @@
         }
       }
     },
-    "clean_state": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["sentinel", "migration_hash", "role"],
-      "properties": {
-        "sentinel": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["expected", "actual"],
-          "properties": {
-            "expected": { "type": "string" },
-            "actual": { "type": "string" }
-          }
-        },
-        "migration_hash": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["expected", "actual"],
-          "properties": {
-            "expected": { "type": "string" },
-            "actual": { "type": "string" }
-          }
-        },
-        "role": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["name", "superuser"],
-          "properties": {
-            "name": { "type": "string", "minLength": 1 },
-            "superuser": { "const": false }
-          }
-        }
-      }
-    },
     "runs": {
       "description": "optional ordered same-identity verification runs. When present, top-level readiness is the derived aggregate of every run; absent v1 artifacts are interpreted as one synthetic run.",
       "type": "array",
@@ -140,22 +80,8 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["verify_cmd", "verdict", "classifier", "failures", "created_at"],
+        "required": ["verify_cmd", "verdict", "classifier", "failures", "created_at", "groups"],
         "allOf": [
-          {
-            "oneOf": [
-              {
-                "type": "object",
-                "required": ["clean_state"],
-                "not": { "type": "object", "required": ["groups"] }
-              },
-              {
-                "type": "object",
-                "required": ["groups"],
-                "not": { "type": "object", "required": ["clean_state"] }
-              }
-            ]
-          },
           {
             "oneOf": [
               {
@@ -207,16 +133,6 @@
                 "expected": { "type": "string" },
                 "actual": { "type": "string" }
               }
-            }
-          },
-          "clean_state": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["sentinel", "migration_hash", "role"],
-            "properties": {
-              "sentinel": { "type": "object", "additionalProperties": false, "required": ["expected", "actual"], "properties": { "expected": { "type": "string" }, "actual": { "type": "string" } } },
-              "migration_hash": { "type": "object", "additionalProperties": false, "required": ["expected", "actual"], "properties": { "expected": { "type": "string" }, "actual": { "type": "string" } } },
-              "role": { "type": "object", "additionalProperties": false, "required": ["name", "superuser"], "properties": { "name": { "type": "string", "minLength": 1 }, "superuser": { "const": false } } }
             }
           },
           "created_at": { "type": "string", "minLength": 1 }
