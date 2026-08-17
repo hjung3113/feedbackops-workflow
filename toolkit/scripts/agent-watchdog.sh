@@ -25,13 +25,39 @@ const fs=require("fs"); try { const a=JSON.parse(fs.readFileSync(process.argv[2]
 NODE
 }
 transcribe_review() {
-  node - "$1" "$2" <<'NODE'
+  node - "$1" "$2" "$3" "$RUNTIME_REGISTRY" <<'NODE'
 const fs=require("fs");
-const source=fs.readFileSync(process.argv[2],"utf8");
-try { JSON.parse(source); fs.writeFileSync(process.argv[3],source); process.exit(0); } catch (_) {}
-const matches=[...source.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n?```/gi)];
-if(!matches.length)process.exit(2);
-for(let i=matches.length-1;i>=0;i--) { const candidate=matches[i][1]; try { JSON.parse(candidate); fs.writeFileSync(process.argv[3],candidate); process.exit(0); } catch (_) {} }
+const [outputPath,destPath,runtime,registryPath]=process.argv.slice(2);
+const tryParseWrite=text=>{ try { JSON.parse(text); fs.writeFileSync(destPath,text); return true; } catch (_) { return false; } };
+const tryFenced=text=>{
+  const matches=[...text.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n?```/gi)];
+  for(let i=matches.length-1;i>=0;i--) { if(tryParseWrite(matches[i][1])) return true; }
+  return false;
+};
+// A runtime whose PROGRESS entry streams NDJSON (currently claude) writes its
+// canonical result as the final matching event's text field, not as $OUTPUT's
+// raw bytes — extract that first. A runtime still on batch/text output (or a
+// stream with no matching final event) falls through unchanged below,
+// preserving the pre-existing whole-file/fenced-regex fixture behavior.
+const { PROGRESS } = require(registryPath);
+const spec = PROGRESS[runtime] && PROGRESS[runtime].event_format === "ndjson" ? PROGRESS[runtime].final : null;
+if (spec) {
+  const pathGet=(value,dotted)=>dotted.split(".").reduce((node,key)=>(node&&typeof node==="object"?node[key]:undefined),value);
+  let finalText;
+  for (const line of fs.readFileSync(outputPath,"utf8").split("\n")) {
+    const trimmed=line.trim();
+    if(!trimmed) continue;
+    let event=null;
+    try { event=JSON.parse(trimmed); } catch (_) { event=null; }
+    if (event && spec.match.every(([dotted,expected])=>pathGet(event,dotted)===expected)) {
+      const text=pathGet(event,spec.text_path);
+      if(text!==undefined) finalText=text;
+    }
+  }
+  if (finalText!==undefined && (tryParseWrite(finalText) || tryFenced(finalText))) process.exit(0);
+}
+const raw=fs.readFileSync(outputPath,"utf8");
+if (tryParseWrite(raw) || tryFenced(raw)) process.exit(0);
 process.exit(2);
 NODE
 }
@@ -83,7 +109,7 @@ RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin
 # third state.
 STASH_BY="$(node "$RUNTIME_REGISTRY" stash-by "$RUNTIME")"
 case "$STASH_BY" in runtime|watchdog) ;; *) echo "ERROR: stash policy unavailable for runtime: $RUNTIME" >&2; exit 3 ;; esac
-STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT"' EXIT
+STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; PROPOSAL_TRANSCRIPT="$(mktemp -t agent-watchdog-proposal.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT" "$PROPOSAL_TRANSCRIPT"' EXIT
 set -- --runtime "$RUNTIME" --role "$ROLE" --mode "$MODE" --cwd "$CWD" --prompt-file "$PROMPT_FILE" --issue "$ISSUE_N"; [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; [ -n "$PERMISSION_FILE" ] && set -- "$@" --opencode-permission-file "$PERMISSION_FILE"; [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
 launched_at="$(date +%s)"
 attempt=0
@@ -140,7 +166,7 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   if [ "$PRODUCE_REVIEW" -eq 1 ]; then
   if [ "$STASH_BY" = runtime ]; then
     REVIEW_SOURCE="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"
-  elif transcribe_review "$OUTPUT" "$REVIEW_TRANSCRIPT"; then
+  elif transcribe_review "$OUTPUT" "$REVIEW_TRANSCRIPT" "$RUNTIME"; then
     REVIEW_SOURCE="$REVIEW_TRANSCRIPT"
   else
     preserve_review_output || true
@@ -162,7 +188,17 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   if [ "$STASH_BY" = watchdog ]; then OUTPUT=""; fi
   fi
   if [ "$CONDUCTOR_CONTROL" -eq 1 ]; then
-    if ! "$CONTROL_PUBLISHER" --issue "$ISSUE_N" --cwd "$CWD" --proposal "$OUTPUT"; then
+    # conductor-control-publish.sh is a host-side security boundary that must
+    # not learn per-runtime output schemas: extract a clean JSON proposal file
+    # here first. A runtime still on batch/text output (or an NDJSON stream
+    # with no matching final event) falls back to $OUTPUT unchanged, which is
+    # already plain JSON for those cases.
+    if node "$RUNTIME_REGISTRY" extract-final "$RUNTIME" "$OUTPUT" >"$PROPOSAL_TRANSCRIPT" 2>/dev/null; then
+      PROPOSAL_SOURCE="$PROPOSAL_TRANSCRIPT"
+    else
+      PROPOSAL_SOURCE="$OUTPUT"
+    fi
+    if ! "$CONTROL_PUBLISHER" --issue "$ISSUE_N" --cwd "$CWD" --proposal "$PROPOSAL_SOURCE"; then
       echo 'ERROR: CONDUCTOR control proposal was denied; no canonical control artifact was published' >&2
       write_marker refused "$attempt" "$pid" 1 || true
       exit 1

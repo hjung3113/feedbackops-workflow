@@ -33,6 +33,20 @@ fi
 printf '%s\n' "$OPENCODE_STUB_OUTPUT"
 EOF
 chmod +x "$BIN/opencode"
+cat > "$BIN/claude" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
+if [ "$1" = "--help" ]; then echo '--print --permission-mode --output-format --model --effort --include-partial-messages'; exit 0; fi
+# Real stream-json-shaped NDJSON output: partial content_block_delta events
+# (proving incremental progress) then a terminal type=result/subtype=success
+# event whose result field carries the canonical text, exactly like claude's
+# --output-format stream-json --verbose --include-partial-messages contract.
+printf '%s\n' '{"type":"system","subtype":"init"}'
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"thinking"}]}}'
+printf '%s\n' "$CLAUDE_STUB_RESULT_EVENT"
+exit 0
+EOF
+chmod +x "$BIN/claude"
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
@@ -80,6 +94,15 @@ OPENCODE_STUB_ISSUE=87 OPENCODE_STUB_PR_DRAFT="$(pr_draft 87 "$WT" active wrong-
 if [ $? -ne 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="refused")process.exit(1)' "$WT/.review/ISSUE-87-RUN.json"; then ok 'implementation PR-DRAFT requires live branch binding'; else bad 'implementation PR-DRAFT requires live branch binding'; fi
 AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 80 --runtime codex --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="exited"||o.attempt!==1||o.runtime!=="codex"||o.role!=="reviewer")process.exit(1)' "$WT/.review/ISSUE-80-RUN.json"; then ok 'codex read runtime remains compatible with typed watchdog'; else bad 'codex runtime compatibility'; fi
+review_89="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":89},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"claude-stream-json\",\"met\":true}]}"
+result_event_89="$(node -e 'process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,result:process.argv[1]}))' "$review_89")"
+CLAUDE_STUB_RESULT_EVENT="$result_event_89" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 89 --runtime claude --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.artifact_type!=="agent_run"||o.runtime!=="claude"||o.role!=="reviewer"||o.status!=="exited")process.exit(1)' "$WT/.review/ISSUE-89-RUN.json" && [ -f "$WT/.review/ISSUE-89-REVIEW.json" ]; then ok 'AC-142-A2b2-1 claude stream-json NDJSON result event publishes validated review'; else bad 'AC-142-A2b2-1 claude stream-json NDJSON result event publishes validated review'; fi
+review_90="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":90},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"claude-fenced\",\"met\":true}]}"
+wrapped_90="$(printf 'reviewer summary\n\n```json\n%s\n```\n' "$review_90")"
+result_event_90="$(node -e 'process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,result:process.argv[1]}))' "$wrapped_90")"
+CLAUDE_STUB_RESULT_EVENT="$result_event_90" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 90 --runtime claude --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -eq 0 ] && [ -f "$WT/.review/ISSUE-90-REVIEW.json" ]; then ok 'AC-142-A2b2-2 claude stream-json result event with fenced-json body publishes validated review'; else bad 'AC-142-A2b2-2 claude stream-json result event with fenced-json body publishes validated review'; fi
 wallclock_start="$(date +%s)"
 OPENCODE_STUB_MODE=heartbeat AGENT_WATCHDOG_MAX_WALLCLOCK=2 AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" timeout 20 bash "$WATCHDOG" --issue 88 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --first-progress-timeout 5 --stall-timeout 5 --max-retries 0 >/dev/null 2>&1
 wallclock_ec=$?; wallclock_elapsed=$(( $(date +%s) - wallclock_start )); rm -f "$WT/hb"

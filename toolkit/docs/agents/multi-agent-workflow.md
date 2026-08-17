@@ -303,15 +303,62 @@ is the sole watchdog authority. Codex write/review execution still delegates ins
 the runtime adapter to hardened `codex-safe.sh`, preserving its Git metadata,
 stash, effort forwarding, and atomic review-publication invariants.
 
-Liveness is process plus filesystem progress, never stdout first-token output.
-The shared watchdog excludes `.git`, `.review`, and `node_modules` from the
-progress scan, applies first-progress and stall budgets, kills the process tree
-on a stall, and permits `MAX_RETRIES + 1` total attempts. Each attempt first
-publishes `running`, republishes it with the child PID, and on failure stores
-`ISSUE-N-agent-attempt<K>-stderr.log`. Explicit auth/model/permission/capability
-diagnostics refuse immediately; otherwise two failed selected-runtime probes
-separated by the configured gap refuse. Stall and ordinary non-zero failures
-retry when budget remains. Exhaustion writes `exhausted` and exits non-zero.
+Liveness combines filesystem progress with each runtime's own progress-event
+stream where the registry declares one. `lib/runtime-registry.cjs`'s
+`PROGRESS` table holds, per runtime, the streaming argv flags, the event
+stream (`stdout`/`stderr`), and how to locate the terminal event's result
+text (`final.match`/`final.text_path`). `agent-runtime.sh` reads
+`progress-flags <runtime>` instead of hardcoding a format flag, so a runtime
+with a registered `PROGRESS` entry launches already streaming — no
+per-runtime case branch in the watchdog itself. `progressed()` scans the
+worktree for fresh files (excluding `.git`, `.review`, and `node_modules`)
+OR-ed with `$OUTPUT`'s own mtime advancing; the OR clause is what makes a
+purely stdout-streaming runtime that writes nothing to disk (any `--mode
+read` role) register as alive instead of hitting the first-progress/stall
+budget by construction. `.review` stays pruned from the scan even for a
+streaming runtime: `write_marker()` itself writes into `.review/` on every
+attempt, which would make `progressed()` self-satisfying (always true
+regardless of whether the runtime is doing real work) if that path were
+included — a runtime's own progress evidence must come from outside the
+watchdog's own bookkeeping directory. This is settled by construction, not
+an open question.
+
+When a runtime's `PROGRESS.event_format` is `ndjson`, `transcribe_review()`
+and the `--conductor-control` proposal handoff both extract the terminal
+event's result text first (the same match/text-path walk `runtime-registry.cjs
+extract-final <runtime> <file>` performs), then run that extracted text
+through the same whole-buffer-JSON-then-fenced-JSON fallback chain used for a
+plain-text runtime. A runtime not yet switched to streaming argv, or an
+NDJSON stream with no matching terminal event, falls through unchanged to the
+original raw-`$OUTPUT` behavior — extraction is additive, never a
+replacement contract, so existing non-streaming fixtures keep passing
+untouched. `conductor-control-publish.sh` itself is deliberately untouched:
+it is a host-side security boundary and must not learn per-runtime output
+schemas, so `agent-watchdog.sh` performs the extraction into a clean,
+disposable temp file before ever calling it.
+
+As of this design, `claude` is the only runtime whose `agent-runtime.sh`
+launch actually applies its `PROGRESS.flags`
+(`--output-format stream-json --verbose --include-partial-messages`,
+confirmed incremental at token-level resolution). `codex` and `opencode`
+keep their `PROGRESS` table entries as registry data only, not yet wired
+into either runtime's launch argv: `codex`'s incremental-output behavior
+still needs a live re-verification once its account quota resets, and
+`opencode` has a known, still-open upstream bug (opencode issue `#31435`)
+that drops `text`/`step_finish` events specifically in containerized/
+sandboxed environments — exactly this project's isolated-worktree dispatch
+shape. Wiring either runtime's launch argv to stream is separate follow-up
+scope; a populated `PROGRESS` table entry must never be read as proof that a
+runtime's launch already streams.
+
+The shared watchdog applies first-progress and stall budgets, kills the
+process tree on a stall, and permits `MAX_RETRIES + 1` total attempts. Each
+attempt first publishes `running`, republishes it with the child PID, and on
+failure stores `ISSUE-N-agent-attempt<K>-stderr.log`. Explicit
+auth/model/permission/capability diagnostics refuse immediately; otherwise
+two failed selected-runtime probes separated by the configured gap refuse.
+Stall and ordinary non-zero failures retry when budget remains. Exhaustion
+writes `exhausted` and exits non-zero.
 
 Each shared attempt writes `ISSUE-N-RUN.json` as `artifact_type:"agent_run"`
 with selected `runtime`, `role`, observed `runtime_version`, and status
