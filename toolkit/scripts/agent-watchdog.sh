@@ -64,6 +64,16 @@ if (tryParseWrite(raw) || tryFenced(raw)) process.exit(0);
 process.exit(2);
 NODE
 }
+# Host-authoritative reviewed_head_sha (#137): a bash-denied read-only reviewer
+# cannot run `git rev-parse HEAD` itself, so the launch-time pinned HEAD owns
+# this field. The model's self-report is corrected to the host value before
+# schema validation; the exact-match fail-closed contract itself is unchanged.
+overwrite_review_head() {
+  node - "$1" "$REVIEW_START_HEAD" <<'NODE'
+const fs=require("fs"); const file=process.argv[2], head=process.argv[3];
+try { const value=JSON.parse(fs.readFileSync(file,"utf8")); if (value && typeof value==="object" && "reviewed_head_sha" in value && value.reviewed_head_sha!==head) { value.reviewed_head_sha=head; fs.writeFileSync(file,JSON.stringify(value)+"\n"); } } catch (_) {}
+NODE
+}
 preserve_review_output() {
   mkdir -p "$CWD/.review" || return 1
   cp "$OUTPUT" "$CWD/.review/ISSUE-${ISSUE_N}-review-attempt${attempt}-output.log"
@@ -112,7 +122,16 @@ RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin
 # third state.
 STASH_BY="$(node "$RUNTIME_REGISTRY" stash-by "$RUNTIME")"
 case "$STASH_BY" in runtime|watchdog) ;; *) echo "ERROR: stash policy unavailable for runtime: $RUNTIME" >&2; exit 3 ;; esac
-STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; PROPOSAL_TRANSCRIPT="$(mktemp -t agent-watchdog-proposal.XXXXXX)"; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT" "$PROPOSAL_TRANSCRIPT"' EXIT
+STAMP="$(mktemp -t agent-watchdog-stamp.XXXXXX)"; OUTPUT="$(mktemp -t agent-watchdog-output.XXXXXX)"; STDERR="$(mktemp -t agent-watchdog-stderr.XXXXXX)"; REVIEW_TRANSCRIPT="$(mktemp -t agent-watchdog-review.XXXXXX)"; PROPOSAL_TRANSCRIPT="$(mktemp -t agent-watchdog-proposal.XXXXXX)"; LAUNCH_PROMPT_FILE=""; trap 'rm -f "$STAMP" "$OUTPUT" "$STDERR" "$REVIEW_TRANSCRIPT" "$PROPOSAL_TRANSCRIPT" ${LAUNCH_PROMPT_FILE:+"$LAUNCH_PROMPT_FILE"}' EXIT
+if [ "$PRODUCE_REVIEW" -eq 1 ]; then
+  # Same host ownership as overwrite_review_head (#137): inject the pinned
+  # HEAD literally into the launch prompt so a bash-denied reviewer still
+  # knows the exact required value. The operator's prompt file itself is
+  # never modified; the runtime receives this augmented copy.
+  LAUNCH_PROMPT_FILE="$(mktemp -t agent-watchdog-prompt.XXXXXX)"
+  { cat "$PROMPT_FILE" && printf '\n<!-- agent-workflow:review-head:start -->\nreviewed_head_sha must be exactly %s (host-pinned launch HEAD; verbatim 40-char value)\n<!-- agent-workflow:review-head:end -->\n' "$REVIEW_START_HEAD"; } > "$LAUNCH_PROMPT_FILE" || { echo 'cannot inject REVIEW head into launch prompt' >&2; exit 2; }
+  PROMPT_FILE="$LAUNCH_PROMPT_FILE"
+fi
 set -- --runtime "$RUNTIME" --role "$ROLE" --mode "$MODE" --cwd "$CWD" --prompt-file "$PROMPT_FILE" --issue "$ISSUE_N"; [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; [ -n "$PERMISSION_FILE" ] && set -- "$@" --opencode-permission-file "$PERMISSION_FILE"; [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
 launched_at="$(date +%s)"
 attempt=0
@@ -177,6 +196,7 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
     write_marker refused "$attempt" "$pid" 1 unparseable_output || true
     exit 1
   fi
+  overwrite_review_head "$REVIEW_SOURCE"
   REVIEW_REFUSAL_REASON="$(validate_review "$REVIEW_SOURCE")"; review_validation_ec=$?
   if [ "$review_validation_ec" -ne 0 ]; then
     echo 'ERROR: REVIEW output is not canonical for this issue and live HEAD' >&2
