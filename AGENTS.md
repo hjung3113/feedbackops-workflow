@@ -78,9 +78,11 @@ Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
   `orca` selection for write-capable dispatch. Do not hand-build transport or
   watchdog launches; Codex execution reaches `codex-safe.sh` through the
   runtime-owned path.
-- Every feature executes through per-member adapter files on both the
-  Transport and Runtime axes; never inline-branch on a hardcoded transport or
-  runtime name in a shared/core file — see
+- Each Transport/Runtime axis member owns one file for its own concern
+  (Transport: workspace/session lifecycle; Runtime: invocation shape,
+  mode-to-permission mapping, response parsing); role/mode is parameter data,
+  never a reason to add a file. Never inline-branch on a hardcoded transport
+  or runtime name in a shared/core file — see
   `docs/adr/0006-adapters-are-one-file-per-axis-member.md`.
 - Schemas are contracts. Keep artifact shape, validators, and fixtures aligned.
 
