@@ -89,11 +89,11 @@ Every issue is one of three tiers. The tier picks the agent set.
 
 | Tier | When | Agents | Artifacts |
 |---|---|---|---|
-| **Trivial** | P3 cleanup, single file, no API/domain/UI change | CODEX + VERIFIER | pr_draft only |
-| **Standard** | P2 / single-module behavior change | CODEX + REVIEWER + VERIFIER | pr_draft + review |
-| **Full Cluster** | Any of: migration, auth, permissions, shared UI shells, `packages/shared`, cross-module contract, prod data path | ARCHITECT + CODEX + REVIEWER + VERIFIER (+ VISUAL if UI) | all of pr_draft, touch, review, verify |
+| **Trivial** | P3 cleanup, single file, no API/domain/UI change | Implementation + VERIFIER | pr_draft only |
+| **Standard** | P2 / single-module behavior change | Implementation + REVIEWER + VERIFIER | pr_draft + review |
+| **Full Cluster** | Any of: migration, auth, permissions, shared UI shells, `packages/shared`, cross-module contract, prod data path | ARCHITECT + Implementation + REVIEWER + VERIFIER (+ VISUAL if UI) | all of pr_draft, touch, review, verify |
 
-**Escalation rule:** if a Trivial or Standard issue's actual touch set hits any Full Cluster trigger (e.g. `packages/shared/*`, migrations), CODEX MUST abort with a `blocker` artifact. Record the exact Git `HEAD` observed at abort time in `head_sha`, set `reason_code` from the enum (`tier_escalation_required` for this case), and put the ACTUAL out-of-scope files/symbols you hit into `blocking_fact` — never copy the dispatch prompt's example phrasing. In trial #1 CODEX parroted the canned phrase `"touches packages/shared"` straight from the prompt even though the real cause was backend modules (`src/voc`, `src/permissions`); the structured `reason_code` + `blocking_fact` fields exist to kill that leak.
+**Escalation rule:** if a Trivial or Standard issue's actual touch set hits any Full Cluster trigger (e.g. `packages/shared/*`, migrations), the Implementation seat MUST abort with a `blocker` artifact. Record the exact Git `HEAD` observed at abort time in `head_sha`, set `reason_code` from the enum (`tier_escalation_required` for this case), and put the ACTUAL out-of-scope files/symbols you hit into `blocking_fact` — never copy the dispatch prompt's example phrasing. In trial #1 CODEX parroted the canned phrase `"touches packages/shared"` straight from the prompt even though the real cause was backend modules (`src/voc`, `src/permissions`); the structured `reason_code` + `blocking_fact` fields exist to kill that leak.
 
 ### Pre-dispatch tier probe
 
@@ -493,7 +493,7 @@ Before any Standard/Full initial write and every canonical write redispatch, CON
 
 ## Workflow Tax Brake
 
-If a Trivial issue routes through more than CODEX + VERIFIER, the workflow has failed and must be re-evaluated. The workflow exists to ship faster, not slower.
+If a Trivial issue routes through more than Implementation + VERIFIER, the workflow has failed and must be re-evaluated. The workflow exists to ship faster, not slower.
 
 ### Pre-review AC-ID gate
 
