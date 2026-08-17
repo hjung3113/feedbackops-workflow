@@ -37,6 +37,21 @@ win if it disagrees. The detailed product playbook is
 - `toolkit/.claude/skills/agent-workflow/` is the installable product skill.
   Keep its entrypoint thin and route detail to the playbook/references.
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical roles use default label strings (`needs-triage`, `needs-info`,
+`ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Scope and implementation rules
 
 - The product workflow is opt-in in this repository. Matt Pocock skills under `.agents/skills/` are development tools; product self-dogfooding requires explicit `/agent-workflow ... --self-test` authorization.
@@ -63,6 +78,10 @@ win if it disagrees. The detailed product playbook is
   `orca` selection for write-capable dispatch. Do not hand-build transport or
   watchdog launches; Codex execution reaches `codex-safe.sh` through the
   runtime-owned path.
+- Every feature executes through per-member adapter files on both the
+  Transport and Runtime axes; never inline-branch on a hardcoded transport or
+  runtime name in a shared/core file — see
+  `docs/adr/0006-adapters-are-one-file-per-axis-member.md`.
 - Schemas are contracts. Keep artifact shape, validators, and fixtures aligned.
 
 ## Git and verification
