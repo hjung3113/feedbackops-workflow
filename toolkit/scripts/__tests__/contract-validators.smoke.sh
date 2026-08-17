@@ -11,7 +11,7 @@ pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAIL=$((FAIL + 1)); }
 
 node - "$VALIDATORS" <<'NODE'
-const { effortValid, headMatches, sameJson, loadSchema } = require(process.argv[2]);
+const { effortValid, headMatches, sameJson, loadSchema, VERIFY_ENV_BASE, TARGET_VERIFY_ENV_BASE, verifyEnvAssignments } = require(process.argv[2]);
 const checks = [];
 const check = (name, actual, expected) => checks.push([name, actual === expected, actual, expected]);
 
@@ -34,6 +34,12 @@ check("loadSchema validator rejects an invalid document", loaded.validate(loaded
 let threw = false;
 try { loadSchema("no-such.schema.json"); } catch (_) { threw = true; }
 check("loadSchema fails closed on a missing schema", threw, true);
+check("verify.sh env base whitelist is unchanged", sameJson(VERIFY_ENV_BASE, ["PATH", "HOME", "SHELL", "TERM", "LANG", "LC_ALL", "TMPDIR", "TMP", "USER", "LOGNAME", "PWD", "NODE_OPTIONS", "NODE_ENV", "DATABASE_URL", "DATABASE_URL_MIGRATE", "WORKSPACE_ID", "CI"]), true);
+check("target-verify env base whitelist is unchanged", sameJson(TARGET_VERIFY_ENV_BASE, ["PATH", "HOME", "TMPDIR", "LANG"]), true);
+check("env scrub keeps base order, sorted pnpm pass-throughs, shape-checked extras",
+  JSON.stringify(verifyEnvAssignments({ PATH: "/bin", HOME: "", PNPM_B: "2", npm_config_x: "1", PNPM_A: "1", OK1: "x", OK2: "y" }, "OK1 1BAD X OK2")),
+  JSON.stringify(["PATH=/bin", "HOME=", "PNPM_A=1", "PNPM_B=2", "npm_config_x=1", "OK1=x", "OK2=y"]));
+check("env scrub drops unset names and empty extra lists", JSON.stringify(verifyEnvAssignments({ PATH: "/bin" }, "")), JSON.stringify(["PATH=/bin"]));
 
 let failed = 0;
 for (const [name, ok, actual, expected] of checks) {

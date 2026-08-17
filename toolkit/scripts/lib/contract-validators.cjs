@@ -40,4 +40,39 @@ function loadSchema(name) {
   return { schema, validate, schemaPath };
 }
 
-module.exports = { effortValid, headMatches, sameJson, loadSchema };
+// Environment scrub whitelists. verify.sh and target-verify.mjs keep
+// intentionally DIFFERENT base lists (the target verifier scopes extra
+// allows per profile); they are co-located for deduplication, never unioned.
+const VERIFY_ENV_BASE = [
+  "PATH", "HOME", "SHELL", "TERM", "LANG", "LC_ALL", "TMPDIR", "TMP",
+  "USER", "LOGNAME", "PWD", "NODE_OPTIONS", "NODE_ENV", "DATABASE_URL",
+  "DATABASE_URL_MIGRATE", "WORKSPACE_ID", "CI",
+];
+const TARGET_VERIFY_ENV_BASE = ["PATH", "HOME", "TMPDIR", "LANG"];
+
+// Shape rule faithful to verify.sh's historical `[A-Za-z_][A-Za-z0-9_]*`
+// shell case pattern: first char letter/underscore, second char
+// letter/digit/underscore, remainder unconstrained.
+function verifyEnvNameShapeValid(name) {
+  return /^[A-Za-z_][A-Za-z0-9_]/.test(name);
+}
+
+function pnpmEnvPassThrough(name) {
+  return /^PNPM_[A-Za-z0-9_]*$/.test(name) || /^npm_config_[A-Za-z0-9_]*$/.test(name);
+}
+
+// Ordered NAME=VALUE assignments for verify.sh's `env -i` child, matching
+// the historical shell staging exactly: base whitelist in order, then
+// sorted PNPM_*/npm_config_* pass-throughs, then whitespace-split
+// VERIFY_ENV_ALLOW extras that pass the shape rule. Set-but-empty values
+// are emitted ("NAME="); unset names are dropped.
+function verifyEnvAssignments(env, extraAllow) {
+  const assignments = [];
+  const emit = (name) => { if (name in env) assignments.push(`${name}=${env[name]}`); };
+  for (const name of VERIFY_ENV_BASE) emit(name);
+  for (const name of Object.keys(env).filter(pnpmEnvPassThrough).sort()) emit(name);
+  for (const name of String(extraAllow || "").split(/[ \t\n]+/)) if (verifyEnvNameShapeValid(name)) emit(name);
+  return assignments;
+}
+
+module.exports = { effortValid, headMatches, sameJson, loadSchema, VERIFY_ENV_BASE, TARGET_VERIFY_ENV_BASE, verifyEnvAssignments };

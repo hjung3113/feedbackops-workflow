@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const { validate } = require("./json-schema-subset.cjs");
 const { validArtifact } = require("./verify-artifact.cjs");
 const { contentSha256 } = require("./worktree-content-id.cjs");
-const { headMatches, loadSchema } = require("./contract-validators.cjs");
+const { headMatches, loadSchema, TARGET_VERIFY_ENV_BASE } = require("./contract-validators.cjs");
 
 const [profileArg, issueArg] = process.argv.slice(2);
 const fail = (message, code = 2) => { console.error(`target-verify: ${message}`); process.exit(code); };
@@ -40,7 +40,7 @@ try { contentSha = contentSha256(root); }
 catch (error) { fail(`unable to calculate stable worktree content identity: ${error.message}`, 1); }
 const cleanEnv = (extra = []) => {
   const out = {};
-  for (const name of ["PATH", "HOME", "TMPDIR", "LANG", ...allowedBase, ...extra]) if (process.env[name] !== undefined) out[name] = process.env[name];
+  for (const name of [...TARGET_VERIFY_ENV_BASE, ...allowedBase, ...extra]) if (process.env[name] !== undefined) out[name] = process.env[name];
   return out;
 };
 const runCommand = (command) => {
