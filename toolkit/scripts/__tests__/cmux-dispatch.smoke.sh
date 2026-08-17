@@ -837,7 +837,7 @@ ADMIT_EVIDENCE_HEAD="$(git -C "$ADMIT_WT" rev-parse HEAD)"
 node - "$ADMIT_WT" "$ADMIT_EVIDENCE_HEAD" <<'NODE'
 const fs=require("fs"); const path=require("path"); const [worktree,head]=process.argv.slice(2);
 for (const issue of [307,999]) {
-  const artifact={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue,branch:"main",head_sha:head,content_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",cwd:worktree,verify_cmd:"smoke verify",db_target:{host:"localhost",database:"smoke",role:"verifier"},clean_state:{sentinel:{expected:"clean",actual:"clean"},migration_hash:{expected:"same",actual:"same"},role:{name:"verifier",superuser:false}},verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-20T00:00:00Z"};
+  const artifact={schema_version:"1",artifact_type:"verify_result",producer_role:"VERIFIER",issue,branch:"main",head_sha:head,content_sha256:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",cwd:worktree,verify_cmd:"smoke verify",target_profile:"smoke-profile",groups:[{id:"test",required:true,commands:[{argv:["fake-test"],cwd:".",exit_code:1,duration_ms:5,output:"0 tests",output_truncated:false}],test_count:0}],verdict:{passed:0,failed:1,pending:0,exit_code:1},classifier:"FAIL",failures:[{code:"failed_tests",expected:"0",actual:"1"}],created_at:"2026-07-20T00:00:00Z"};
   fs.writeFileSync(path.join(worktree,".review/evidence/F-"+issue+".json"),JSON.stringify(artifact));
   if (issue === 307) {
     fs.writeFileSync(path.join(worktree,".review/evidence/F-307-2.json"),JSON.stringify(artifact));

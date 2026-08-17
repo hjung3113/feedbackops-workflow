@@ -224,7 +224,7 @@ function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 function runFromFlatArtifact(artifact) {
-  return { verify_cmd: artifact.verify_cmd, clean_state: artifact.clean_state, verdict: artifact.verdict,
+  return { verify_cmd: artifact.verify_cmd, verdict: artifact.verdict,
     classifier: artifact.classifier, failures: artifact.failures, created_at: artifact.created_at };
 }
 function verifyRuns(artifact) {
@@ -256,7 +256,6 @@ function validVerifyAggregate(artifact) {
   };
   const failures = runs.reduce((all, run) => all.concat(run.failures), []);
   return artifact.verify_cmd === latest.verify_cmd
-    && sameJson(artifact.clean_state, latest.clean_state)
     && sameJson(artifact.verdict, verdict)
     && artifact.classifier === (allPass ? "PASS" : "FAIL")
     && sameJson(artifact.failures, failures)

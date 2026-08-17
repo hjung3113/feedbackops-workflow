@@ -23,6 +23,6 @@
     "failed": 0,
     "exit_code": 0
   },
-  "worktree_path": "/workspace/feedbackops-wt/issue-31",
+  "worktree_path": "/workspace/target-wt/issue-31",
   "base_branch": "feature/agent-workflow-trial"
 }

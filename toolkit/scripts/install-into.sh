@@ -4,12 +4,11 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: install-into.sh <target-repo-path> [--profile feedbackops|generic] [--upgrade]" >&2
+  echo "usage: install-into.sh <target-repo-path> [--upgrade]" >&2
 }
 
 TARGET_REPO=""
 UPGRADE=0
-PROFILE="feedbackops"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -19,11 +18,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --profile)
       [[ $# -lt 2 ]] && { echo "missing value for --profile" >&2; usage; exit 2; }
-      case "$2" in
-        feedbackops|generic) PROFILE="$2" ;;
-        *) echo "install-into: unsupported profile: $2" >&2; usage; exit 2 ;;
-      esac
-      shift 2
+      echo "install-into: --profile $2 was removed; installs are generic-only." >&2
+      echo "Use: $0 <target-repo-path> [--upgrade]" >&2
+      exit 2
       ;;
     --mode)
       [[ $# -lt 2 ]] && { echo "missing value for --mode" >&2; usage; exit 2; }
@@ -110,10 +107,8 @@ PROFILE_DEST="$AGENT_DIR/install-profile.json"
 AGENTS_DEST="$TARGET_ROOT/AGENTS.md"
 GENERIC_PROFILE_SRC="$SCRIPTS_SRC/install-profiles/generic"
 
-if [[ "$PROFILE" == "generic" ]]; then
-  DOCS_SRC="$GENERIC_PROFILE_SRC/docs/agents"
-  SKILL_SRC="$GENERIC_PROFILE_SRC/skill"
-fi
+DOCS_SRC="$GENERIC_PROFILE_SRC/docs/agents"
+SKILL_SRC="$GENERIC_PROFILE_SRC/skill"
 
 require_source_tree() {
   local source_dir="$1"
@@ -142,24 +137,20 @@ reject_symlinked_managed_parent() {
       exit 2
     fi
   done
-  if [[ "$PROFILE" == "generic" ]]; then
-    for managed_parent in "$CODEX_DIR" "$CODEX_SKILLS_DIR" "$OPENCODE_DIR" "$OPENCODE_AGENTS_DIR"; do
-      if [[ -L "$managed_parent" ]]; then
-        echo "install-into: managed parent must not be a symlink: $managed_parent" >&2
-        echo "No changes made. Replace it with a real directory inside the target." >&2
-        exit 2
-      fi
-    done
-  fi
+  for managed_parent in "$CODEX_DIR" "$CODEX_SKILLS_DIR" "$OPENCODE_DIR" "$OPENCODE_AGENTS_DIR"; do
+    if [[ -L "$managed_parent" ]]; then
+      echo "install-into: managed parent must not be a symlink: $managed_parent" >&2
+      echo "No changes made. Replace it with a real directory inside the target." >&2
+      exit 2
+    fi
+  done
 }
 
 require_source_tree "$SCRIPTS_SRC"
 require_source_tree "$SCHEMAS_SRC"
 require_source_tree "$DOCS_SRC"
 require_source_tree "$SKILL_SRC"
-if [[ "$PROFILE" == "generic" ]]; then
-  require_source_tree "$GENERIC_PROFILE_SRC"
-fi
+require_source_tree "$GENERIC_PROFILE_SRC"
 [[ -r "$MODEL_ALLOC_SRC" ]] || { echo "default model allocation config is missing: $MODEL_ALLOC_SRC" >&2; exit 2; }
 reject_symlinked_managed_parent
 
@@ -213,7 +204,7 @@ fi
 installed_profile() {
   local profile_file="$1"
   [[ -f "$profile_file" ]] || return 1
-  node -e 'try { const v=JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.exit(v.schema_version === "1" && (v.profile === "feedbackops" || v.profile === "generic") ? 0 : 1); } catch (e) { process.exit(1); }' "$profile_file" || return 1
+  node -e 'try { const v=JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.exit(v.schema_version === "1" && typeof v.profile === "string" && v.profile.length > 0 ? 0 : 1); } catch (e) { process.exit(1); }' "$profile_file" || return 1
   node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); process.stdout.write(v.profile)' "$profile_file"
 }
 
@@ -288,31 +279,23 @@ recognized_installation() {
   RECOGNIZED_LINK_ROOT=""
   RECOGNIZED_LINK_ROOT_SET=0
   RECOGNIZED_TOPOLOGY=""
-  scripts_sentinel="install-into.sh"
-  if [[ "$PROFILE" == "generic" ]]; then scripts_sentinel="agent-workflow.sh"; fi
-  recognized_node "$SCRIPTS_DEST" scripts "$scripts_sentinel" && \
+  recognized_node "$SCRIPTS_DEST" scripts "agent-workflow.sh" && \
   recognized_node "$SCHEMAS_DEST" schemas "round_state.schema.json" && \
   recognized_node "$DOCS_DEST" docs "multi-agent-workflow.md" && \
   recognized_node "$SKILL_DEST" skill "SKILL.md" || return 1
-  if [[ "$PROFILE" == "generic" ]]; then
-    is_recognized_tree "$CODEX_SKILL_DEST" "SKILL.md" && \
-      [[ -f "$OPENCODE_AGENT_DEST" && ! -L "$OPENCODE_AGENT_DEST" ]] && \
-      [[ -f "$OPENCODE_CONFIG_DEST" && ! -L "$OPENCODE_CONFIG_DEST" ]] || return 1
-  fi
+  is_recognized_tree "$CODEX_SKILL_DEST" "SKILL.md" && \
+    [[ -f "$OPENCODE_AGENT_DEST" && ! -L "$OPENCODE_AGENT_DEST" ]] && \
+    [[ -f "$OPENCODE_CONFIG_DEST" && ! -L "$OPENCODE_CONFIG_DEST" ]] || return 1
   return 0
 }
 
 MANAGED_COUNT=0
-for managed_dest in "$SCRIPTS_DEST" "$SCHEMAS_DEST" "$DOCS_DEST" "$SKILL_DEST"; do
+for managed_dest in "$SCRIPTS_DEST" "$SCHEMAS_DEST" "$DOCS_DEST" "$SKILL_DEST" \
+  "$CODEX_SKILL_DEST" "$OPENCODE_AGENT_DEST" "$OPENCODE_CONFIG_DEST"; do
   if exists_node "$managed_dest"; then
     MANAGED_COUNT=$((MANAGED_COUNT + 1))
   fi
 done
-if [[ "$PROFILE" == "generic" ]]; then
-  for managed_dest in "$CODEX_SKILL_DEST" "$OPENCODE_AGENT_DEST" "$OPENCODE_CONFIG_DEST"; do
-    if exists_node "$managed_dest"; then MANAGED_COUNT=$((MANAGED_COUNT + 1)); fi
-  done
-fi
 
 if [[ "$UPGRADE" -eq 0 && "$MANAGED_COUNT" -gt 0 ]]; then
   echo "install-into: an existing or partial installation was found; no changes made." >&2
@@ -328,8 +311,8 @@ if [[ "$UPGRADE" -eq 1 && -e "$PROFILE_DEST" ]]; then
     echo "install-into: install profile marker is invalid; no changes made." >&2
     exit 2
   }
-  if [[ "$existing_profile" != "$PROFILE" ]]; then
-    echo "install-into: refusing to change an existing $existing_profile installation to $PROFILE during upgrade; reinstall after explicit removal." >&2
+  if [[ "$existing_profile" != "generic" ]]; then
+    echo "install-into: refusing to upgrade a legacy '$existing_profile' installation; the compatibility profile was removed. Remove the installation explicitly and reinstall." >&2
     exit 2
   fi
 fi
@@ -339,10 +322,8 @@ if [[ "$UPGRADE" -eq 1 ]] && ! recognized_installation; then
   exit 2
 fi
 
-mkdir -p "$AGENT_DIR" "$AGENT_DIR/docs" "$REVIEW_DIR" "$CLAUDE_SKILLS_DIR"
-if [[ "$PROFILE" == "generic" ]]; then
-  mkdir -p "$CODEX_SKILLS_DIR" "$OPENCODE_AGENTS_DIR"
-fi
+mkdir -p "$AGENT_DIR" "$AGENT_DIR/docs" "$REVIEW_DIR" "$CLAUDE_SKILLS_DIR" \
+  "$CODEX_SKILLS_DIR" "$OPENCODE_AGENTS_DIR"
 STAGE_ROOT="$(mktemp -d "$TARGET_ROOT/.agent-workflow-install.XXXXXX")"
 STAGE_SCRIPTS="$STAGE_ROOT/scripts"
 STAGE_SCHEMAS="$STAGE_ROOT/schemas"
@@ -376,13 +357,11 @@ if ! stage_tree "$SCRIPTS_SRC" "$STAGE_SCRIPTS" || \
   echo "install-into: staging failed; target installation was not changed." >&2
   exit 1
 fi
-if [[ "$PROFILE" == "generic" ]]; then
-  if ! stage_tree "$SKILL_SRC" "$STAGE_CODEX_SKILL" || \
-     ! cp "$GENERIC_PROFILE_SRC/opencode/agent-workflow.md" "$STAGE_OPENCODE_AGENT" || \
-     ! cp "$GENERIC_PROFILE_SRC/opencode/opencode.json" "$STAGE_OPENCODE_CONFIG"; then
-    echo "install-into: generic client staging failed; target installation was not changed." >&2
-    exit 1
-  fi
+if ! stage_tree "$SKILL_SRC" "$STAGE_CODEX_SKILL" || \
+   ! cp "$GENERIC_PROFILE_SRC/opencode/agent-workflow.md" "$STAGE_OPENCODE_AGENT" || \
+   ! cp "$GENERIC_PROFILE_SRC/opencode/opencode.json" "$STAGE_OPENCODE_CONFIG"; then
+  echo "install-into: generic client staging failed; target installation was not changed." >&2
+  exit 1
 fi
 if ! cp "$MODEL_ALLOC_SRC" "$STAGE_MODEL_ALLOC"; then
   echo "install-into: could not stage default model allocation config; target installation was not changed." >&2
@@ -436,19 +415,12 @@ NODE
 fi
 # Smoke suites exercise the source product layout and may create temporary
 # installations.  They are maintainer verification assets, not target runtime
-# commands, so never copy them into an installed PRODUCT_HOME.
-rm -rf "$STAGE_SCRIPTS/__tests__"
-if [[ "$PROFILE" == "generic" ]]; then
-  # Explicit FeedbackOps compatibility adapters/examples never ship in generic mode.
-  rm -f "$STAGE_SCRIPTS/verify.sh" "$STAGE_SCRIPTS/prepare-verify-db.sh" \
-    "$STAGE_SCRIPTS/prepare-worktree.sh" "$STAGE_SCRIPTS/tier-probe.sh" \
-    "$STAGE_SCRIPTS/rebase-inflight.sh" "$STAGE_SCRIPTS/uds-pg-relay.mjs" \
-    "$STAGE_SCRIPTS/lib/verify-result.cjs" "$STAGE_SCRIPTS/install-into.sh" \
-    "$STAGE_SCHEMAS/profiles/feedbackops.example.json"
-  rm -rf "$STAGE_SCRIPTS/install-profiles" \
-    "$STAGE_SCHEMAS/fixtures"
-fi
-printf '{"schema_version":"1","profile":"%s"}\n' "$PROFILE" > "$STAGE_PROFILE"
+# commands, so never copy them into an installed PRODUCT_HOME.  The installer
+# itself and the staged generic-profile source assets are also maintainer-only.
+rm -rf "$STAGE_SCRIPTS/__tests__" "$STAGE_SCRIPTS/install-profiles"
+rm -f "$STAGE_SCRIPTS/install-into.sh"
+rm -rf "$STAGE_SCHEMAS/fixtures"
+printf '{"schema_version":"1","profile":"generic"}\n' > "$STAGE_PROFILE"
 
 BACKUP_ROOT=""
 if [[ "$UPGRADE" -eq 1 ]]; then
@@ -488,21 +460,19 @@ restore_previous() {
       fi
     fi
   done
-  if [[ "$PROFILE" == "generic" ]]; then
-    for name in codex-skill opencode-agent opencode-config; do
-      case "$name" in
-        codex-skill) dest="$CODEX_SKILL_DEST" ;;
-        opencode-agent) dest="$OPENCODE_AGENT_DEST" ;;
-        opencode-config) dest="$OPENCODE_CONFIG_DEST" ;;
-      esac
-      if [[ -n "$BACKUP_ROOT" ]] && exists_node "$BACKUP_ROOT/$name"; then
-        if exists_node "$dest"; then rm -rf "$dest" || restore_status=1; fi
-        mv "$BACKUP_ROOT/$name" "$dest" || restore_status=1
-      elif [[ "$UPGRADE" -eq 0 ]] && exists_node "$dest"; then
-        rm -rf "$dest" || restore_status=1
-      fi
-    done
-  fi
+  for name in codex-skill opencode-agent opencode-config; do
+    case "$name" in
+      codex-skill) dest="$CODEX_SKILL_DEST" ;;
+      opencode-agent) dest="$OPENCODE_AGENT_DEST" ;;
+      opencode-config) dest="$OPENCODE_CONFIG_DEST" ;;
+    esac
+    if [[ -n "$BACKUP_ROOT" ]] && exists_node "$BACKUP_ROOT/$name"; then
+      if exists_node "$dest"; then rm -rf "$dest" || restore_status=1; fi
+      mv "$BACKUP_ROOT/$name" "$dest" || restore_status=1
+    elif [[ "$UPGRADE" -eq 0 ]] && exists_node "$dest"; then
+      rm -rf "$dest" || restore_status=1
+    fi
+  done
   if [[ -n "$BACKUP_ROOT" ]] && exists_node "$BACKUP_ROOT/profile"; then
     if exists_node "$PROFILE_DEST"; then
       if ! rm -f "$PROFILE_DEST" || exists_node "$PROFILE_DEST"; then
@@ -558,11 +528,9 @@ commit_installation() {
     if [[ "$AGENTS_POINTER_STATE" != "absent" ]]; then
       mv "$AGENTS_DEST" "$BACKUP_ROOT/agents" || return $?
     fi
-    if [[ "$PROFILE" == "generic" ]]; then
-      mv "$CODEX_SKILL_DEST" "$BACKUP_ROOT/codex-skill" || return $?
-      mv "$OPENCODE_AGENT_DEST" "$BACKUP_ROOT/opencode-agent" || return $?
-      mv "$OPENCODE_CONFIG_DEST" "$BACKUP_ROOT/opencode-config" || return $?
-    fi
+    mv "$CODEX_SKILL_DEST" "$BACKUP_ROOT/codex-skill" || return $?
+    mv "$OPENCODE_AGENT_DEST" "$BACKUP_ROOT/opencode-agent" || return $?
+    mv "$OPENCODE_CONFIG_DEST" "$BACKUP_ROOT/opencode-config" || return $?
   fi
   for name in scripts schemas docs skill; do
     case "$name" in
@@ -574,14 +542,12 @@ commit_installation() {
     mv "$staged" "$dest" || return $?
     echo "installed: $dest"
   done
-  if [[ "$PROFILE" == "generic" ]]; then
-    mv "$STAGE_CODEX_SKILL" "$CODEX_SKILL_DEST" || return $?
-    echo "installed: $CODEX_SKILL_DEST"
-    mv "$STAGE_OPENCODE_AGENT" "$OPENCODE_AGENT_DEST" || return $?
-    echo "installed: $OPENCODE_AGENT_DEST"
-    mv "$STAGE_OPENCODE_CONFIG" "$OPENCODE_CONFIG_DEST" || return $?
-    echo "installed: $OPENCODE_CONFIG_DEST"
-  fi
+  mv "$STAGE_CODEX_SKILL" "$CODEX_SKILL_DEST" || return $?
+  echo "installed: $CODEX_SKILL_DEST"
+  mv "$STAGE_OPENCODE_AGENT" "$OPENCODE_AGENT_DEST" || return $?
+  echo "installed: $OPENCODE_AGENT_DEST"
+  mv "$STAGE_OPENCODE_CONFIG" "$OPENCODE_CONFIG_DEST" || return $?
+  echo "installed: $OPENCODE_CONFIG_DEST"
   # Project-owned configuration is seeded only on first install. Upgrades never
   # overwrite it, including when its schema is older; operators get a warning.
   if [[ "$UPGRADE" -eq 0 ]]; then
@@ -635,9 +601,6 @@ cleanup_stage
 
 if [[ "$UPGRADE" -eq 1 ]]; then
   echo "upgrade backup: $BACKUP_ROOT"
-  if [[ "$PROFILE" == "feedbackops" ]] && [[ -z "${VERIFY_CLEAN_COMMAND:-}" ]]; then
-    echo "warning: VERIFY_CLEAN_COMMAND is not configured; canonical issue verification will fail until the target adopts docs/agents/verify-clean-probe.example.mjs or its equivalent." >&2
-  fi
 fi
 
 cat <<EOF
@@ -648,7 +611,5 @@ Next steps:
   - Read the playbook:        $TARGET_ROOT/.agent-workflow/docs/agents/multi-agent-workflow.md
   - Configure product home:   copy $TARGET_ROOT/.agent-workflow/docs/agents/workflow-config.example.json $TARGET_ROOT/.agent-workflow/workflow-config.json
   - From any worktree, invoke $TARGET_ROOT/.agent-workflow/scripts/<command> with --worktree <worktree>
-  - Profile:                   $PROFILE
   - Verify with target-verify.sh and a target-owned profile.
-  - Copy .env.example from the distributable toolkit package when needed.
 EOF

@@ -13,7 +13,7 @@ bad() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 expect() { label="$1"; wanted="$2"; shift 2; "$@" >"$TMP/out" 2>&1; got=$?; if [ "$got" -eq "$wanted" ]; then ok "$label"; else bad "$label (wanted=$wanted got=$got: $(cat "$TMP/out"))"; fi; }
 
 # AC-PROFILE-1 / AC-PROFILE-6: one closed schema represents all target families.
-for profile in node go python feedbackops; do
+for profile in node go python; do
   if node - "$VALIDATOR" "$ROOT/schemas/target-profile.schema.json" "$ROOT/schemas/profiles/$profile.example.json" <<'NODE'
 const fs=require("fs"); const {validate}=require(process.argv[2]);
 process.exit(validate(JSON.parse(fs.readFileSync(process.argv[3])),JSON.parse(fs.readFileSync(process.argv[4]))).length?1:0);
@@ -21,7 +21,7 @@ NODE
   then ok "AC-PROFILE-1 $profile example uses the target-neutral schema"; else bad "AC-PROFILE-1 $profile example validates"; fi
 done
 
-for fixture in verify.valid.json verify.generic.valid.json; do
+for fixture in verify.valid.json; do
   if node - "$VALIDATOR" "$ROOT/schemas/verify.schema.json" "$ROOT/schemas/fixtures/$fixture" <<'NODE'
 const fs=require("fs"); const {validate}=require(process.argv[2]);
 process.exit(validate(JSON.parse(fs.readFileSync(process.argv[3])),JSON.parse(fs.readFileSync(process.argv[4]))).length?1:0);

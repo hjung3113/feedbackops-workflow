@@ -1,1 +1,0 @@
-{"schema_version":"1","id":"feedbackops-vitest-postgres","runtime":{"executables":["node","pnpm","psql"]},"setup":[{"argv":["pnpm","install","--frozen-lockfile"]}],"verification":{"groups":[{"id":"legacy-adapter","required":true,"commands":[{"argv":["bash",".agent-workflow/scripts/verify.sh","--full-module"]}]}]}}

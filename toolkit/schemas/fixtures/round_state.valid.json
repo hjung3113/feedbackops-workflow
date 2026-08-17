@@ -19,14 +19,14 @@
     "touch_allowlist": ["packages/shared/**", "apps/backend/**"],
     "prohibitions": ["no network", "no push", "no merge", "no issue mutation"],
     "verify_filter": "shared-contract",
-    "test_discovery_command": "pnpm --filter backend exec vitest --list",
+    "test_discovery_command": "node --test --test-reporter=tap",
     "test_count": {
       "pattern": "(?:ℹ |# )?tests ([0-9]+)",
       "group": 1
     },
     "chunk_boundary": {
       "chunk_id": "C1",
-      "typecheck_command": "pnpm -r typecheck",
+      "typecheck_command": "node --experimental-strip-types --no-warnings -e 0",
       "compile_consumers": ["apps/backend/src/voc/registry.ts"],
       "convention_watch": [
         {
@@ -167,7 +167,7 @@
   },
   "live_probes": [
     {
-      "command": "pnpm --filter backend run typecheck",
+      "command": "node --experimental-strip-types --no-warnings -e 0",
       "exit_code": 0,
       "observed_at": "2026-07-20T11:55:00Z",
       "summary": "no new TypeScript errors"

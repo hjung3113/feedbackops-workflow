@@ -12,8 +12,8 @@ directory. A fresh linked worktree has no ignored PRODUCT_HOME, so invoke
 do not use worktree-relative `.agent-workflow/scripts` paths.
 Read the target instructions and the installed generic playbook before work.
 Use `"$PRODUCT_HOME/scripts/agent-workflow.sh" dispatch` with explicit, independently selected
-runtime (`codex|claude|opencode`), role (including conductor), and available
-orchestrator. Run `"$PRODUCT_HOME/scripts/agent-workflow.sh" capabilities` before admission;
+runtime (`codex|claude|opencode`), role (including conductor), and one
+available orchestrator (`cmux|orca|herdr`). Run `"$PRODUCT_HOME/scripts/agent-workflow.sh" capabilities` before admission;
 missing capability fails closed and never falls back. OpenCode requires
 top-level and named-primary-agent deny-first permissions delivered through
 `OPENCODE_CONFIG_CONTENT`; the adapter explicitly selects `agent-workflow` and

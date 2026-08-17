@@ -22,7 +22,7 @@
       "evidence_artifact": ".review/ISSUE-31-PR-DRAFT.json",
       "evidence_head_sha": "e86c685a1b2c3d4e5f60718293a4b5c6d7e8f901",
       "branch": "feature/issue-31",
-      "worktree_path": "/workspace/feedbackops-wt/issue-31",
+      "worktree_path": "/workspace/target-wt/issue-31",
       "note": "happy path GREEN end-to-end"
     },
     {
@@ -31,7 +31,7 @@
       "evidence_artifact": ".review/ISSUE-33-BLOCKER.json",
       "evidence_head_sha": "b8b6332c4d5e6f708192a3b4c5d6e7f809102132",
       "branch": "feature/issue-33",
-      "worktree_path": "/workspace/feedbackops-wt/issue-33"
+      "worktree_path": "/workspace/target-wt/issue-33"
     }
   ]
 }

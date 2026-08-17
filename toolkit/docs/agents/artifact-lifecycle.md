@@ -74,7 +74,7 @@ Superseded files MUST be ignored by readers. Cleanup: on PR merge, run
 ## Validation
 
 ```bash
-pnpm dlx ajv-cli validate -s schemas/pr_draft.schema.json -d .review/ISSUE-33-PR-DRAFT.json
+npx ajv-cli validate -s schemas/pr_draft.schema.json -d .review/ISSUE-33-PR-DRAFT.json
 ```
 
 List schemas and fixtures from disk rather than relying on a hand-maintained inventory:
@@ -84,4 +84,4 @@ ls schemas/*.schema.json
 ls schemas/fixtures/
 ```
 
-Note: `phase_summary` and `heartbeat` carry date-time string fields (`generated_at`, `updated_at`, `last_verify_at`). They are validated as plain `type: "string"` (no JSON Schema `format: "date-time"` keyword) because the `ajv-formats` plugin is not installable via `pnpm dlx` in this environment. If `ajv-formats` becomes available, re-add `"format": "date-time"` to those fields and validate with `-c ajv-formats`.
+Note: `phase_summary` and `heartbeat` carry date-time string fields (`generated_at`, `updated_at`, `last_verify_at`). They are validated as plain `type: "string"` (no JSON Schema `format: "date-time"` keyword) because the `ajv-formats` plugin was not available through the offline validator in this environment. If `ajv-formats` becomes available, re-add `"format": "date-time"` to those fields and validate with `-c ajv-formats`.

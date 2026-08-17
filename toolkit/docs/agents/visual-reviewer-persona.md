@@ -52,7 +52,7 @@ A screenshot is not a verdict. A visual pass — `impeccable` critique and/or a 
 **Division of labor — do not blur it:**
 
 - **REVIEWER (you, incl. VISUAL-REVIEWER)** own the **checklist + smoke**: the interaction script here is an *ad-hoc smoke pass* you drive live to confirm the states look and behave right at review time. It feeds a `review` verdict; it is not a committed test.
-- **VERIFIER** owns the **durable Playwright specs** — the persisted, re-runnable tests checked into the repo and run by `scripts/verify.sh`. Your live smoke does NOT replace those, and a green VISUAL-REVIEWER pass is not a substitute for VERIFIER's evidence.
+- **VERIFIER** owns the **durable Playwright specs** — the persisted, re-runnable tests checked into the repo and run through the target profile's verification groups. Your live smoke does NOT replace those, and a green VISUAL-REVIEWER pass is not a substitute for VERIFIER's evidence.
 
 So: VISUAL-REVIEWER drives playwright **interactively** to judge; VERIFIER **codifies** the lasting specs. Both must be satisfied — a visual pass without the paired interaction-script smoke is incomplete and cannot close the chunk.
 

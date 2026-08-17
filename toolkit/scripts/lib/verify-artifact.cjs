@@ -30,9 +30,8 @@ function validRun(run) {
   const exitCode = run.verdict.exit_code;
   if (!Number.isInteger(exitCode)) return false;
   if (run.classifier === "PASS") {
-    const genericGroupsPass = !Object.prototype.hasOwnProperty.call(run, "groups")
-      || validGenericPassGroups(run.groups);
-    return passed >= 1 && failed === 0 && exitCode === 0 && run.failures.length === 0 && genericGroupsPass;
+    return passed >= 1 && failed === 0 && exitCode === 0 && run.failures.length === 0
+      && validGenericPassGroups(run.groups);
   }
   return failed > 0 || exitCode !== 0 || run.failures.length > 0;
 }
@@ -43,7 +42,7 @@ function aggregateArtifact(current, runs) {
   return {
     ...current,
     verify_cmd: latest.verify_cmd,
-    clean_state: latest.clean_state,
+    groups: latest.groups,
     verdict: {
       passed: runs.reduce((total, run) => total + count(run.verdict, "passed"), 0),
       failed: runs.reduce((total, run) => total + count(run.verdict, "failed"), 0),
@@ -61,12 +60,11 @@ function validAggregate(artifact) {
   if (!Object.prototype.hasOwnProperty.call(artifact, "runs")) return true;
   if (!Array.isArray(artifact.runs) || artifact.runs.length === 0 || !artifact.runs.every(validRun)) return false;
   const latest = artifact.runs[artifact.runs.length - 1];
-  if (artifact.target_profile && !artifact.runs.every((run) => Array.isArray(run.groups)
+  if (!artifact.runs.every((run) => Array.isArray(run.groups)
       && run.groups.length > 0
       && run.groups.every((group) => group.required === true && Array.isArray(group.commands) && group.commands.length > 0))) return false;
   const expected = aggregateArtifact({...artifact, runs: undefined}, artifact.runs);
   return artifact.verify_cmd === expected.verify_cmd
-    && sameJson(artifact.clean_state, expected.clean_state)
     && sameJson(artifact.groups, latest.groups)
     && sameJson(artifact.verdict, expected.verdict)
     && artifact.classifier === expected.classifier
@@ -75,13 +73,11 @@ function validAggregate(artifact) {
 }
 
 function validArtifact(artifact) {
-  const generic = Boolean(artifact && artifact.target_profile);
-  const shapeValid = generic
-    ? Array.isArray(artifact.groups) && artifact.groups.length > 0
-      && artifact.groups.every((group) => group.required === true && Array.isArray(group.commands) && group.commands.length > 0)
-    : Boolean(artifact && artifact.db_target && artifact.clean_state);
+  const shapeValid = Array.isArray(artifact.groups) && artifact.groups.length > 0
+    && artifact.groups.every((group) => group.required === true && Array.isArray(group.commands) && group.commands.length > 0);
   return artifact
     && typeof artifact === "object"
+    && typeof artifact.target_profile === "string" && artifact.target_profile.length > 0
     && (artifact.classifier === "PASS" || artifact.classifier === "FAIL")
     && Boolean(artifact.head_sha)
     && typeof artifact.content_sha256 === "string"
@@ -89,7 +85,7 @@ function validArtifact(artifact) {
     && artifact.verdict
     && typeof artifact.verdict === "object"
     && shapeValid
-    && (!(generic && artifact.classifier === "PASS") || validGenericPassGroups(artifact.groups))
+    && (artifact.classifier !== "PASS" || validGenericPassGroups(artifact.groups))
     && validAggregate(artifact);
 }
 

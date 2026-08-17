@@ -6,22 +6,18 @@ Read this reference only when installing or adapting the workflow to a new targe
 
 | Layer | Portability | Notes |
 |---|---|---|
-| Artifact schemas and lifecycle | General | JSON contracts do not depend on FeedbackOps product code. |
+| Artifact schemas and lifecycle | General | JSON contracts do not depend on any target's product code. |
 | `agent-workflow.sh`, dispatch core, runtime/transport adapters, watchdog | General | Require Git, an explicitly selected capability-probed Codex, Claude Code, or OpenCode runtime, and an explicitly selected available cmux (minimum 0.64.0 with workspace create cwd/command), Orca CLI (create worktree/title/command/JSON plus read-only list), or Herdr CLI from an inherited Herdr session. |
 | Review/archive/state reconstruction | General with conventions | The target must use the documented `.review/` names and full SHAs. |
 | Target profile + `target-verify.sh` | General | One closed profile owns target facts; commands are structured argv/cwd/env data. |
 | Parallel plan and candidate closure | General | Requires Git worktrees/commits; write paths and evidence paths stay target-relative. Target policy declares shared mutation paths, per-seat DB/env isolation, and rate-limit budget proof. |
-| `prepare-worktree.sh` | FeedbackOps compatibility adapter | Profile-driven setup is deliberately deferred; do not parse the profile independently here. |
-| `tier-probe.sh` | TypeScript compatibility adapter | Profile-driven tier triggers are deliberately deferred; do not create a second precedence path. |
-| `verify.sh` | FeedbackOps compatibility adapter | Retains pnpm/Vitest/Postgres clean-state behavior. |
-| `prepare-verify-db.sh` | PostgreSQL adapter | Assumes local PostgreSQL and per-issue databases. |
 | `rebase-inflight.sh` | Convention adapter | Carries branch and `feature/*` assumptions. The former `cmux-cluster.sh` convention adapter was removed (#127). |
 
-The workflow's coordination model and generic verifier are reusable. Target facts have one authority: a target-owned JSON profile validated by `schemas/target-profile.schema.json`; examples for Node, Go, Python, and FeedbackOps live under `schemas/profiles/`.
+The workflow's coordination model and generic verifier are reusable. Target facts have one authority: a target-owned JSON profile validated by `schemas/target-profile.schema.json`; Node, Go, and Python examples live under `schemas/profiles/`.
 
 Every target must explicitly tier its initial write. Standard/Full Cluster work generates the complete canonical `ISSUE-<n>-ROUND-STATE.json`, including explicit `contract.prohibitions[]` rather than prompt-regex reconstruction; Standard may omit optional Full Cluster structures but retains `pr_draft` and `review` pointers and must not introduce a reduced target-specific schema. Pass that artifact and its revision to `agent-workflow.sh dispatch` with an explicit orchestrator; initial admission binds it to the target issue, tier, real worktree, live HEAD, and integration-branch merge-base. Trivial initial work retains the documented `pr_draft`-only contract.
 
-Choose distribution profile at installation, then transport, runtime, and role before the first run. Use `install-into.sh <target> --profile generic` for unrelated targets; it installs target-neutral docs/skill only. `--profile feedbackops` retains the FeedbackOps adapters. The installed checkout's absolute `.agent-workflow` directory is PRODUCT_HOME: copy `$PRODUCT_HOME/docs/agents/workflow-config.example.json` to `$PRODUCT_HOME/workflow-config.json`, set `AGENT_WORKFLOW_ORCHESTRATOR`, `AGENT_WORKFLOW_RUNTIME`, `AGENT_WORKFLOW_ROLE`, or pass `--orchestrator cmux|orca|herdr --runtime codex|claude|opencode --role <role>`; CLI overrides environment, which overrides PRODUCT_HOME config independently for each axis. Missing/unknown transport or runtime capability fails closed and never falls back. PRODUCT_HOME config contains only `orchestrator`, `runtime`, and `role`; it cannot inject an executable or command.
+Choose transport, runtime, and role before the first run. `install-into.sh <target>` installs the target-neutral product; the removed `--profile feedbackops` compatibility distribution is refused with guidance. The installed checkout's absolute `.agent-workflow` directory is PRODUCT_HOME: copy `$PRODUCT_HOME/docs/agents/workflow-config.example.json` to `$PRODUCT_HOME/workflow-config.json`, set `AGENT_WORKFLOW_ORCHESTRATOR`, `AGENT_WORKFLOW_RUNTIME`, `AGENT_WORKFLOW_ROLE`, or pass `--orchestrator cmux|orca|herdr --runtime codex|claude|opencode --role <role>`; CLI overrides environment, which overrides PRODUCT_HOME config independently for each axis. Missing/unknown transport or runtime capability fails closed and never falls back. PRODUCT_HOME config contains only `orchestrator`, `runtime`, and `role`; it cannot inject an executable or command.
 
 Herdr selection requires an inherited Herdr session (`HERDR_ENV=1` and a
 non-empty `HERDR_SOCKET_PATH`); missing session context fails closed without
@@ -90,9 +86,7 @@ Before the first run, answer these from the target's real files:
 8. Which repository-native commands enumerate compile-time consumers, and what full typecheck command gates the proposed scope?
 9. What artifact or captured result proves verification at the current HEAD?
 
-Record executable answers in one target profile. Do not duplicate profile precedence or add target assumptions back to the shared skill. Run `$PRODUCT_HOME/scripts/target-verify.sh <profile> <issue>` for generic targets. Every required command must exit zero for PASS. A test-count extractor must match real target output and prove a positive integer; a miss is durable `test_count:null` FAIL evidence. Treat `verification.output_bytes` as a UTF-8 byte ceiling. Same-HEAD canonical evidence is appendable only after schema and aggregate validation, so repair or archive an invalid artifact rather than replacing its red history with a new PASS.
-
-For the bundled verifier, the target-owned adapter document must define `VERIFY_CLEAN_COMMAND`. The installed `docs/agents/verify-clean-probe.example.mjs` is an executable, product-neutral reference: provide separate app and migration URLs plus target-owned read-only sentinel and migration-hash queries. Its `sentinel` proves attachment to the intended throwaway target; `migration_hash` proves migration state matches the target's declared expectation. The command maps URL components to `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD` and supported libpq TLS settings (mode, CA/client cert/key, CRL, protocol bounds, negotiation, compression, SNI) to `PG*` variables for `psql` rather than passing a URL in argv; an unrecognized or empty query option fails closed before `psql` runs. It then prints exactly one JSON object containing those checks with sanitized string `expected`/`actual` values plus `role:{name,superuser}` measured from the actual connection. It owns how domain facts are measured; the toolkit rejects undeclared fields, role mismatch, and superuser evidence, then stores only the declared projection inside canonical VERIFY. Do not put a database URL, credential, or customer value in any field or command argv. Canonical issue verification refuses an absent probe.
+Record executable answers in one target profile. Do not duplicate profile precedence or add target assumptions back to the shared skill. Run `$PRODUCT_HOME/scripts/target-verify.sh <profile> <issue>`. Every required command must exit zero for PASS. A test-count extractor must match real target output and prove a positive integer; a miss is durable `test_count:null` FAIL evidence. Treat `verification.output_bytes` as a UTF-8 byte ceiling. Same-HEAD canonical evidence is appendable only after schema and aggregate validation, so repair or archive an invalid artifact rather than replacing its red history with a new PASS.
 
 Optional analysis services such as CodeGraph also belong to the **target repository or operator environment**, because their index must describe the code being changed. The toolkit repository itself is mostly Bash/Markdown/JSON and does not ship a project MCP config for target-only analyzers.
 
@@ -103,9 +97,9 @@ Keep the repository split into two layers:
 - **Core:** dispatch, sandbox, liveness, artifact lifecycle, independent review, completion calculation.
 - **Target profile:** install command, env destinations, branch patterns, tier triggers, verifier command, service isolation.
 
-The v1 profile owns runtime executables, setup commands, required environment names, env allowlists, and required verification groups. Commands are argv arrays with optional repository-relative cwd; arbitrary shell strings, plugin registries, absolute cwd, and traversal are rejected. `prepare-worktree.sh` and `tier-probe.sh` remain explicit compatibility adapters until their migrations can consume the same parsed profile without divergent precedence.
+The v1 profile owns runtime executables, setup commands, required environment names, env allowlists, and required verification groups. Commands are argv arrays with optional repository-relative cwd; arbitrary shell strings, plugin registries, absolute cwd, and traversal are rejected.
 
-Use `target-verify.sh` for generic verification and `verify.sh` only for the documented FeedbackOps compatibility profile.
+Use `target-verify.sh` for all verification; the former FeedbackOps `verify.sh`/`prepare-worktree.sh`/`tier-probe.sh` compatibility adapters were removed from the product.
 
 ## Feed problems back to the toolkit
 

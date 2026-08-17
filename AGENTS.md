@@ -94,9 +94,9 @@ Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.
 - `.github/tests/release-contract.smoke.sh` is the repository release gate. It
   covers containment, installed links, leakage, and CI routing; it is not a
   target-installed artifact.
-- `toolkit/scripts/verify.sh` is the FeedbackOps Vitest verification oracle;
-  its real filter path needs a compatible target and local DB. The smoke suite
-  and `sandbox-network-deny.smoke.sh` cover offline contract paths.
+- `toolkit/scripts/target-verify.sh` with a target-owned profile is the
+  verification oracle. The smoke suite and `sandbox-network-deny.smoke.sh`
+  cover offline contract paths.
 
 ## Source of truth
 

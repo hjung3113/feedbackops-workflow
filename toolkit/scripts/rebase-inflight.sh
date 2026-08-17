@@ -57,13 +57,11 @@ mkdir "$LOCK" 2>/dev/null || { echo "another rebase-inflight is running (lock: $
 # Only this process should remove the lock it acquired.
 trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
 
-# print a suggested verify command for a freshly-rebased worktree.
-# NOTE: scripts/verify.sh's positional arg is a VITEST test name/path filter
-# scoped to the backend package — NOT a package selector. So we deliberately
-# do NOT emit a package name (e.g. "backend"), which vitest would treat as a
-# name filter and likely match nothing. Stay a SUGGESTION only (never auto-run).
+# print a suggested verify action for a freshly-rebased worktree.
+# Stay a SUGGESTION only (never auto-run); the target owns its verification
+# commands through its target profile.
 suggest_verify() {
-  echo "    suggest: run scripts/verify.sh <test-name-filter> for the affected area (e.g. a touched test's name)"
+  echo "    suggest: run the target profile's verification command for the affected area (e.g. a touched test's scope)"
 }
 
 # --- discover sibling in-flight feature worktrees (mirrors .githooks/post-merge) ---

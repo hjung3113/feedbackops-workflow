@@ -95,11 +95,17 @@ assert_portable_layout() {
   done
 }
 
+seed_client_leaves() {
+  target="$1"
+  mkdir -p "$target/.agents/skills/agent-workflow" "$target/.opencode/agents"
+  printf '%s\n' "thin" > "$target/.agents/skills/agent-workflow/SKILL.md"
+  printf '%s\n' "thin" > "$target/.opencode/agents/agent-workflow.md"
+  printf '%s\n' '{"schema_version":"1","profile":"generic"}' > "$target/opencode.json"
+}
+
 assert_current_content() {
   label="$1"; target="$2"
-  assert_true "$label includes install script" test -x "$target/.agent-workflow/scripts/install-into.sh"
   assert_true "$label seeds default model allocation config" test -f "$target/.agent-workflow/model-alloc.json"
-  assert_true "$label includes verify result module" test -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
   assert_true "$label includes worktree content identity helper" test -e "$target/.agent-workflow/scripts/lib/worktree-content-id.cjs"
   assert_true "$label includes review capsule renderer" test -x "$target/.agent-workflow/scripts/review-capsule.sh"
   assert_true "$label includes review capsule schema" test -e "$target/.agent-workflow/schemas/review_capsule.schema.json"
@@ -109,16 +115,10 @@ assert_current_content() {
   assert_true "$label includes telemetry sample semantic validator" test -e "$target/.agent-workflow/scripts/lib/telemetry-sample.cjs"
   assert_true "$label includes telemetry schemas" test -e "$target/.agent-workflow/schemas/telemetry_sample.schema.json"
   assert_true "$label includes telemetry report schema" test -e "$target/.agent-workflow/schemas/telemetry_report.schema.json"
-  assert_true "$label includes semantic closure telemetry fixtures" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.closure.valid.json"
-  assert_true "$label includes invalid semantic closure telemetry fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.closure.invalid.json"
-  assert_true "$label includes routed telemetry sample fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_sample.routing.valid.json"
-  assert_true "$label includes routed telemetry report fixture" test -e "$target/.agent-workflow/schemas/fixtures/telemetry_report.routing.valid.json"
   assert_true "$label includes candidate closure schema" test -e "$target/.agent-workflow/schemas/candidate_closure.schema.json"
-  assert_true "$label includes candidate closure RFC3339 fixture" test -e "$target/.agent-workflow/schemas/fixtures/candidate_closure.timestamp.invalid.json"
   assert_true "$label includes candidate integration schema" test -e "$target/.agent-workflow/schemas/integration_result.schema.json"
   assert_true "$label includes candidate evidence schema" test -e "$target/.agent-workflow/schemas/candidate_evidence_set.schema.json"
   assert_true "$label includes schemas" test -e "$target/.agent-workflow/schemas/round_state.schema.json"
-  assert_true "$label includes invalid RUN fixture" test -e "$target/.agent-workflow/schemas/fixtures/run.invalid.json"
   assert_true "$label includes target profile schema" test -e "$target/.agent-workflow/schemas/target-profile.schema.json"
   assert_true "$label includes Node target profile example" test -e "$target/.agent-workflow/schemas/profiles/node.example.json"
   assert_true "$label includes generic target verifier" test -x "$target/.agent-workflow/scripts/target-verify.sh"
@@ -128,7 +128,6 @@ assert_current_content() {
   assert_true "$label includes Orca adapter" test -x "$target/.agent-workflow/scripts/adapters/orca.sh"
   assert_true "$label includes Herdr adapter" test -x "$target/.agent-workflow/scripts/adapters/herdr.sh"
   assert_true "$label includes receipt schema" test -e "$target/.agent-workflow/schemas/transport_receipt.schema.json"
-  assert_true "$label includes routing receipt fixtures" test -e "$target/.agent-workflow/schemas/fixtures/transport_receipt.routing.valid.json"
   assert_true "$label includes workflow config example" test -e "$target/.agent-workflow/docs/agents/workflow-config.example.json"
   assert_true "$label includes parallel planner" test -x "$target/.agent-workflow/scripts/parallel-plan.sh"
   assert_true "$label includes candidate integrator" test -x "$target/.agent-workflow/scripts/candidate-integrate.sh"
@@ -142,34 +141,16 @@ assert_current_content() {
   assert_true "$label includes execution plan schema" test -e "$target/.agent-workflow/schemas/execution_plan.schema.json"
   assert_true "$label includes candidate closure schema" test -e "$target/.agent-workflow/schemas/candidate_closure.schema.json"
   assert_true "$label installs direct closure bindings" grep -q '"closure_binding"' "$target/.agent-workflow/schemas/review.schema.json"
-  # RFC3339 timestamp enforcement behavior is owned by telemetry.smoke.sh's
-  # "AC-TEL-3 canonical closure rejects non-RFC3339 timestamp"; prove the
-  # installed schema itself accepts the valid closure fixture and rejects the
-  # non-RFC3339-timestamp one.
-  assert_true "$label installs an RFC3339-enforcing closure schema" node - \
-    "$target/.agent-workflow/scripts/lib/json-schema-subset.cjs" \
-    "$target/.agent-workflow/schemas/candidate_closure.schema.json" \
-    "$target/.agent-workflow/schemas/fixtures/candidate_closure.valid.json" \
-    "$target/.agent-workflow/schemas/fixtures/candidate_closure.timestamp.invalid.json" <<'NODE'
-const fs = require("fs");
-const [validator, schemaFile, validFixture, invalidFixture] = process.argv.slice(2);
-const { validate } = require(validator);
-const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
-if (validate(schema, JSON.parse(fs.readFileSync(validFixture, "utf8"))).length) process.exit(1);
-if (!validate(schema, JSON.parse(fs.readFileSync(invalidFixture, "utf8"))).length) process.exit(2);
-NODE
   assert_true "$label includes playbook" test -e "$target/.agent-workflow/docs/agents/multi-agent-workflow.md"
   assert_true "$label includes skill" test -e "$target/.claude/skills/agent-workflow/SKILL.md"
   assert_transport_guidance_files "$label installed transport guidance" "$target" \
     ".agent-workflow/docs/agents/multi-agent-workflow.md" \
-    ".agent-workflow/docs/agents/conductor-persona.md" \
-    ".claude/skills/agent-workflow/SKILL.md" \
-    ".claude/skills/agent-workflow/references/adoption.md"
+    ".claude/skills/agent-workflow/SKILL.md"
 }
 
 assert_no_maintainer_leakage() {
   target="$1"
-  assert_true "install excludes Matt skills" test ! -e "$target/.agents"
+  assert_true "install excludes Matt skills" test ! -e "$target/.agents/skills/code-review"
   assert_true "install excludes maintainer tracker" test ! -e "$target/docs/agents/issue-tracker.md"
   assert_true "install excludes plans" test ! -e "$target/docs/plans"
 }
@@ -180,15 +161,9 @@ assert_generic_profile() {
   assert_true "generic install retains target-neutral verifier" test -x "$target/.agent-workflow/scripts/target-verify.sh"
   assert_true "generic install includes VERIFY semantic validator" test -e "$target/.agent-workflow/scripts/lib/verify-artifact.cjs"
   assert_true "generic install includes worktree content identity helper" test -e "$target/.agent-workflow/scripts/lib/worktree-content-id.cjs"
-  assert_true "generic install excludes FeedbackOps verifier" test ! -e "$target/.agent-workflow/scripts/verify.sh"
-  assert_true "generic install excludes FeedbackOps DB adapter" test ! -e "$target/.agent-workflow/scripts/prepare-verify-db.sh"
-  assert_true "generic install excludes FeedbackOps worktree adapter" test ! -e "$target/.agent-workflow/scripts/prepare-worktree.sh"
-  assert_true "generic install excludes TypeScript tier adapter" test ! -e "$target/.agent-workflow/scripts/tier-probe.sh"
-  assert_true "generic install excludes private Vitest classifier" test ! -e "$target/.agent-workflow/scripts/lib/verify-result.cjs"
   assert_true "generic install excludes source smoke tests" test ! -e "$target/.agent-workflow/scripts/__tests__"
   assert_true "generic install excludes source install assets" test ! -e "$target/.agent-workflow/scripts/install-profiles"
   assert_true "generic install excludes schema fixtures" test ! -e "$target/.agent-workflow/schemas/fixtures"
-  assert_true "generic install excludes FeedbackOps profile example" test ! -e "$target/.agent-workflow/schemas/profiles/feedbackops.example.json"
   assert_true "generic install excludes source installer" test ! -e "$target/.agent-workflow/scripts/install-into.sh"
   assert_true "generic install creates Codex skill discovery" test -f "$target/.agents/skills/agent-workflow/SKILL.md"
   assert_true "generic install creates OpenCode agent discovery" test -f "$target/.opencode/agents/agent-workflow.md"
@@ -257,43 +232,35 @@ prepare_gate_fixture() {
 
 assert_installed_gates() {
   label="$1"; target="$2"; scripts="$target/.agent-workflow/scripts"
-  installed_report="$target/.review/installed-verify-green.json"
-  printf '%s\n' '{"numPassedTests":1,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true}' > "$installed_report"
-  assert_exit "$label executes verify classifier" PASS bash "$scripts/verify.sh" --classify-json "$installed_report"
-
   installed_bin="$target/.review/installed-verify-bin"
-  installed_clean="$target/.review/installed-clean.sh"
   mkdir -p "$installed_bin"
-  cat > "$installed_bin/pnpm" <<'STUB'
+  cat > "$installed_bin/installed-fake-test" <<'STUB'
 #!/usr/bin/env bash
-for arg in "$@"; do case "$arg" in --outputFile=*) output="${arg#--outputFile=}" ;; esac; done
-case "${PNPM_STUB_MODE:-green}" in
-  fail) printf '%s\n' '{"numPassedTests":0,"numFailedTests":1,"numPendingTests":0,"numFailedTestSuites":0,"success":false}' > "$output"; exit 1 ;;
-  *) printf '%s\n' '{"numPassedTests":1,"numFailedTests":0,"numPendingTests":0,"numFailedTestSuites":0,"success":true}' > "$output"; exit 0 ;;
+case "${INSTALLED_FAKE_MODE:-green}" in
+  fail) echo "0 tests"; exit 1 ;;
+  *) echo "2 tests"; exit 0 ;;
 esac
 STUB
-  chmod +x "$installed_bin/pnpm"
-  cat > "$installed_clean" <<'CLEAN'
-#!/usr/bin/env bash
-printf '%s\n' '{"checks":[{"code":"sentinel","expected":"clean","actual":"clean"},{"code":"migration_hash","expected":"same","actual":"same"}],"role":{"name":"fops_app","superuser":false}}'
-CLEAN
-  chmod +x "$installed_clean"
-  ( cd "$target" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="sh '$installed_clean'" VERIFY_ISSUE=189 PNPM_STUB_MODE=fail VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$installed_bin:$PATH" bash "$scripts/verify.sh" permissions ) >/dev/null 2>&1
+  chmod +x "$installed_bin/installed-fake-test"
+  cat > "$target/installed-profile.json" <<'PROFILE'
+{"schema_version":"1","id":"installed-gates","runtime":{"executables":["installed-fake-test"]},"setup":[],"verification":{"groups":[{"id":"test","required":true,"commands":[{"argv":["installed-fake-test"],"env_allow":["INSTALLED_FAKE_MODE"]}],"test_count":{"pattern":"([0-9]+) tests","group":1}}]}}
+PROFILE
+  ( cd "$target" && PATH="$installed_bin:$PATH" INSTALLED_FAKE_MODE=fail bash "$scripts/target-verify.sh" installed-profile.json 189 ) >/dev/null 2>&1
   installed_first_ec=$?
-  ( cd "$target" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="sh '$installed_clean'" VERIFY_ISSUE=189 PNPM_STUB_MODE=green VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$installed_bin:$PATH" bash "$scripts/verify.sh" surveys ) >/dev/null 2>&1
+  ( cd "$target" && PATH="$installed_bin:$PATH" INSTALLED_FAKE_MODE=green bash "$scripts/target-verify.sh" installed-profile.json 189 ) >/dev/null 2>&1
   installed_second_ec=$?
-  if [ "$installed_first_ec" -eq 1 ] && [ "$installed_second_ec" -eq 1 ] && node -e 'const o=require(process.argv[1]); process.exit(Array.isArray(o.runs)&&o.runs.length===2&&o.classifier==="FAIL"&&o.runs[1].classifier==="PASS" ? 0 : 1)' "$target/.review/ISSUE-189-VERIFY.json"; then
+  if [ "$installed_first_ec" -ne 0 ] && [ "$installed_second_ec" -ne 0 ] && node -e 'const o=require(process.argv[1]); process.exit(Array.isArray(o.runs)&&o.runs.length===2&&o.classifier==="FAIL"&&o.runs[1].classifier==="PASS" ? 0 : 1)' "$target/.review/ISSUE-189-VERIFY.json"; then
     ok "$label installed verify preserves a red-latched aggregate"
   else
     not_ok "$label installed verify preserves a red-latched aggregate"
   fi
-  ( cd "$target" && VERIFY_DATABASE_URL="postgres://fops_app@127.0.0.1/verify_smoke" VERIFY_CLEAN_COMMAND="sh '$installed_clean'" VERIFY_ISSUE=190 PNPM_STUB_MODE=green VERIFY_ENV_ALLOW=PNPM_STUB_MODE PATH="$installed_bin:$PATH" bash "$scripts/verify.sh" installed-conductor ) >/dev/null 2>&1
+  ( cd "$target" && PATH="$installed_bin:$PATH" INSTALLED_FAKE_MODE=green bash "$scripts/target-verify.sh" installed-profile.json 190 ) >/dev/null 2>&1
   installed_conductor_verify_ec=$?
   installed_branch="$(git -C "$target" rev-parse --abbrev-ref HEAD)"
   installed_head="$(git -C "$target" rev-parse HEAD)"
   node - "$target/.review/ISSUE-190-PR-DRAFT.json" "$target" "$installed_branch" "$installed_head" <<'NODE'
 const fs=require("fs"); const [file,worktree,branch,head]=process.argv.slice(2);
-fs.writeFileSync(file,JSON.stringify({schema_version:"1",artifact_type:"pr_draft",lifecycle:"active",producer_role:"CODEX",issue:{number:190,title:"installed conductor schema"},branch,base_sha:head,head_sha:head,files_touched:[{path:"allowed/file.txt",change:"edit"}],verify_cmd:"verify.sh installed-conductor",status:"ready_for_review",worktree_path:worktree}));
+fs.writeFileSync(file,JSON.stringify({schema_version:"1",artifact_type:"pr_draft",lifecycle:"active",producer_role:"CODEX",issue:{number:190,title:"installed conductor schema"},branch,base_sha:head,head_sha:head,files_touched:[{path:"allowed/file.txt",change:"edit"}],verify_cmd:"target-verify.sh installed-gates",status:"ready_for_review",worktree_path:worktree}));
 NODE
   installed_conductor_out="$(bash "$scripts/conductor-rebuild.sh" "$target/.review" 2>/dev/null)"
   if [ "$installed_conductor_verify_ec" -eq 0 ] && printf '%s\n' "$installed_conductor_out" | grep -q '^190	verified'; then
@@ -438,12 +405,11 @@ assert_true "fresh install preserves review evidence" grep -F -q evidence "$fres
 assert_true "fresh install preserves unrelated project files" grep -F -q project "$fresh/project.txt"
 assert_true "fresh install does not create target instructions" test ! -e "$fresh/AGENTS.md"
 assert_true "fresh install implementation contract requires canonical AC ids in test names" grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$fresh/.agent-workflow/scripts/lib/output-contract.mjs"
-assert_true "fresh install skill documents canonical AC ids in test names" grep -F -q 'Name each test so it contains the canonical AC id it satisfies' "$fresh/.claude/skills/agent-workflow/SKILL.md"
 assert_true "fresh install ships Claude reviewer allocation" node -e 'const v=require(process.argv[1]); process.exit(v.reviewer_by_runtime && v.reviewer_by_runtime.claude && v.reviewer_by_runtime.claude.model === "sonnet" && v.reviewer_by_runtime.claude.effort === "medium" ? 0 : 1)' "$fresh/.agent-workflow/model-alloc.json"
 node -e 'const fs=require("fs"),v=require(process.argv[1]);v.roles.implementation.effort="max";fs.writeFileSync(process.argv[2],JSON.stringify(v))' "$fresh/.agent-workflow/model-alloc.json" "$TMP_DIR/installed-max.json"
 assert_exit_output "fresh install executes GPT-5.6 max allocation" 0 '"impl_effort":"max"' bash "$fresh/.agent-workflow/scripts/model-alloc.sh" --role implementation --config "$TMP_DIR/installed-max.json"
 assert_no_maintainer_leakage "$fresh"
-assert_true "default install records FeedbackOps profile" grep -F -q '"profile":"feedbackops"' "$fresh/.agent-workflow/install-profile.json"
+assert_generic_profile "$fresh"
 assert_product_home_worktree_contract "$fresh"
 
 agents_target="$TMP_DIR/agents-target"
@@ -484,8 +450,8 @@ assert_true "duplicate AGENTS pointer leaves installer paths absent" test ! -e "
 
 generic="$TMP_DIR/generic target"
 mkdir -p "$generic"
-assert_exit "generic install succeeds" PASS bash "$INSTALL" "$generic" --profile generic
-assert_portable_layout "generic install" "$generic"
+assert_exit "fresh install succeeds" PASS bash "$INSTALL" "$generic"
+assert_portable_layout "second install" "$generic"
 assert_generic_profile "$generic"
 git -C "$generic" init -q
 git -C "$generic" config user.email smoke@example.test
@@ -510,22 +476,28 @@ else
 fi
 assert_true "generic install does not create root instructions" test ! -e "$generic/AGENTS.md"
 assert_true "generic install excludes maintainer docs" test ! -e "$generic/docs"
-assert_exit_output "generic upgrade refuses FeedbackOps profile substitution" 2 "refusing to change an existing generic installation" bash "$INSTALL" "$generic" --upgrade
-assert_exit "generic same-profile upgrade succeeds" PASS bash "$INSTALL" "$generic" --profile generic --upgrade
+assert_exit "plain upgrade succeeds" PASS bash "$INSTALL" "$generic" --upgrade
 assert_generic_profile "$generic"
 generic_partial="$TMP_DIR/generic-partial"
 cp -R "$generic" "$generic_partial"
 rm -rf "$generic_partial/.agents/skills/agent-workflow"
-assert_exit_output "generic upgrade rejects missing client discovery leaf" 2 "not a complete recognized" bash "$INSTALL" "$generic_partial" --profile generic --upgrade
+assert_exit_output "upgrade rejects missing client discovery leaf" 2 "not a complete recognized" bash "$INSTALL" "$generic_partial" --upgrade
+
+legacy_profile="$TMP_DIR/legacy-profile"
+mkdir -p "$legacy_profile"
+bash "$INSTALL" "$legacy_profile" >/dev/null
+printf '%s\n' '{"schema_version":"1","profile":"feedbackops"}' > "$legacy_profile/.agent-workflow/install-profile.json"
+assert_exit_output "upgrade refuses a removed legacy profile marker" 2 "refusing to upgrade a legacy 'feedbackops' installation" bash "$INSTALL" "$legacy_profile" --upgrade
 
 bad_profile="$TMP_DIR/bad-profile"
 mkdir -p "$bad_profile"
 bash "$INSTALL" "$bad_profile" >/dev/null
-printf '%s\n' '{"schema_version":"999","profile":"feedbackops"}' > "$bad_profile/.agent-workflow/install-profile.json"
+printf '%s\n' '{"schema_version":"999","profile":"generic"}' > "$bad_profile/.agent-workflow/install-profile.json"
 assert_exit_output "invalid profile marker fails closed" 2 "install profile marker is invalid" bash "$INSTALL" "$bad_profile" --upgrade
 
 assert_exit_output "default rerun refuses existing install" 2 "--upgrade" bash "$INSTALL" "$fresh"
-printf '%s\n' customized > "$fresh/.agent-workflow/scripts/install-into.sh"
+assert_exit_output "removed profile flag fails closed" 2 "installs are generic-only" bash "$INSTALL" "$TMP_DIR/unused-profile-target" --profile generic
+printf '%s\n' customized > "$fresh/.agent-workflow/scripts/rebase-inflight.sh"
 printf '%s\n' '{"project_owned":true}' > "$fresh/.agent-workflow/model-alloc.json"
 upgrade_output="$TMP_DIR/upgrade-output.txt"
 bash "$INSTALL" "$fresh" --upgrade >"$upgrade_output" 2>&1
@@ -534,7 +506,7 @@ if [ "$upgrade_exit" -eq 0 ]; then ok "copy upgrade succeeds"; else not_ok "copy
 assert_current_content "copy upgrade" "$fresh"
 backup_root="$(sed -n 's/^upgrade backup: //p' "$upgrade_output")"
 assert_true "upgrade reports a retained backup" test -d "$backup_root"
-assert_true "upgrade backup preserves customized managed content" grep -F -q customized "$backup_root/scripts/install-into.sh"
+assert_true "upgrade backup preserves customized managed content" grep -F -q customized "$backup_root/scripts/rebase-inflight.sh"
 assert_true "upgrade preserves project-owned model allocation config" grep -F -q project_owned "$fresh/.agent-workflow/model-alloc.json"
 assert_true "upgrade preserves review evidence" grep -F -q evidence "$fresh/.review/keep.txt"
 # The default-write admission contract requires a schema-valid allocation;
@@ -550,6 +522,7 @@ assert_true "upgrade leaves legacy allocation project-owned" grep -F -q '"source
 
 current_links="$TMP_DIR/current-links"
 mkdir -p "$current_links/.agent-workflow/docs" "$current_links/.claude/skills"
+seed_client_leaves "$current_links"
 ln -s "$PRODUCT_ROOT/scripts" "$current_links/.agent-workflow/scripts"
 ln -s "$PRODUCT_ROOT/schemas" "$current_links/.agent-workflow/schemas"
 ln -s "$PRODUCT_ROOT/docs/agents" "$current_links/.agent-workflow/docs/agents"
@@ -560,6 +533,7 @@ assert_portable_layout "current symlink upgrade" "$current_links"
 current_dangling="$TMP_DIR/current-dangling"
 current_dangling_root="$TMP_DIR/deleted current root"
 mkdir -p "$current_dangling/.agent-workflow/docs" "$current_dangling/.claude/skills"
+seed_client_leaves "$current_dangling"
 ln -s "$current_dangling_root/scripts" "$current_dangling/.agent-workflow/scripts"
 ln -s "$current_dangling_root/schemas" "$current_dangling/.agent-workflow/schemas"
 ln -s "$current_dangling_root/docs/agents" "$current_dangling/.agent-workflow/docs/agents"
@@ -571,6 +545,7 @@ assert_portable_layout "dangling current symlink upgrade" "$current_dangling"
 legacy_links="$TMP_DIR/legacy-links"
 legacy_root="$TMP_DIR/deleted legacy root"
 mkdir -p "$legacy_links/.agent-workflow/docs" "$legacy_links/.claude/skills"
+seed_client_leaves "$legacy_links"
 ln -s "$legacy_root/scripts" "$legacy_links/.agent-workflow/scripts"
 ln -s "$legacy_root/.review/schemas" "$legacy_links/.agent-workflow/schemas"
 ln -s "$legacy_root/docs/agents" "$legacy_links/.agent-workflow/docs/agents"
@@ -583,6 +558,7 @@ legacy_live_root="$TMP_DIR/live legacy root"
 mkdir -p "$legacy_live/.agent-workflow/docs" "$legacy_live/.claude/skills" \
   "$legacy_live_root/scripts" "$legacy_live_root/.review/schemas" \
   "$legacy_live_root/docs/agents" "$legacy_live_root/.claude/skills/agent-workflow"
+seed_client_leaves "$legacy_live"
 ln -s "$legacy_live_root/scripts" "$legacy_live/.agent-workflow/scripts"
 ln -s "$legacy_live_root/.review/schemas" "$legacy_live/.agent-workflow/schemas"
 ln -s "$legacy_live_root/docs/agents" "$legacy_live/.agent-workflow/docs/agents"
@@ -702,7 +678,7 @@ bash "$INSTALL" "$rollback_remove_failure" >/dev/null
 printf '%s\n' old-sentinel > "$rollback_remove_failure/.agent-workflow/scripts/old.txt"
 rollback_remove_root="$(cd "$rollback_remove_failure" && pwd -P)"
 printf '%s\n' 0 > "$mv_counter"
-assert_exit_output "restore removal failure reports manual recovery" 70 "could not remove replacement" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=7 INSTALL_RM_FAIL_PATH="$rollback_remove_root/.agent-workflow/scripts" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_remove_failure" --upgrade
+assert_exit_output "restore removal failure reports manual recovery" 70 "could not remove replacement" env INSTALL_MV_COUNTER="$mv_counter" INSTALL_MV_FAIL_AT=11 INSTALL_RM_FAIL_PATH="$rollback_remove_root/.agent-workflow/scripts" PATH="$mv_bin:$PATH" bash "$INSTALL" "$rollback_remove_failure" --upgrade
 assert_true "restore removal failure does not nest backup" test ! -e "$rollback_remove_failure/.agent-workflow/scripts/scripts"
 assert_true "restore removal failure retains old scripts backup" bash -c 'test -n "$(find "$1" -path "*/scripts/old.txt" -print -quit)"' _ "$rollback_remove_failure/.review/agent-workflow-install-backups"
 
@@ -740,7 +716,6 @@ assert_exit "generic portable install completion-check extracts native test coun
 assert_true "README documents copy-only install" grep -F -q 'self-contained' "$PRODUCT_ROOT/README.md"
 assert_true "README documents explicit upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/README.md"
 assert_true "adoption guide documents upgrade" grep -F -q -- '--upgrade' "$PRODUCT_ROOT/.claude/skills/agent-workflow/references/adoption.md"
-assert_true "installed skill routes dispatch liveness rules" grep -F -q 'Preserve its direct exit code' "$fresh/.claude/skills/agent-workflow/SKILL.md"
 
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
