@@ -116,6 +116,10 @@ _Avoid_: retry policy, retry gate (retry implies liveness, which is Watchdog's j
 The atomically published, schema-versioned `.review/ISSUE-<n>-TRANSPORT.json` (`artifact_type: transport_receipt`) recording selected runtime, role, observed runtime version, adapter capability evidence, external handle, worktree/runner identity, and timestamps. Explicitly non-authoritative launch intent/provenance, not confirmed command delivery or completion.
 _Avoid_: transport record, confirmation
 
+**PR Draft**:
+The `.review/ISSUE-<n>-PR-DRAFT.json` artifact (`artifact_type: pr_draft`) proposing one PR's `branch`, `base_sha`, `head_sha`, `files_touched`, `verify_cmd`, and `worktree_path`, with `status: ready_for_review | needs_amendment | abandoned`. The only artifact Trivial-tier initial writes must produce (see Tier); required alongside an active REVIEW at Standard/Full Cluster closure.
+_Avoid_: PR, draft PR (PR Draft is the typed artifact, not the eventual GitHub PR itself)
+
 ## Candidate Lifecycle
 
 **Integration branch**:
