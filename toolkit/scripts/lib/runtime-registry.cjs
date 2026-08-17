@@ -51,24 +51,33 @@ const PROBE = {
 // Progress-event contract: flags switch the runtime into NDJSON event output
 // on the named stream; final.match (every [dotted-path, equals-value] pair
 // must hold) locates the terminal event and final.text_path extracts its
-// text. Consumers resolve dotted paths by splitting on ".".
+// text. Consumers resolve dotted paths by splitting on ".". `streams` is the
+// explicit, separately-tracked fact that agent-runtime.sh's launch for this
+// runtime actually applies `flags` right now — a populated flags/final shape
+// alone does not mean the runtime is currently launched streaming (codex and
+// opencode keep this false: their launch argv is unwired follow-up scope).
+// Consumers that decide whether to parse $OUTPUT as NDJSON must gate on
+// `streams`, never on `event_format` alone.
 const PROGRESS = {
   claude: {
     flags: ["--output-format", "stream-json", "--verbose", "--include-partial-messages"],
     event_format: "ndjson",
     stream: "stdout",
+    streams: true,
     final: { match: [["type", "result"], ["subtype", "success"]], text_path: "result" },
   },
   codex: {
     flags: ["--json"],
     event_format: "ndjson",
     stream: "stdout",
+    streams: false,
     final: { match: [["type", "item.completed"], ["item.type", "agent_message"]], text_path: "item.text" },
   },
   opencode: {
     flags: ["--format", "json"],
     event_format: "ndjson",
     stream: "stdout",
+    streams: false,
     final: { match: [["type", "text"]], text_path: "part.text" },
   },
 };
@@ -131,7 +140,7 @@ if (require.main === module) {
         try { event = JSON.parse(trimmed); } catch (err) { event = null; }
         if (event && spec.match.every(([dotted, expected]) => pathGet(event, dotted) === expected)) {
           const text = pathGet(event, spec.text_path);
-          if (text !== undefined) finalText = text;
+          if (typeof text === "string") finalText = text;
         }
       }
       if (finalText !== undefined) { write(finalText); }

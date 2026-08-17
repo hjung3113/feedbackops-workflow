@@ -28,19 +28,22 @@ transcribe_review() {
   node - "$1" "$2" "$3" "$RUNTIME_REGISTRY" <<'NODE'
 const fs=require("fs");
 const [outputPath,destPath,runtime,registryPath]=process.argv.slice(2);
-const tryParseWrite=text=>{ try { JSON.parse(text); fs.writeFileSync(destPath,text); return true; } catch (_) { return false; } };
+const tryParseWrite=text=>{ if(typeof text!=="string") return false; try { JSON.parse(text); fs.writeFileSync(destPath,text); return true; } catch (_) { return false; } };
 const tryFenced=text=>{
+  if(typeof text!=="string") return false;
   const matches=[...text.matchAll(/```json[ \t]*\r?\n([\s\S]*?)\r?\n?```/gi)];
   for(let i=matches.length-1;i>=0;i--) { if(tryParseWrite(matches[i][1])) return true; }
   return false;
 };
-// A runtime whose PROGRESS entry streams NDJSON (currently claude) writes its
-// canonical result as the final matching event's text field, not as $OUTPUT's
-// raw bytes — extract that first. A runtime still on batch/text output (or a
-// stream with no matching final event) falls through unchanged below,
-// preserving the pre-existing whole-file/fenced-regex fixture behavior.
+// `streams` is the explicit, separately-tracked fact that this runtime's
+// launch actually applies its PROGRESS.flags right now (currently claude
+// only) — a populated PROGRESS/final shape alone is not proof of that, so
+// this must not gate on event_format alone. A runtime not currently
+// launched streaming, or an NDJSON stream with no matching final event,
+// falls through unchanged below, preserving the pre-existing whole-file/
+// fenced-regex fixture behavior.
 const { PROGRESS } = require(registryPath);
-const spec = PROGRESS[runtime] && PROGRESS[runtime].event_format === "ndjson" ? PROGRESS[runtime].final : null;
+const spec = PROGRESS[runtime] && PROGRESS[runtime].streams && PROGRESS[runtime].event_format === "ndjson" ? PROGRESS[runtime].final : null;
 if (spec) {
   const pathGet=(value,dotted)=>dotted.split(".").reduce((node,key)=>(node&&typeof node==="object"?node[key]:undefined),value);
   let finalText;
@@ -51,7 +54,7 @@ if (spec) {
     try { event=JSON.parse(trimmed); } catch (_) { event=null; }
     if (event && spec.match.every(([dotted,expected])=>pathGet(event,dotted)===expected)) {
       const text=pathGet(event,spec.text_path);
-      if(text!==undefined) finalText=text;
+      if(typeof text==="string") finalText=text;
     }
   }
   if (finalText!==undefined && (tryParseWrite(finalText) || tryFenced(finalText))) process.exit(0);
@@ -190,10 +193,13 @@ while [ "$attempt" -le "$MAX_RETRIES" ]; do
   if [ "$CONDUCTOR_CONTROL" -eq 1 ]; then
     # conductor-control-publish.sh is a host-side security boundary that must
     # not learn per-runtime output schemas: extract a clean JSON proposal file
-    # here first. A runtime still on batch/text output (or an NDJSON stream
-    # with no matching final event) falls back to $OUTPUT unchanged, which is
-    # already plain JSON for those cases.
-    if node "$RUNTIME_REGISTRY" extract-final "$RUNTIME" "$OUTPUT" >"$PROPOSAL_TRANSCRIPT" 2>/dev/null; then
+    # here first, reusing transcribe_review()'s same NDJSON-extraction-then-
+    # whole-buffer-then-fenced-JSON chain (a fenced-wrapped claude proposal
+    # must parse here exactly like a fenced-wrapped claude review does). A
+    # runtime not currently launched streaming, or an NDJSON stream with no
+    # matching final event and no parseable raw/fenced JSON, falls back to
+    # $OUTPUT unchanged, which is already plain JSON for those cases.
+    if transcribe_review "$OUTPUT" "$PROPOSAL_TRANSCRIPT" "$RUNTIME"; then
       PROPOSAL_SOURCE="$PROPOSAL_TRANSCRIPT"
     else
       PROPOSAL_SOURCE="$OUTPUT"

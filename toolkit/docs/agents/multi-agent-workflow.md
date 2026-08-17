@@ -323,33 +323,36 @@ included — a runtime's own progress evidence must come from outside the
 watchdog's own bookkeeping directory. This is settled by construction, not
 an open question.
 
-When a runtime's `PROGRESS.event_format` is `ndjson`, `transcribe_review()`
-and the `--conductor-control` proposal handoff both extract the terminal
-event's result text first (the same match/text-path walk `runtime-registry.cjs
-extract-final <runtime> <file>` performs), then run that extracted text
-through the same whole-buffer-JSON-then-fenced-JSON fallback chain used for a
-plain-text runtime. A runtime not yet switched to streaming argv, or an
-NDJSON stream with no matching terminal event, falls through unchanged to the
-original raw-`$OUTPUT` behavior — extraction is additive, never a
-replacement contract, so existing non-streaming fixtures keep passing
-untouched. `conductor-control-publish.sh` itself is deliberately untouched:
-it is a host-side security boundary and must not learn per-runtime output
-schemas, so `agent-watchdog.sh` performs the extraction into a clean,
-disposable temp file before ever calling it.
+`PROGRESS` carries a `streams` boolean per runtime, tracked separately from
+`event_format`/`flags`/`final` — it is the single explicit fact of whether
+`agent-runtime.sh`'s launch for that runtime actually applies `PROGRESS.flags`
+right now. Only when `streams` is true (currently `claude` only) do
+`transcribe_review()` and the `--conductor-control` proposal handoff extract
+the terminal event's result text first (the same match/text-path walk
+`runtime-registry.cjs extract-final <runtime> <file>` performs), then run
+that extracted text through the same whole-buffer-JSON-then-fenced-JSON
+fallback chain used for a plain-text runtime. A runtime with `streams: false`
+never enters the NDJSON extraction branch at all — this is a hard gate, not
+an inference from a populated `flags`/`final` shape, so a runtime whose
+`PROGRESS` entry exists purely as forward-looking registry data (`codex`,
+`opencode`) cannot be misread as already streaming even if its output ever
+incidentally resembles one matching event. `conductor-control-publish.sh`
+itself is deliberately untouched: it is a host-side security boundary and
+must not learn per-runtime output schemas, so `agent-watchdog.sh` performs
+the extraction into a clean, disposable temp file before ever calling it.
 
-As of this design, `claude` is the only runtime whose `agent-runtime.sh`
-launch actually applies its `PROGRESS.flags`
+As of this design, `claude` is the only runtime with `streams: true` —
+its `agent-runtime.sh` launch applies `PROGRESS.flags`
 (`--output-format stream-json --verbose --include-partial-messages`,
 confirmed incremental at token-level resolution). `codex` and `opencode`
-keep their `PROGRESS` table entries as registry data only, not yet wired
-into either runtime's launch argv: `codex`'s incremental-output behavior
-still needs a live re-verification once its account quota resets, and
-`opencode` has a known, still-open upstream bug (opencode issue `#31435`)
-that drops `text`/`step_finish` events specifically in containerized/
-sandboxed environments — exactly this project's isolated-worktree dispatch
-shape. Wiring either runtime's launch argv to stream is separate follow-up
-scope; a populated `PROGRESS` table entry must never be read as proof that a
-runtime's launch already streams.
+keep their `PROGRESS` table entries as registry data only, with
+`streams: false`: `codex`'s incremental-output behavior still needs a live
+re-verification once its account quota resets, and `opencode` has a known,
+still-open upstream bug (opencode issue `#31435`) that drops `text`/
+`step_finish` events specifically in containerized/sandboxed environments —
+exactly this project's isolated-worktree dispatch shape. Wiring either
+runtime's launch argv to stream, and flipping its `streams` field to `true`,
+is separate follow-up scope.
 
 The shared watchdog applies first-progress and stall budgets, kills the
 process tree on a stall, and permits `MAX_RETRIES + 1` total attempts. Each
