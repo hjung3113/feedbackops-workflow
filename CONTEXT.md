@@ -3,10 +3,8 @@
 The vocabulary for this repo's multi-agent dispatch/review/verify toolkit. Repo
 operating rules live in `AGENTS.md`, durable decisions in `docs/adr/`.
 
-This file (the root glossary) is unrelated to `.review/ISSUE-<n>-CONTEXT.md`, a
-gitignored, non-canonical scratch file CONDUCTOR writes as authoring notes before
-compressing a prompt — same filename stem, different concept, both real. Renaming
-that per-dispatch artifact is tracked separately, not done here.
+The per-dispatch authoring scratch file is `.review/ISSUE-<n>-BRIEF.md` (gitignored,
+non-canonical, CONDUCTOR-owned); it is unrelated to this glossary.
 
 ## Core Roles
 

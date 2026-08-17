@@ -60,7 +60,7 @@ You read `HEARTBEAT-<pane>.json` for **liveness**. Liveness and correctness are 
 
 Before each Standard/Full write launch and every write redispatch, author the worker prompt in this order. The authoring conversation stays with CONDUCTOR; the worker receives only the final prompt file in a new context.
 
-1. **Context dump:** collect the unedited issue body/comments, applicable ADRs, prototype paths, preceding REVIEW/VERIFY artifacts, and prior-round findings in `<worktree>/.review/ISSUE-<N>-CONTEXT.md`. Do not summarize or draft the prompt in this step.
+1. **Context dump:** collect the unedited issue body/comments, applicable ADRs, prototype paths, preceding REVIEW/VERIFY artifacts, and prior-round findings in `<worktree>/.review/ISSUE-<N>-BRIEF.md`. Do not summarize or draft the prompt in this step.
 2. **Reverse questions:** list what remains unknown, then ask the user once in a batch of at most four questions, each with a CONDUCTOR recommendation. Record `skipped: no open questions` when there are none. Never delegate these questions to CODEX.
 3. **Compress:** first record every prohibition in canonical ROUND-STATE `contract.prohibitions[]`, then turn the dump and answers into `<worktree>/.review/ISSUE-<N>-PROMPT.md`, deleting narrative and alternatives while preserving constraints, paths, those prohibitions, and completion criteria. Natural-language regex extraction is never prohibition authority. The project-owned `model-alloc.json` `prompt_authoring.target_tokens` is guidance and telemetry only for worker prompts; re-review capsules enforce it as their whole-Markdown cap.
 
