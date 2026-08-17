@@ -104,5 +104,5 @@ printf '%s\n' dirty >> "$REPO/a.txt"; TOKENS=1200 run >/dev/null 2>&1; [ "$?" -n
 (cd "$REPO" && bash "$RENDER" --issue 17 --worktree "$REPO" --round-state ../outside.json --prompt .review/ISSUE-17-PROMPT.md --pr-draft .review/ISSUE-17-PR-DRAFT.json --review .review/ISSUE-17-REVIEW.json --manifest-revision 3 --target-tokens 1200) >/dev/null 2>&1; [ "$?" -ne 0 ] && ok "AC-CAPSULE-5 traversal source rejected" || bad "AC-CAPSULE-5 traversal"
 
 # AC-CAPSULE-6 canonical sources remain authority; AC-CAPSULE-7 scratch is ignored; AC-CAPSULE-9 docs synced.
-if git -C "$ROOT/.." check-ignore -q .review/ISSUE-999-PROMPT.md && git -C "$ROOT/.." check-ignore -q .review/ISSUE-999-CONTEXT.md && git -C "$ROOT/.." check-ignore -q .review/ISSUE-999-REVIEW-CAPSULE.md; then ok "AC-CAPSULE-7 canonical runtime scratch patterns are ignored"; else bad "AC-CAPSULE-7 runtime scratch ignore"; fi
+if git -C "$ROOT/.." check-ignore -q .review/ISSUE-999-PROMPT.md && git -C "$ROOT/.." check-ignore -q .review/ISSUE-999-BRIEF.md && git -C "$ROOT/.." check-ignore -q .review/ISSUE-999-REVIEW-CAPSULE.md; then ok "AC-CAPSULE-7 canonical runtime scratch patterns are ignored"; else bad "AC-CAPSULE-7 runtime scratch ignore"; fi
 echo "---"; if [ "$FAILURES" -eq 0 ]; then echo "ALL CASES PASS"; exit 0; fi; echo "$FAILURES CASE(S) FAILED"; exit 1

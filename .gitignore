@@ -15,7 +15,7 @@ node_modules/
 .review/*-VERIFY.json
 .review/*-PROMPT.txt
 .review/ISSUE-*-PROMPT.md
-.review/ISSUE-*-CONTEXT.md
+.review/ISSUE-*-BRIEF.md
 .review/ISSUE-*-REVIEW-CAPSULE.json
 .review/ISSUE-*-REVIEW-CAPSULE.md
 .review/archive/
