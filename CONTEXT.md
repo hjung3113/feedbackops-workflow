@@ -14,9 +14,9 @@ that per-dispatch artifact is tracked separately, not done here.
 The orchestrator role, executed by the explicitly selected Codex, Claude Code, or OpenCode runtime in a dedicated pane outside all clusters, overseeing every in-flight cluster and dispatching to worker roles. Read-only on product code; reads worker state exclusively from `.review/*.json`.
 _Avoid_: coordinator, orchestrator (as a standalone term — CONDUCTOR is the canonical name)
 
-**CODEX**:
-The implementation worker seat name (e.g. "CODEX + VERIFIER" per tier), fillable by any explicitly selected runtime — codex, claude, or opencode — same as every other role. Receives only the compressed prompt file. Write-capable execution's own mode-to-permission handling is Runtime-owned and differs per runtime (see Adapter, Runtime): the codex runtime specifically delegates to `scripts/codex-safe.sh`, claude uses `--permission-mode`, opencode loads a mode-specific permission file — none is a requirement on the other two.
-_Avoid_: implementer, worker (too generic); do not conflate with the `codex` runtime (see Runtime) — CODEX the seat and codex the runtime are independent, a claude or opencode runtime can fill the CODEX seat
+**Implementation**:
+The `--role implementation` seat (matching every other Core Role's naming — its dispatch `--role` value, uppercased), fillable by any explicitly selected runtime — codex, claude, or opencode — same as every other role. Receives only the compressed prompt file. Write-capable execution's own mode-to-permission handling is Runtime-owned and differs per runtime (see Adapter, Runtime): the codex runtime specifically delegates to `scripts/codex-safe.sh`, claude uses `--permission-mode`, opencode loads a mode-specific permission file — none is a requirement on the other two.
+_Avoid_: CODEX (the artifact-level `producer_role` schemas mark as legacy for this seat; the current playbook's tier table still says "CODEX + VERIFIER," which is itself stale against the schema — tracked separately), WORKER (the current `producer_role` value, a different axis — artifact authorship, not the `--role` dispatch axis this entry names), implementer (too generic); do not conflate with the `codex` runtime (see Runtime) — this seat and the codex runtime are independent, a claude or opencode runtime can fill it
 
 **REVIEWER**:
 The worker role that checks design fit, owns the checklist and live smoke, and must be a fresh external clean-context seat, different agent/session from the implementer.
@@ -109,7 +109,7 @@ The status field of `ISSUE-<n>-RUN.json` (`artifact_type: agent_run`): `running 
 _Avoid_: completion status, result (RUN state is about termination, not outcome)
 
 **BLOCKER**:
-The scoped-abort artifact CODEX must produce to abort, recording the abort-time Git `HEAD` in `head_sha` and a `reason_code` from a fixed enum. Recognized as the sole failed-round evidence by the redispatch gate only when `primary_origin: dispatch_contract` and `next_action.kind: contract_fix`.
+The scoped-abort artifact the Implementation seat must produce to abort, recording the abort-time Git `HEAD` in `head_sha` and a `reason_code` from a fixed enum. Recognized as the sole failed-round evidence by the redispatch gate only when `primary_origin: dispatch_contract` and `next_action.kind: contract_fix`.
 _Avoid_: error, failure (BLOCKER is a specific typed artifact, not a generic error)
 
 **Redispatch gate**:
