@@ -32,9 +32,13 @@ const schema = readJson(schemaFile, "model allocation schema");
 let validate;
 try { ({ validate } = require(validatorFile)); } catch (_) { fail(`model allocation validator is unreadable: ${validatorFile}`); }
 if (validate(schema, config).length) fail("model allocation config does not satisfy schema version 1");
-// `available_via` was added after schema v1 had already been installed into
-// targets.  Preserve those valid v1 configs by deriving only well-known
-// provider ownership; unknown legacy names fail closed and ask for migration.
+// Legacy-compat shim: `available_via` was added after schema v1 had already
+// been installed into targets.  Preserve those valid v1 configs by deriving
+// only well-known provider ownership via model-name prefix; unknown legacy
+// names fail closed and ask for migration.  runtime-registry.cjs carries no
+// model-to-runtime ownership mapping, so this inference stays here rather
+// than re-hardcoding per call sites (ADR 0006): current configs declare
+// `available_via` explicitly and never reach this path.
 function legacyAvailability(model) {
   if (/^(gpt-|o[0-9])/.test(model)) return ["codex"];
   if (/^(opus-|sonnet-|haiku-)/.test(model)) return ["claude"];
