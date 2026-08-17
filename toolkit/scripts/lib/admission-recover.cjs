@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const { processAlive, publishViaPendingDir, quarantineThenDelete, readJsonOrNull, writeAtomicJson } = require("./atomic-fs.cjs");
+const { effortValid } = require("./contract-validators.cjs");
 
 const args = process.argv.slice(2);
 let expectedRouteDigest = null;
@@ -39,9 +40,7 @@ const safeRouteBinding = value => {
       || !value.selected || typeof value.selected !== "object"
       || Object.keys(value.selected).sort().join(",") !== "effort,model"
       || !/^[A-Za-z0-9._-]{1,64}$/.test(value.selected.model || "")
-      || !(/^(?:gpt-5[.-]6(?:-|$))/.test(value.selected.model)
-        ? ["none", "low", "medium", "high", "xhigh", "max"].includes(value.selected.effort)
-        : ["low", "medium", "high"].includes(value.selected.effort))) return false;
+      || !effortValid(value.selected.model, value.selected.effort)) return false;
   return new Set(value.decision_reason_codes).size === value.decision_reason_codes.length;
 };
 if (expectedRouteDigest !== null && !safeRouteDigest(expectedRouteDigest)) process.exit(2);

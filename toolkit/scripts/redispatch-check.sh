@@ -13,6 +13,7 @@ PROG="redispatch-check"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CONTRACT_VALIDATORS="$SCRIPT_DIR/lib/contract-validators.cjs"
 FRESH_CHECK="$SCRIPT_DIR/artifact-fresh.sh"
 round_state=""
 expected_revision=""
@@ -76,12 +77,12 @@ if [ "$fresh_status" -ne 0 ]; then
   exit 2
 fi
 
-node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$BLOCKER_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
+node - "$round_state" "$ROUND_STATE_SCHEMA" "$VERIFY_SCHEMA" "$REVIEW_SCHEMA" "$BLOCKER_SCHEMA" "$SCHEMA_VALIDATOR" "$CONTRACT_VALIDATORS" "$expected_revision" <<'NODE'
 const fs = require("fs");
 const crypto = require("crypto");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, blockerSchemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
+const [roundStateFile, schemaFile, verifySchemaFile, reviewSchemaFile, blockerSchemaFile, validatorFile, contractValidatorsFile, expectedRevision] = process.argv.slice(2);
 
 function write(payload, exitCode) {
   process.stdout.write(JSON.stringify(payload) + "\n");
@@ -220,9 +221,7 @@ function countRunValue(run, key) {
     ? run.verdict[key]
     : 0;
 }
-function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
+const { sameJson } = require(contractValidatorsFile);
 function runFromFlatArtifact(artifact) {
   return { verify_cmd: artifact.verify_cmd, verdict: artifact.verdict,
     classifier: artifact.classifier, failures: artifact.failures, created_at: artifact.created_at };

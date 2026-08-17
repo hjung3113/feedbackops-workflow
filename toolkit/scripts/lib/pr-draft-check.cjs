@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { headMatches } = require("./contract-validators.cjs");
 
 const [artifactFile, schemaFile, validatorFile, issueNumber, worktree] = process.argv.slice(2);
 if (!artifactFile || !schemaFile || !validatorFile || !issueNumber || !worktree) process.exit(2);
@@ -16,7 +17,7 @@ try {
   if (!path.isAbsolute(artifact.worktree_path)) throw new Error("worktree_not_absolute");
   const liveHead = execFileSync("git", ["-C", worktree, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const liveBranch = execFileSync("git", ["-C", worktree, "branch", "--show-current"], { encoding: "utf8" }).trim();
-  if (artifact.head_sha !== liveHead) throw new Error("head_stale");
+  if (!headMatches(liveHead, artifact.head_sha)) throw new Error("head_stale");
   if (!liveBranch || artifact.branch !== liveBranch) throw new Error("branch_mismatch");
   if (fs.realpathSync(artifact.worktree_path) !== fs.realpathSync(worktree)) throw new Error("worktree_mismatch");
   process.stdout.write("ok");

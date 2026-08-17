@@ -1009,16 +1009,15 @@ NODE
       printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'
       exit 3
     }
-    ROUTE_BINDING="$(node - "$ROUTE_RESULT" "$ROUTE_DEMAND" "$ADAPTER" <<'NODE'
+    ROUTE_BINDING="$(node - "$RUNTIME_REGISTRY" "$ROUTE_RESULT" "$ROUTE_DEMAND" "$ADAPTER" <<'NODE'
 try {
-  const [resultJson, demandJson, transport] = process.argv.slice(2);
+  const [registryPath, resultJson, demandJson, transport] = process.argv.slice(2);
+  const { effortValid } = require(registryPath);
   const result = JSON.parse(resultJson), demand = JSON.parse(demandJson);
   if (result.status !== "admitted" || !/^[a-f0-9]{64}$/.test(result.route_digest || "")
       || !/^[a-f0-9]{64}$/.test(result.policy_digest || "")
       || !result.selected || typeof result.selected.model !== "string"
-      || !(/^gpt-5[.-]6(?:-|$)/.test(result.selected.model)
-        ? /^(none|low|medium|high|xhigh|max)$/.test(result.selected.effort || "")
-        : /^(low|medium|high)$/.test(result.selected.effort || ""))
+      || !effortValid(result.selected.model, result.selected.effort || "")
       || !Array.isArray(result.reasons) || !result.reasons.length) process.exit(2);
   process.stdout.write(JSON.stringify({
     route_digest: result.route_digest, policy_digest: result.policy_digest,

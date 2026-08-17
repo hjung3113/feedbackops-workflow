@@ -1,14 +1,11 @@
 "use strict";
 
 const fs = require("fs");
+const { sameJson } = require("./contract-validators.cjs");
 
 function count(data, key) {
   const value = data && data[key];
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function validGenericPassGroups(groups) {

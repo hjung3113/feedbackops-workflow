@@ -13,6 +13,7 @@ PROG="completion-check"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CONTRACT_VALIDATORS="$SCRIPT_DIR/lib/contract-validators.cjs"
 FRESH_CHECK="$SCRIPT_DIR/artifact-fresh.sh"
 round_state=""
 expected_revision=""
@@ -73,10 +74,10 @@ if [ "$fresh_status" -ne 0 ]; then
   exit 2
 fi
 
-node - "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" <<'NODE'
+node - "$round_state" "$CONTRACT_VALIDATORS" "$expected_revision" <<'NODE'
 const fs = require("fs");
 const { execFileSync } = require("child_process");
-const [roundStateFile, schemaFile, validatorFile, expectedRevision] = process.argv.slice(2);
+const [roundStateFile, contractValidatorsFile, expectedRevision] = process.argv.slice(2);
 
 function error(code, message) {
   process.stdout.write(JSON.stringify({ status: "error", mismatches: [{ code }], error: message }) + "\n");
@@ -146,13 +147,12 @@ function isExplicitNewFile(value) {
     && !/[\\\0*?\[\]{}]/.test(value);
 }
 
-let state, schema;
+let state;
 try {
   state = JSON.parse(fs.readFileSync(roundStateFile, "utf8"));
-  schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
 } catch (e) { error("invalid_round_state", "cannot parse ROUND-STATE or schema: " + e.message); }
-let validate;
-try { ({ validate } = require(validatorFile)); }
+let schema, validate;
+try { ({ schema, validate } = require(contractValidatorsFile).loadSchema("round_state.schema.json")); }
 catch (e) { error("invalid_round_state", "cannot load schema validator: " + e.message); }
 const schemaErrors = validate(schema, state);
 if (schemaErrors.length) error("invalid_round_state", "ROUND-STATE schema validation failed");

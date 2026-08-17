@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execFileSync, spawnSync } = require("child_process");
+const { headMatches } = require("./contract-validators.cjs");
 
 function parse(argv) {
   const out = { source: [] };
@@ -73,7 +74,7 @@ if (!clean(candidate)) publish("dirty_candidate");
 let candidateHead;
 try { candidateHead = git(candidate, ["rev-parse", "HEAD"]); }
 catch (error) { publish("uncheckable_candidate", 2); }
-if (candidateHead !== plan.base_head) publish("candidate_base_mismatch");
+if (!headMatches(candidateHead, plan.base_head)) publish("candidate_base_mismatch");
 
 // Validate the complete source set before mutating the candidate.
 const prepared = [];
@@ -85,7 +86,7 @@ for (const seatId of plan.integration_order) {
   let live, paths;
   try {
     live = git(source, ["rev-parse", "HEAD"]);
-    if (live !== binding.head) publish("stale_source_head");
+    if (!headMatches(live, binding.head)) publish("stale_source_head");
     if (!clean(source)) publish("dirty_source");
   } catch (_) { publish("uncheckable_source"); }
   const merge = spawnSync("git", ["-C", source, "merge-base", plan.base_head, binding.head], { encoding: "utf8" });

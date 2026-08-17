@@ -5,6 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { execFileSync, spawnSync } = require("child_process");
 const { parseRfc3339 } = require("./rfc3339.cjs");
+const { headMatches, sameJson } = require("./contract-validators.cjs");
 
 function args(argv) { const out = {}; for (let i = 0; i < argv.length; i += 2) { if (!argv[i] || !argv[i].startsWith("--") || i + 1 >= argv.length) fatal("invalid_arguments"); out[argv[i].slice(2)] = argv[i + 1]; } return out; }
 function fatal(code, message = code) { process.stdout.write(JSON.stringify({ status: "error", reason_codes: [code], error: message }) + "\n"); process.exit(2); }
@@ -30,8 +31,8 @@ if (command === "inspect") {
     evidenceChanged = digest(path.join(reviewDir, `ISSUE-${value.issue}-INTEGRATION.json`)) !== value.integration_sha256
       || digest(path.join(reviewDir, `ISSUE-${value.issue}-CANDIDATE-EVIDENCE.json`)) !== value.evidence_set_sha256;
   } catch (_) { evidenceChanged = true; }
-  const stale = live !== value.candidate_head || evidenceChanged;
-  const staleReasons = [live !== value.candidate_head ? "candidate_head_advanced" : null, evidenceChanged ? "closure_evidence_changed" : null].filter(Boolean);
+  const stale = !headMatches(live, value.candidate_head) || evidenceChanged;
+  const staleReasons = [!headMatches(live, value.candidate_head) ? "candidate_head_advanced" : null, evidenceChanged ? "closure_evidence_changed" : null].filter(Boolean);
   process.stdout.write(JSON.stringify({ status: stale ? "stale" : value.status, candidate_head: value.candidate_head, live_head: live, reason_codes: stale ? staleReasons : value.reason_codes }) + "\n");
   process.exit(stale ? 1 : value.status === "closed" ? 0 : 1);
 }
@@ -59,7 +60,7 @@ try { liveHead = git(candidate, ["rev-parse", "HEAD"]); } catch (error) { fatal(
 const identity = value => value.issue === plan.issue && value.round === plan.round && value.manifest_revision === plan.manifest_revision && value.plan_revision === plan.plan_revision;
 const bindingMatches = (value, entry) => {
   const binding = value && value.closure_binding;
-  return binding && identity(binding) && binding.candidate_head === liveHead
+  return binding && identity(binding) && headMatches(liveHead, binding.candidate_head)
     && binding.attempt_id === set.attempt_id && binding.attempt_id === entry.attempt_id
     && validRfc3339(binding.generated_at)
     && Date.parse(binding.generated_at) >= Date.parse(integration.created_at);
@@ -69,12 +70,12 @@ if (!validRfc3339(integration.created_at) || !validRfc3339(set.created_at)) reas
 const actualStepOrder = integration.steps.map(step => step.seat_id);
 const stepOrderValid = actualStepOrder.length === plan.integration_order.length
   && new Set(actualStepOrder).size === actualStepOrder.length
-  && JSON.stringify(actualStepOrder) === JSON.stringify(plan.integration_order);
+  && sameJson(actualStepOrder, plan.integration_order);
 if (!stepOrderValid) reasons.push("integration_step_order_mismatch");
 if (integration.status !== "pass" || !integration.candidate_clean || integration.steps.some(step => step.status !== "integrated")) reasons.push("integration_incomplete");
-if (integration.candidate_head !== liveHead) reasons.push("candidate_head_advanced");
-if (!clean(candidate)) reasons.push("dirty_candidate");
-if (!identity(set) || set.candidate_head !== liveHead) reasons.push("evidence_identity_mismatch");
+if (!headMatches(liveHead, integration.candidate_head)) reasons.push("candidate_head_advanced");
+  if (!clean(candidate)) reasons.push("dirty_candidate");
+  if (!identity(set) || !headMatches(liveHead, set.candidate_head)) reasons.push("evidence_identity_mismatch");
 if (Date.parse(set.created_at) < Date.parse(integration.created_at)) reasons.push("stale_evidence_set");
 const entries = new Map();
 for (const entry of set.evidence) {
@@ -107,7 +108,7 @@ if (reviewEntry) {
   if (value) {
     const reviewSchema = json(a["review-schema"], "invalid_review_schema");
     delete reviewSchema.if; delete reviewSchema.then;
-    if (validate(reviewSchema, value).length || !bindingMatches(value, reviewEntry) || value.issue.number !== plan.issue || value.reviewed_head_sha !== liveHead || value.lifecycle !== "final" || value.status !== "pass" || value.checklist.some(x => !x.met)) reasons.push("candidate_review_not_green");
+    if (validate(reviewSchema, value).length || !bindingMatches(value, reviewEntry) || value.issue.number !== plan.issue || !headMatches(liveHead, value.reviewed_head_sha) || value.lifecycle !== "final" || value.status !== "pass" || value.checklist.some(x => !x.met)) reasons.push("candidate_review_not_green");
   }
 }
 if (verifyEntry) {
@@ -115,25 +116,25 @@ if (verifyEntry) {
   if (value) {
     const runs = Array.isArray(value.runs) ? value.runs : [value];
     const semantic = spawnSync("node", [a["verify-result"], "validate-artifact", path.join(candidate, canonical.verification), a["verify-schema"], a.validator], { encoding: "utf8" });
-    if (semantic.status !== 0 || validate(json(a["verify-schema"], "invalid_verify_schema"), value).length || !bindingMatches(value, verifyEntry) || value.issue !== plan.issue || value.head_sha !== liveHead || value.classifier !== "PASS" || value.verdict.exit_code !== 0 || value.verdict.failed !== 0 || value.verdict.passed < 1 || runs.some(run => run.classifier !== "PASS" || run.verdict.exit_code !== 0 || run.verdict.failed !== 0 || run.failures.length !== 0)) reasons.push("candidate_verification_not_green");
+    if (semantic.status !== 0 || validate(json(a["verify-schema"], "invalid_verify_schema"), value).length || !bindingMatches(value, verifyEntry) || value.issue !== plan.issue || !headMatches(liveHead, value.head_sha) || value.classifier !== "PASS" || value.verdict.exit_code !== 0 || value.verdict.failed !== 0 || value.verdict.passed < 1 || runs.some(run => run.classifier !== "PASS" || run.verdict.exit_code !== 0 || run.verdict.failed !== 0 || run.failures.length !== 0)) reasons.push("candidate_verification_not_green");
   }
 }
 if (prEntry) {
   const value = loadEntry(prEntry, canonical.pr_draft);
   if (value) {
-    if (validate(json(a["pr-schema"], "invalid_pr_schema"), value).length || !bindingMatches(value, prEntry) || value.issue.number !== plan.issue || value.head_sha !== liveHead || value.lifecycle !== "active" || value.status !== "ready_for_review") reasons.push("candidate_pr_draft_not_ready");
+    if (validate(json(a["pr-schema"], "invalid_pr_schema"), value).length || !bindingMatches(value, prEntry) || value.issue.number !== plan.issue || !headMatches(liveHead, value.head_sha) || value.lifecycle !== "active" || value.status !== "ready_for_review") reasons.push("candidate_pr_draft_not_ready");
   }
 }
 if (completionEntry) {
   const value = loadEntry(completionEntry, canonical.completion);
-  if (value && (validate(json(a["completion-schema"], "invalid_completion_schema"), value).length || !validRfc3339(value.created_at) || !bindingMatches(value, completionEntry) || !(identity(value) && value.head_sha === liveHead && value.status === "pass"))) reasons.push("candidate_completion_not_green");
+  if (value && (validate(json(a["completion-schema"], "invalid_completion_schema"), value).length || !validRfc3339(value.created_at) || !bindingMatches(value, completionEntry) || !(identity(value) && headMatches(liveHead, value.head_sha) && value.status === "pass"))) reasons.push("candidate_completion_not_green");
 }
 for (const seat of plan.seats) {
   const entry = entries.get(`seat_outcome:${seat.id}`);
   if (!entry) continue;
   const value = loadEntry(entry, `.review/ISSUE-${plan.issue}-SEAT-${seat.id}.json`);
   const step = integration.steps.find(item => item.seat_id === seat.id);
-  if (value && (!step || validate(json(a["seat-schema"], "invalid_seat_schema"), value).length || !validRfc3339(value.created_at) || !bindingMatches(value, entry) || !(identity(value) && value.seat_id === seat.id && value.source_head === step.source_head && JSON.stringify(value.changed_paths) === JSON.stringify(step.changed_paths) && value.status === "pass"))) reasons.push("seat_outcome_not_green");
+  if (value && (!step || validate(json(a["seat-schema"], "invalid_seat_schema"), value).length || !validRfc3339(value.created_at) || !bindingMatches(value, entry) || !(identity(value) && value.seat_id === seat.id && value.source_head === step.source_head && sameJson(value.changed_paths, step.changed_paths) && value.status === "pass"))) reasons.push("seat_outcome_not_green");
 }
 const blockerPath = path.join(candidate, `.review/ISSUE-${plan.issue}-BLOCKER.json`);
 if (fs.existsSync(blockerPath)) {

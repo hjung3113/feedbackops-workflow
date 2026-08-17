@@ -13,6 +13,7 @@ PROG="prompt-ac-check"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CONTRACT_VALIDATORS="$SCRIPT_DIR/lib/contract-validators.cjs"
 round_state=""
 expected_revision=""
 prompt_file=""
@@ -65,9 +66,9 @@ if [ -n "$output_contract_role" ]; then
   fi
 fi
 
-node - "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" "$expected_revision" "$prompt_file" <<'NODE'
+node - "$round_state" "$CONTRACT_VALIDATORS" "$expected_revision" "$prompt_file" <<'NODE'
 const fs = require("fs");
-const [stateFile, schemaFile, validatorFile, expectedRevision, promptFile] = process.argv.slice(2);
+const [stateFile, contractValidatorsFile, expectedRevision, promptFile] = process.argv.slice(2);
 const START = "<!-- agent-workflow:ac-block:start -->";
 const END = "<!-- agent-workflow:ac-block:end -->";
 function result(code, message) {
@@ -77,9 +78,8 @@ function result(code, message) {
 let state, schema, prompt, validate;
 try {
   state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-  schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+  ({ schema, validate } = require(contractValidatorsFile).loadSchema("round_state.schema.json"));
   prompt = fs.readFileSync(promptFile, "utf8");
-  ({ validate } = require(validatorFile));
 } catch (error) {
   console.error("cannot read canonical input: " + error.message);
   process.exit(2);

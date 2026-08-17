@@ -9,6 +9,7 @@ codex-safe.smoke.sh
 completion-check.smoke.sh
 conductor-control.smoke.sh
 conductor-rebuild.smoke.sh
+contract-validators.smoke.sh
 dispatch-operator-contract.smoke.sh
 install-into.smoke.sh
 model-alloc.smoke.sh
