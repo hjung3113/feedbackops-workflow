@@ -15,7 +15,7 @@ The orchestrator role, executed by the explicitly selected Codex, Claude Code, o
 _Avoid_: coordinator, orchestrator (as a standalone term — CONDUCTOR is the canonical name)
 
 **CODEX**:
-The implementation worker seat name (e.g. "CODEX + VERIFIER" per tier), fillable by any explicitly selected runtime — codex, claude, or opencode — same as every other role. Receives only the compressed prompt file; write-capable execution must delegate to `scripts/codex-safe.sh`.
+The implementation worker seat name (e.g. "CODEX + VERIFIER" per tier), fillable by any explicitly selected runtime — codex, claude, or opencode — same as every other role. Receives only the compressed prompt file. Write-capable execution's own mode-to-permission handling is Runtime-owned and differs per runtime (see Adapter, Runtime): the codex runtime specifically delegates to `scripts/codex-safe.sh`, claude uses `--permission-mode`, opencode loads a mode-specific permission file — none is a requirement on the other two.
 _Avoid_: implementer, worker (too generic); do not conflate with the `codex` runtime (see Runtime) — CODEX the seat and codex the runtime are independent, a claude or opencode runtime can fill the CODEX seat
 
 **REVIEWER**:
