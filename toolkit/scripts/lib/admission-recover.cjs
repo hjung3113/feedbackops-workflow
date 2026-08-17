@@ -29,7 +29,7 @@ const safeRouteBinding = value => {
   if (!value || typeof value !== "object" || Array.isArray(value)
       || Object.keys(value).sort().join(",") !== "decision_reason_codes,policy_digest,role,route_digest,runtime,selected,selection_basis,tier,transport"
       || !safeRouteDigest(value.route_digest) || !safeRouteDigest(value.policy_digest)
-      || !["codex", "claude", "opencode"].includes(value.runtime)
+      || !require("./runtime-registry.cjs").RUNTIMES.includes(value.runtime)
       || !["implementation", "reviewer", "verifier"].includes(value.role)
       || !["trivial", "standard", "full_cluster"].includes(value.tier)
       || !require("./transport-registry.cjs").ADAPTERS.includes(value.transport)
