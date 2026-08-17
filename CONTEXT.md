@@ -67,6 +67,18 @@ _Avoid_: none
 The axis of WHICH model publisher executes inside a transport: codex / claude / opencode.
 _Avoid_: none
 
+**Adapter**:
+The per-axis-member implementation that normalizes one Transport or Runtime member's differing shape (session model, CLI flags) behind that axis's uniform interface. One file per member — `scripts/adapters/<transport>.sh` for Transport. `agent-runtime.sh` does the equivalent job for Runtime but still inlines all three runtimes in one file rather than splitting; this is known debt, not the intended shape (see [ADR-0006](docs/adr/0006-adapters-are-one-file-per-axis-member.md)).
+_Avoid_: wrapper, integration
+
+**Axis registry**:
+The declarative single-source-of-truth pattern for one axis's member set and per-member facts (pinned-binary resolution, capability-probe tokens, ownership) consumed by both bash and Node call sites, so no call site re-hardcodes axis membership. Instantiated as `runtime-registry.cjs` (Runtime axis) and `transport-registry.cjs` (Transport axis) — declared twins of each other.
+_Avoid_: config, lookup table
+
+**Seat**:
+The identifier (`seat_id`, set via `--seat`) distinguishing one concurrent write attempt within a multi-seat EXECUTION-PLAN. Not a Role instance and not a model/effort choice — those are Role and Route respectively; a seat is a plan-scoped write slot, closing as a `seat_outcome` artifact (`source_head`, `changed_paths`, `status`) consumed at merge/integration.
+_Avoid_: worker instance, agent instance
+
 ## Artifacts
 
 Every worker artifact is a `.review/ISSUE-<n>-<TYPE>.json` file carrying its own `artifact_type` const; each type below is an independent glossary entry — "artifact" is used only as a loose umbrella word, not a parent concept, because the schema layer itself is flat (`toolkit/schemas/*.schema.json` pins each type separately, no shared parent schema).
