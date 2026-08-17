@@ -24,7 +24,9 @@ An opt-in, reusable multi-agent development workflow toolkit. It gives a team ex
 | [`toolkit/`](toolkit/) | The only distributable product root. |
 | [`.agents/skills/`](.agents/skills/) and [`skills-lock.json`](skills-lock.json) | Maintainer development environment; never shipped to targets. |
 | [`docs/agents/`](docs/agents/) | Maintainer issue-tracker, domain, and triage configuration. |
+| [`docs/adr/`](docs/adr/) | Durable architecture decisions (why a design choice was made and what it forecloses) — read this before "cleaning up" anything that looks redundant. |
 | [`docs/plans/`](docs/plans/) and [`.review/`](.review/) | Repository-owned plans and runtime evidence. |
+| [`HANDOFF.md`](HANDOFF.md) and [`docs/handoff-archive/`](docs/handoff-archive/) | Session continuity log — `HANDOFF.md` holds only the latest entry; older entries are archived, not appended. |
 | [`.github/`](.github/) and [`.githooks/`](.githooks/) | Repository integration and release checks. |
 
 ### Verify the repository

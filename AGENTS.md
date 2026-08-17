@@ -29,6 +29,11 @@ win if it disagrees. The detailed product playbook is
 - `toolkit/docs/agents/` contains the product playbook and personas.
 - `docs/agents/` contains repository-only issue-tracker, triage, and domain
   guidance. `docs/plans/` and `.review/` are maintainer planning/runtime data.
+- `docs/adr/` contains durable architecture decisions (why, not just what —
+  see `docs/adr/README.md`). A decision that should survive past the current
+  session belongs here, not only in `HANDOFF.md` or an agent's private
+  memory. `HANDOFF.md` holds only the single latest session entry; older
+  entries live in `docs/handoff-archive/`.
 - `toolkit/.claude/skills/agent-workflow/` is the installable product skill.
   Keep its entrypoint thin and route detail to the playbook/references.
 
