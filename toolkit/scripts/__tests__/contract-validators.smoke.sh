@@ -11,7 +11,7 @@ pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAIL=$((FAIL + 1)); }
 
 node - "$VALIDATORS" <<'NODE'
-const { effortValid, headMatches } = require(process.argv[2]);
+const { effortValid, headMatches, sameJson } = require(process.argv[2]);
 const checks = [];
 const check = (name, actual, expected) => checks.push([name, actual === expected, actual, expected]);
 
@@ -24,6 +24,10 @@ check("headMatches fail-closed on empty recorded head", headMatches("a".repeat(4
 check("headMatches fail-closed on missing recorded head", headMatches("a".repeat(40), undefined), false);
 check("headMatches fail-closed on non-string recorded head", headMatches("a".repeat(40), 123), false);
 check("headMatches fail-closed on both empty", headMatches("", ""), false);
+check("sameJson accepts equal values", sameJson({ a: [1, 2] }, { a: [1, 2] }), true);
+check("sameJson rejects differing values", sameJson({ a: 1 }, { a: 2 }), false);
+check("sameJson is insertion-order sensitive", sameJson([{ x: 1, y: 2 }], [{ y: 2, x: 1 }]), false);
+check("sameJson drops undefined like JSON.stringify", sameJson({ a: undefined, b: 1 }, { b: 1 }), true);
 
 let failed = 0;
 for (const [name, ok, actual, expected] of checks) {

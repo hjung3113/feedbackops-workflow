@@ -5,7 +5,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { execFileSync, spawnSync } = require("child_process");
 const { parseRfc3339 } = require("./rfc3339.cjs");
-const { headMatches } = require("./contract-validators.cjs");
+const { headMatches, sameJson } = require("./contract-validators.cjs");
 
 function args(argv) { const out = {}; for (let i = 0; i < argv.length; i += 2) { if (!argv[i] || !argv[i].startsWith("--") || i + 1 >= argv.length) fatal("invalid_arguments"); out[argv[i].slice(2)] = argv[i + 1]; } return out; }
 function fatal(code, message = code) { process.stdout.write(JSON.stringify({ status: "error", reason_codes: [code], error: message }) + "\n"); process.exit(2); }
@@ -70,7 +70,7 @@ if (!validRfc3339(integration.created_at) || !validRfc3339(set.created_at)) reas
 const actualStepOrder = integration.steps.map(step => step.seat_id);
 const stepOrderValid = actualStepOrder.length === plan.integration_order.length
   && new Set(actualStepOrder).size === actualStepOrder.length
-  && JSON.stringify(actualStepOrder) === JSON.stringify(plan.integration_order);
+  && sameJson(actualStepOrder, plan.integration_order);
 if (!stepOrderValid) reasons.push("integration_step_order_mismatch");
 if (integration.status !== "pass" || !integration.candidate_clean || integration.steps.some(step => step.status !== "integrated")) reasons.push("integration_incomplete");
 if (!headMatches(liveHead, integration.candidate_head)) reasons.push("candidate_head_advanced");
@@ -134,7 +134,7 @@ for (const seat of plan.seats) {
   if (!entry) continue;
   const value = loadEntry(entry, `.review/ISSUE-${plan.issue}-SEAT-${seat.id}.json`);
   const step = integration.steps.find(item => item.seat_id === seat.id);
-  if (value && (!step || validate(json(a["seat-schema"], "invalid_seat_schema"), value).length || !validRfc3339(value.created_at) || !bindingMatches(value, entry) || !(identity(value) && value.seat_id === seat.id && value.source_head === step.source_head && JSON.stringify(value.changed_paths) === JSON.stringify(step.changed_paths) && value.status === "pass"))) reasons.push("seat_outcome_not_green");
+  if (value && (!step || validate(json(a["seat-schema"], "invalid_seat_schema"), value).length || !validRfc3339(value.created_at) || !bindingMatches(value, entry) || !(identity(value) && value.seat_id === seat.id && value.source_head === step.source_head && sameJson(value.changed_paths, step.changed_paths) && value.status === "pass"))) reasons.push("seat_outcome_not_green");
 }
 const blockerPath = path.join(candidate, `.review/ISSUE-${plan.issue}-BLOCKER.json`);
 if (fs.existsSync(blockerPath)) {

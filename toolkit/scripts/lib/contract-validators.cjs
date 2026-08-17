@@ -17,4 +17,11 @@ function headMatches(liveHead, recordedHead) {
     && liveHead === recordedHead;
 }
 
-module.exports = { effortValid, headMatches };
+// Plain JSON.stringify equality: insertion-order sensitive, drops undefined.
+// This is NOT lib/route.cjs's canonical() key-sorting serializer — that
+// predicate feeds sha256 route_digest/policy_digest and stays separate.
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+module.exports = { effortValid, headMatches, sameJson };

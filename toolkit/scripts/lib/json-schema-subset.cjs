@@ -1,7 +1,10 @@
 "use strict";
 
-// Dependency-free validator for the draft-07 keyword subset used by this toolkit.
+// Validator for the draft-07 keyword subset used by this toolkit.
 // Unknown assertion keywords fail closed so schema growth cannot silently bypass gates.
+// Node stdlib plus the intra-lib sameJson predicate are its only dependencies.
+
+const { sameJson } = require("./contract-validators.cjs");
 
 const supported = new Set([
   "$schema",
@@ -28,10 +31,6 @@ const supported = new Set([
   "oneOf",
   "not",
 ]);
-
-function same(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
 
 function valueType(value) {
   if (Array.isArray(value)) return "array";
@@ -73,10 +72,10 @@ function validate(schema, value, path = "$", root = schema) {
     errors.push(`${path}: must not match forbidden schema`);
   }
 
-  if (Object.prototype.hasOwnProperty.call(schema, "const") && !same(value, schema.const)) {
+  if (Object.prototype.hasOwnProperty.call(schema, "const") && !sameJson(value, schema.const)) {
     errors.push(`${path}: must equal ${JSON.stringify(schema.const)}`);
   }
-  if (schema.enum && !schema.enum.some((candidate) => same(value, candidate))) {
+  if (schema.enum && !schema.enum.some((candidate) => sameJson(value, candidate))) {
     errors.push(`${path}: must be one of ${JSON.stringify(schema.enum)}`);
   }
 

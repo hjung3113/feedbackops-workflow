@@ -20,6 +20,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CONTRACT_VALIDATORS="$SCRIPT_DIR/lib/contract-validators.cjs"
 WORKTREE_CONTENT_ID="$SCRIPT_DIR/lib/worktree-content-id.cjs"
 VERIFY_SCHEMA=""
 PR_DRAFT_SCHEMA=""
@@ -84,7 +85,7 @@ parse_verify_artifact() {
       ({ validate } = require(process.argv[3]));
     } catch (e) { process.exit(3); }
     if (validate(schema, o).length) process.exit(3);
-    const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+    const { sameJson } = require(process.argv[4]);
     const count = (value, key) => value && typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : 0;
     function validRun(run) {
       if (!run || typeof run !== "object" || Array.isArray(run)
@@ -135,7 +136,7 @@ parse_verify_artifact() {
       get(["verify_cmd"])
     ];
     process.stdout.write(values.join("\t"));
-  ' "$1" "$VERIFY_SCHEMA" "$SCHEMA_VALIDATOR" 2>/dev/null
+  ' "$1" "$VERIFY_SCHEMA" "$SCHEMA_VALIDATOR" "$CONTRACT_VALIDATORS" 2>/dev/null
 }
 
 process_blocker() {
