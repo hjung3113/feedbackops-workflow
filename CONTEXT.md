@@ -59,6 +59,10 @@ _Avoid_: capability check
 The `capability-result.cjs` payload — adapter, `available`, version, and a duplicate-free list of non-blank capability strings — consumed by dispatch admission on the transport axis, never by routing. Distinct from Runner offer (see Routing Subsystem below), which is the routing-axis equivalent.
 _Avoid_: capability offer, offer, runner
 
+**Capability survey**:
+The `agent-workflow.sh capabilities` output — every Transport adapter and Runtime probed and aggregated into one JSON, before any one runtime/role/transport is chosen. Answers "what's available at all right now"; distinct from Capability probe, which answers "is this one already-chosen combination available."
+_Avoid_: capabilities check (too easily confused with Capability probe)
+
 **Transport**:
 The axis of WHERE the worker process runs: cmux / orca / herdr / (proposed) native.
 _Avoid_: none
@@ -99,9 +103,19 @@ _Avoid_: completion status, result (RUN state is about termination, not outcome)
 The scoped-abort artifact CODEX must produce to abort, recording the abort-time Git `HEAD` in `head_sha` and a `reason_code` from a fixed enum. Recognized as the sole failed-round evidence by the redispatch gate only when `primary_origin: dispatch_contract` and `next_action.kind: contract_fix`.
 _Avoid_: error, failure (BLOCKER is a specific typed artifact, not a generic error)
 
+**Redispatch gate**:
+The `redispatch-check.sh` policy that derives whether a failed round is allowed to redispatch, from the canonical ROUND-STATE failure history. Correctness policy, not liveness policy — distinct from Watchdog, which governs stall/liveness, not whether a redispatch is warranted.
+_Avoid_: retry policy, retry gate (retry implies liveness, which is Watchdog's job)
+
 **Receipt**:
 The atomically published, schema-versioned `.review/ISSUE-<n>-TRANSPORT.json` (`artifact_type: transport_receipt`) recording selected runtime, role, observed runtime version, adapter capability evidence, external handle, worktree/runner identity, and timestamps. Explicitly non-authoritative launch intent/provenance, not confirmed command delivery or completion.
 _Avoid_: transport record, confirmation
+
+## Candidate Lifecycle
+
+**Integration branch**:
+The single clean branch `candidate-integrate.sh` produces by applying every planned seat's delta, in declared order, onto one worktree — never resetting, checking out, or discarding prior seat changes. Evaluated by `candidate-close.sh` against its bound evidence (review, verify, PR draft) before closure.
+_Avoid_: candidate (ambiguous — collides with Routing policy's unrelated route-option-candidate sense; always say Integration branch), merge result
 
 ## Routing Subsystem
 
@@ -123,8 +137,8 @@ A host-observed, expiry-bound statement of one pinned runtime executable and its
 _Avoid_: capability, availability (see Capability result above for the distinct transport-axis concept)
 
 **Routing policy**:
-A host-pinned immutable project policy snapshot — an allowlist and deterministic candidate order.
-_Avoid_: config, score model, ruleset
+A host-pinned immutable project policy snapshot — an allowlist and deterministic route option order.
+_Avoid_: config, score model, ruleset, candidate (candidate is the unrelated workflow-lifecycle term — see Integration branch)
 
 **Route digest**:
 The digest binding one admitted demand, offer, policy, and selected decision together.
