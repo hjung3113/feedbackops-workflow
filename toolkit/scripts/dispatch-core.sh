@@ -532,20 +532,15 @@ NODE
   echo "ERROR: $reason: runtime=$RUNTIME role=$ROLE unavailable; no fallback attempted" >&2
   exit 2
 }
-if [ "$RUNTIME" = "opencode" ]; then
-  if [ -z "$RUNTIME_PERMISSION_FILE" ]; then
-    if [ "$ROLE" = "implementation" ]; then
-      RUNTIME_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-write.json"
-    else
-      RUNTIME_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-read.json"
-    fi
-  fi
-  case "$RUNTIME_PERMISSION_FILE" in
-    /*) ;;
-    *) RUNTIME_PERMISSION_FILE="$ABS_WORKTREE/$RUNTIME_PERMISSION_FILE" ;;
-  esac
-  [ -r "$RUNTIME_PERMISSION_FILE" ] || { echo "ERROR: opencode_permission_config_missing: $RUNTIME_PERMISSION_FILE" >&2; exit 2; }
+# Permission-file resolution is Runtime-axis logic: delegate to the runtime
+# adapter instead of branching on a runtime name here. Runtimes without a
+# permission file resolve to an empty string.
+if [ -n "$RUNTIME_PERMISSION_FILE" ]; then
+  RESOLVED_PERMISSION_FILE="$(bash "$RUNTIME_ADAPTER" permission-file --runtime "$RUNTIME" --role "$ROLE" --cwd "$ABS_WORKTREE" --opencode-permission-file "$RUNTIME_PERMISSION_FILE")"
+else
+  RESOLVED_PERMISSION_FILE="$(bash "$RUNTIME_ADAPTER" permission-file --runtime "$RUNTIME" --role "$ROLE" --cwd "$ABS_WORKTREE")"
 fi
+[ -n "$RESOLVED_PERMISSION_FILE" ] && RUNTIME_PERMISSION_FILE="$RESOLVED_PERMISSION_FILE"
 if [ "$REREVIEW" -eq 1 ]; then
   if [ -z "$REVIEW_CAPSULE" ]; then
     echo "ERROR: re-review requires --review-capsule for the current HEAD and manifest revision" >&2
