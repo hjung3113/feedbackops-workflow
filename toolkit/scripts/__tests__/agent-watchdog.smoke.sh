@@ -30,6 +30,11 @@ if [ -n "${OPENCODE_STUB_PR_DRAFT:-}" ]; then
   mkdir -p "$worktree/.review"
   printf '%s\n' "$OPENCODE_STUB_PR_DRAFT" > "$worktree/.review/ISSUE-${OPENCODE_STUB_ISSUE}-PR-DRAFT.json"
 fi
+if [ -n "${OPENCODE_STUB_CAPTURE_PROMPT:-}" ]; then
+  last=""
+  for a in "$@"; do last="$a"; done
+  printf '%s' "$last" > "$OPENCODE_STUB_CAPTURE_PROMPT"
+fi
 printf '%s\n' "$OPENCODE_STUB_OUTPUT"
 EOF
 chmod +x "$BIN/opencode"
@@ -65,6 +70,13 @@ review="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"f
 wrapped_review="$(printf 'reviewer summary\n\n```json\n%s\n```\n\n```json\nnot valid JSON\n```\n' "$review")"
 OPENCODE_STUB_OUTPUT="$wrapped_review" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 77 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.artifact_type!=="agent_run"||o.runtime!=="opencode"||o.role!=="reviewer"||!o.runtime_version||o.status!=="exited")process.exit(1)' "$WT/.review/ISSUE-77-RUN.json" && [ -f "$WT/.review/ISSUE-77-REVIEW.json" ]; then ok 'prose-wrapped non-Codex reviewer JSON publishes validated review'; else bad 'prose-wrapped reviewer publication'; fi
+# #137 regression: bash-denied reviewer receives the host-pinned HEAD in the
+# launch prompt (a), and a wrong model-returned reviewed_head_sha is corrected
+# to the host's launch-time value before schema validation (b).
+CAPTURED_PROMPT="$TMP/captured-prompt.txt"
+review_137="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":137},\"reviewed_head_sha\":\"0000000000000000000000000000000000000000\",\"status\":\"pass\",\"checklist\":[{\"item\":\"head-injection\",\"met\":true}]}"
+OPENCODE_STUB_CAPTURE_PROMPT="$CAPTURED_PROMPT" OPENCODE_STUB_OUTPUT="$review_137" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 137 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -eq 0 ] && grep -q "reviewed_head_sha must be exactly $HEAD" "$CAPTURED_PROMPT" && node -e 'const o=require(process.argv[1]); if(o.reviewed_head_sha!==process.argv[2])process.exit(1)' "$WT/.review/ISSUE-137-REVIEW.json" "$HEAD" && [ -f "$WT/.review/ISSUE-137-REVIEW-$HEAD.json" ]; then ok '#137 bash-deny reviewer gets host-pinned HEAD injected and wrong model value corrected'; else bad '#137 host-pinned HEAD injection/correction'; fi
 OPENCODE_STUB_OUTPUT='reviewer prose without JSON' AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 81 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -ne 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="refused"||o.refusal_reason!=="unparseable_output")process.exit(1)' "$WT/.review/ISSUE-81-RUN.json" && grep -q 'reviewer prose without JSON' "$WT/.review/ISSUE-81-review-attempt1-output.log"; then ok 'unparseable non-Codex review preserves output diagnostics with typed reason'; else bad 'unparseable reviewer diagnostics'; fi
 review_82="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":82},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"publication\",\"met\":true}]}"
