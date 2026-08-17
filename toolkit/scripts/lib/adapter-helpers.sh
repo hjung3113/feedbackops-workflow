@@ -9,10 +9,15 @@ ADAPTER_SEMVER="$ADAPTER_LIB_DIR/semver.cjs"
 ADAPTER_JSON="$ADAPTER_LIB_DIR/adapter-json.cjs"
 
 # help_has <help-text> <flag-or-word>: true when the captured --help
-# output contains the exact string. Replaces the per-adapter
-# `--help | grep -F` probing pattern.
+# output contains the needle as a whole token. Non-token characters are
+# normalized to single spaces so `get` cannot match inside `forget`;
+# `-` stays a token character so multi-dash flags like `--cwd` match intact.
 help_has() {
-  printf '%s\n' "$1" | grep -F -q -- "$2"
+  hay=" $(printf '%s' "$1" | tr -c 'A-Za-z0-9_-' ' ') "
+  case "$hay" in
+    *" $2 "*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # runner_path_allowed <path>: the only launch runner form every adapter

@@ -213,6 +213,7 @@ workspace_help() {
   case "${HERDR_HELP_MODE:-complete}" in
     workspace_fail) printf '%s\n' 'workspace help unavailable'; return 2 ;;
     missing_get) printf '%s\n' 'Commands: create close'; return 0 ;;
+    decoy_get) printf '%s\n' 'Commands: create forget close target'; return 0 ;;
     missing_close) printf '%s\n' 'Commands: create get'; return 0 ;;
     *) printf '%s\n' 'Commands: create get close'; return 0 ;;
   esac
@@ -231,6 +232,7 @@ pane_help() {
   case "${HERDR_HELP_MODE:-complete}" in
     pane_fail) printf '%s\n' 'pane help unavailable'; return 2 ;;
     missing_pane_run) printf '%s\n' 'Commands: send'; return 0 ;;
+    decoy_run) printf '%s\n' 'Commands: overrun'; return 0 ;;
     *) printf '%s\n' 'Commands: run'; return 0 ;;
   esac
 }
@@ -238,6 +240,7 @@ pane_help() {
 pane_run_help() {
   case "${HERDR_HELP_MODE:-complete}" in
     missing_pane_run) printf '%s\n' 'pane send PANE COMMAND'; return 0 ;;
+    decoy_run) printf '%s\n' 'pane overrun PANE COMMAND'; return 0 ;;
     *) printf '%s\n' 'Usage: herdr pane run PANE COMMAND'; return 0 ;
   esac
 }
@@ -531,7 +534,7 @@ if (value.available || value.reason_code !== "required_capability_missing") proc
 NODE
 then pass "Herdr empty semver is rejected as required_capability_missing"; else fail "Herdr empty semver ($(cat "$TMP_ROOT/herdr-version-empty.json"))"; fi
 
-for help_mode in workspace_fail missing_cwd missing_label missing_focus missing_get missing_close pane_fail missing_pane_run; do
+for help_mode in workspace_fail missing_cwd missing_label missing_focus missing_get decoy_get missing_close pane_fail missing_pane_run decoy_run; do
   HERDR_ENV=1 HERDR_SOCKET_PATH=socket HERDR_HELP_MODE="$help_mode" HERDR_STATE_DIR="$TMP_ROOT/herdr-help-$help_mode-state" \
   PATH="$BIN:$PATH" bash "$HERDR_CAP_SCRIPT" capabilities --worktree "$WT" >"$TMP_ROOT/herdr-help-$help_mode.json" 2>&1
   ec=$?
