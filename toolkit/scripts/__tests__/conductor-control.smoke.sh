@@ -30,6 +30,25 @@ for runtime in codex claude opencode; do
   if [ $? -eq 0 ] && node -e 'const a=require(process.argv[1]),r=require(process.argv[2]); if(a.producer_role!=="CONDUCTOR"||r.status!=="exited"||r.runtime!==process.argv[3]||r.role!=="conductor")process.exit(1)' "$WT/.review/ISSUE-$issue-ROUND-STATE.json" "$WT/.review/ISSUE-$issue-RUN.json" "$runtime"; then ok "$runtime conductor publishes only host-validated control"; else cat "$TMP/$runtime.out" >&2; bad "$runtime conductor control publication"; fi
   issue=$((issue + 1))
 done
+cat > "$BIN/claude-ndjson" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
+if [ "$1" = "--help" ] || [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json --print --permission-mode --output-format --effort --include-partial-messages run --dir --format --agent --variant json'; exit 0; fi
+printf '%s\n' '{"type":"system","subtype":"init"}'
+CLAUDE_NDJSON_PROPOSAL_PATH="$CONTROL_PROPOSAL" CLAUDE_NDJSON_FENCE="${CLAUDE_NDJSON_FENCE:-0}" node <<'NODE'
+const fs=require("fs");
+const proposal=fs.readFileSync(process.env.CLAUDE_NDJSON_PROPOSAL_PATH,"utf8");
+const body = process.env.CLAUDE_NDJSON_FENCE === "1" ? "here is the proposal\n\n```json\n"+proposal+"\n```\n" : proposal;
+process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,result:body})+"\n");
+NODE
+EOF
+chmod +x "$BIN/claude-ndjson"
+make_proposal 721 1 '.review/ISSUE-721-ROUND-STATE.json'
+CONTROL_PROPOSAL="$TMP/proposal.json" AGENT_WORKFLOW_RUNTIME_BIN="$BIN/claude-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 721 --runtime claude --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >"$TMP/721.out" 2>&1
+if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCTOR")process.exit(1)' "$WT/.review/ISSUE-721-ROUND-STATE.json"; then ok 'AC-142-A2b2-4 claude stream-json NDJSON conductor proposal publishes host-validated control'; else cat "$TMP/721.out" >&2; bad 'AC-142-A2b2-4 claude stream-json NDJSON conductor proposal publishes host-validated control'; fi
+make_proposal 722 1 '.review/ISSUE-722-ROUND-STATE.json'
+CONTROL_PROPOSAL="$TMP/proposal.json" CLAUDE_NDJSON_FENCE=1 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/claude-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 722 --runtime claude --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >"$TMP/722.out" 2>&1
+if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCTOR")process.exit(1)' "$WT/.review/ISSUE-722-ROUND-STATE.json"; then ok 'AC-142-A2b2-5 claude stream-json NDJSON conductor proposal with fenced-json body publishes host-validated control'; else cat "$TMP/722.out" >&2; bad 'AC-142-A2b2-5 claude stream-json NDJSON conductor proposal with fenced-json body publishes host-validated control'; fi
 issue=705; make_proposal "$issue" 1 ".review/ISSUE-$issue-ROUND-STATE.json"
 CONTROL_PROPOSAL="$TMP/proposal.json" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue "$issue" --runtime codex --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >/dev/null 2>&1
 make_proposal "$issue" 2 ".review/ISSUE-$issue-ROUND-STATE.json"

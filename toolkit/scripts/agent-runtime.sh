@@ -101,7 +101,19 @@ case "$RUNTIME" in
       exec "$@"
     fi
     set -- "$BIN" exec --sandbox read-only --cd "$CWD"; [ -n "$MODEL" ] && set -- "$@" -m "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""; exec "$@" "$PROMPT";;
-  claude) [ "$MODE" = write ] && permission=acceptEdits || permission=plan; set -- "$BIN" --print --permission-mode "$permission" --output-format text; [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; cd "$CWD"; exec "$@" "$PROMPT";;
+  claude)
+    [ "$MODE" = write ] && permission=acceptEdits || permission=plan
+    set -- "$BIN" --print --permission-mode "$permission"
+    # The progress event stream is registry data (PROGRESS.claude.flags), not
+    # a hardcoded --output-format text argv — agent-watchdog.sh's progressed()
+    # and transcribe_review() key off this same table to read the stream back.
+    # Fail closed like every other registry read in this file: a missing
+    # entry must never silently launch with no --output-format at all.
+    progress_flags="$(node "$RUNTIME_REGISTRY" progress-flags "$RUNTIME")" || machine_error runtime_registry_unavailable 'progress-flags lookup failed'
+    while IFS= read -r flag; do [ -n "$flag" ] && set -- "$@" "$flag"; done <<PROGRESS_FLAGS
+$progress_flags
+PROGRESS_FLAGS
+    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; cd "$CWD"; exec "$@" "$PROMPT";;
   opencode)
     validate_opencode_permissions "$OPENCODE_PERMISSION_FILE" "$MODE"
     # Inline content has higher precedence than target/global config. Passing
