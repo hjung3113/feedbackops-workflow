@@ -22,25 +22,25 @@ self-evident — an ADR restates a *decision*, not a changelog entry.
 ## Format
 
 One file per decision: `NNNN-short-title.md`, numbered sequentially, never renumbered.
+Following this repo's `domain-modeling` skill convention (`.claude/skills/domain-modeling/ADR-FORMAT.md`):
 
 ```markdown
-# NNNN. Title
+# {Short title of the decision}
 
-Status: proposed | accepted | superseded by NNNN
-
-## Context
-What forces/constraints made a decision necessary. The problem, not the solution.
-
-## Decision
-What was decided, stated plainly.
-
-## Consequences
-What this makes easier, what it makes harder, what it forecloses.
+{1-3 sentences: what's the context, what did we decide, and why.}
 ```
 
+That's it — an ADR can be a single paragraph. Only add `Status`/`Considered Options`/
+`Consequences` sections when they add genuine value (a decision likely to be revisited,
+rejected alternatives worth remembering, non-obvious downstream effects); most won't need
+them. 0001-0004 predate this lighter convention and use a heavier Nygard-style template —
+left as-is, not worth rewriting retroactively, but new ADRs should use the light form.
+
 **Immutable once accepted.** If a decision changes, write a NEW ADR that supersedes the old
-one (set the old one's status to `superseded by NNNN`) — never rewrite an accepted ADR's
-Context/Decision/Consequences in place. Typo fixes are fine; changing the substance is not.
+one — never rewrite an accepted ADR's substance in place. Typo fixes are fine.
+
+Only write one when all three hold: hard to reverse, surprising without context, and the
+result of a real trade-off (see ADR-FORMAT.md for the full test). Skip it otherwise.
 
 ## Index
 
@@ -50,3 +50,4 @@ Context/Decision/Consequences in place. Typo fixes are fine; changing the substa
 | [0002](0002-route-canonical-serializer-is-not-samejson.md) | `route.cjs`'s digest-feeding `canonical()` is a distinct function from the shared `sameJson` equality check | accepted |
 | [0003](0003-dispatch-retry-timeouts-do-not-scale-with-task-size.md) | Watchdog stall/retry timeouts are fixed regardless of task scope | proposed — filed as #157 |
 | [0004](0004-test-doubles-must-assert-on-received-input.md) | Smoke-test doubles must capture and assert on received input, not just that they ran | accepted (retrofit tracked as #164) |
+| [0005](0005-routing-authority-boundaries.md) | Routing authority stays diagnostic-only; completion authority stays with REVIEW/VERIFY | accepted |
