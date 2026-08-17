@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { validate } = require("./json-schema-subset.cjs");
+const { loadSchema } = require("./contract-validators.cjs");
 const die = (m, c = 2) => {
   console.error(`review-capsule: ${m}`);
   process.exit(c);
@@ -130,10 +131,8 @@ const round = parse(roundSrc),
   reviews = reviewSrcs.map(parse),
   issue = Number(options.issue),
   revision = Number(options.manifest_revision);
-const schema = (name) =>
-  JSON.parse(fs.readFileSync(path.join(product, "schemas", name), "utf8"));
 const assertSchema = (value, name, label) => {
-  let s = schema(name);
+  let s = loadSchema(name).schema;
   if (name === "review.schema.json") {
     s = { ...s };
     delete s.if;
@@ -492,7 +491,7 @@ while (low <= high) {
 }
 if (md.length > characterBudget)
   die(`target_tokens ${target} is too small; minimum is ${minimum}`);
-const errors = validate(schema("review_capsule.schema.json"), capsule);
+const errors = validate(loadSchema("review_capsule.schema.json").schema, capsule);
 if (errors.length) die(`generated capsule is invalid: ${errors[0]}`);
 const json = `${JSON.stringify(capsule, null, 2)}\n`;
 const jsonPath = path.join(

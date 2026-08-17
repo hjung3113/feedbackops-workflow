@@ -11,6 +11,7 @@ PROG="ac-check"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PRODUCT_HOME_LIB="$SCRIPT_DIR/lib/product-home.sh"
 SCHEMA_VALIDATOR="$SCRIPT_DIR/lib/json-schema-subset.cjs"
+CONTRACT_VALIDATORS="$SCRIPT_DIR/lib/contract-validators.cjs"
 FRESH_CHECK="$SCRIPT_DIR/artifact-fresh.sh"
 round_state=""
 expected_revision=""
@@ -104,8 +105,7 @@ trap 'rm -f "$ids_file"' EXIT
 node -e '
   const fs = require("fs");
   const file = process.argv[1];
-  const schema = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-  const { validate } = require(process.argv[3]);
+  const { schema, validate } = require(process.argv[2]).loadSchema("round_state.schema.json");
   let value;
   try {
     value = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -131,7 +131,7 @@ node -e '
     }
     process.stdout.write(ac.id + "\n");
   }
-' "$round_state" "$ROUND_STATE_SCHEMA" "$SCHEMA_VALIDATOR" > "$ids_file"
+' "$round_state" "$CONTRACT_VALIDATORS" > "$ids_file"
 node_status=$?
 if [ "$node_status" -ne 0 ]; then
   echo "$PROG: ERROR — invalid ROUND-STATE acceptance section: $round_state" >&2

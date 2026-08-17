@@ -5,6 +5,8 @@
 // The model-family regex and effort enums are owned by runtime-registry.cjs;
 // this module re-exports effortValid for a uniform import surface and must
 // never redefine them.
+const fs = require("fs");
+const path = require("path");
 const { effortValid } = require("./runtime-registry.cjs");
 
 // Fail-closed HEAD/identity freshness predicate: a live HEAD (read via
@@ -24,4 +26,18 @@ function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-module.exports = { effortValid, headMatches, sameJson };
+// Schema bootstrap shared by the gate scripts: resolve
+// <product-home>/schemas/<name> (module-relative ../.. — the Node-side
+// equivalent of lib/product-home.sh's physical scripts-parent rule, so
+// source and installed layouts resolve identically), read + parse it, and
+// return it together with the subset validator. Throws on any failure;
+// call sites treat a failed bootstrap as fail-closed.
+function loadSchema(name) {
+  const schemaPath = path.join(__dirname, "..", "..", "schemas", name);
+  const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+  // Lazy require: json-schema-subset.cjs imports this module's sameJson.
+  const { validate } = require("./json-schema-subset.cjs");
+  return { schema, validate, schemaPath };
+}
+
+module.exports = { effortValid, headMatches, sameJson, loadSchema };

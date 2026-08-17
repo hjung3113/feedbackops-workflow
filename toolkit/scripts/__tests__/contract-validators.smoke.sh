@@ -11,7 +11,7 @@ pass() { echo "ok   - $1"; }
 fail() { echo "NOT OK - $1"; FAIL=$((FAIL + 1)); }
 
 node - "$VALIDATORS" <<'NODE'
-const { effortValid, headMatches, sameJson } = require(process.argv[2]);
+const { effortValid, headMatches, sameJson, loadSchema } = require(process.argv[2]);
 const checks = [];
 const check = (name, actual, expected) => checks.push([name, actual === expected, actual, expected]);
 
@@ -28,6 +28,12 @@ check("sameJson accepts equal values", sameJson({ a: [1, 2] }, { a: [1, 2] }), t
 check("sameJson rejects differing values", sameJson({ a: 1 }, { a: 2 }), false);
 check("sameJson is insertion-order sensitive", sameJson([{ x: 1, y: 2 }], [{ y: 2, x: 1 }]), false);
 check("sameJson drops undefined like JSON.stringify", sameJson({ a: undefined, b: 1 }, { b: 1 }), true);
+const loaded = loadSchema("round_state.schema.json");
+check("loadSchema resolves and parses a product schema", loaded.schema && loaded.schema.properties && loaded.schema.properties.artifact_type && typeof loaded.validate === "function", true);
+check("loadSchema validator rejects an invalid document", loaded.validate(loaded.schema, {}).length > 0, true);
+let threw = false;
+try { loadSchema("no-such.schema.json"); } catch (_) { threw = true; }
+check("loadSchema fails closed on a missing schema", threw, true);
 
 let failed = 0;
 for (const [name, ok, actual, expected] of checks) {
