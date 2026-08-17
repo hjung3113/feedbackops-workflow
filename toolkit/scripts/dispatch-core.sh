@@ -584,18 +584,23 @@ fi
 # markers, launch runners, or transport side effects. Implementation allocation
 # remains Codex-only; reviewer allocation is runtime-specific and still needs
 # the selected runtime's independent compatibility preflight.
-if [ "$ALLOCATE" -eq 1 ]; then
+# resolve_model_allocation <role> <runner>: invoke model-alloc once and parse
+# its allocation into ALLOC_RESOLVED_MODEL/ALLOC_RESOLVED_EFFORT. model-alloc
+# owns config-path default resolution, so no caller duplicates it.
+resolve_model_allocation() {
+  local alloc_role="$1" alloc_runner="$2" alloc_json alloc_fields old_ifs
   MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
   [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
-  if [ -f "$ALLOC_CONFIG" ]; then
-    ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-  else
-    ALLOC_JSON="$(bash "$MODEL_ALLOC" --role "$ALLOCATOR_ROLE" --runner "$RUNTIME")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
-  fi
-  ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), role=process.argv[3], key=role === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"]; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$ALLOC_JSON" "$ALLOCATOR_ROLE")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
-  oldIFS=$IFS; IFS="$(printf '\t')"; set -- $ALLOC_FIELDS; IFS=$oldIFS
-  MODEL="${1:-}"; EFFORT="${2:-}"
+  alloc_json="$(bash "$MODEL_ALLOC" --role "$alloc_role" --runner "$alloc_runner")" || { echo "ERROR: model allocation denied" >&2; exit 2; }
+  alloc_fields="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), key=process.argv[3] === "reviewer" ? "review" : "impl", model=v[key + "_model"], effort=v[key + "_effort"]; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$alloc_json" "$alloc_role")" || { echo "ERROR: model allocator returned invalid JSON" >&2; exit 2; }
+  old_ifs=$IFS; IFS="$(printf '\t')"; set -- $alloc_fields; IFS=$old_ifs
+  ALLOC_RESOLVED_MODEL="${1:-}"
+  ALLOC_RESOLVED_EFFORT="${2:-}"
+}
+if [ "$ALLOCATE" -eq 1 ]; then
+  resolve_model_allocation "$ALLOCATOR_ROLE" "$RUNTIME"
+  MODEL="$ALLOC_RESOLVED_MODEL"
+  EFFORT="$ALLOC_RESOLVED_EFFORT"
   if [ -z "$MODEL" ]; then
     echo "ERROR: allocator returned no model for runtime=$RUNTIME; refusing dispatch" >&2
     exit 2
@@ -607,17 +612,9 @@ fi
 # implementation allocation through the same model allocator (no runtime
 # default and no fallback launch).
 if [ "$ROLE" = "implementation" ] && [ -z "$MODEL" ]; then
-  MODEL_ALLOC="$SCRIPT_DIR/model-alloc.sh"
-  [ -x "$MODEL_ALLOC" ] || { echo "ERROR: model allocator is missing or not executable: $MODEL_ALLOC" >&2; exit 2; }
-  ALLOC_CONFIG="$SCRIPT_DIR/../model-alloc.json"
-  if [ -f "$ALLOC_CONFIG" ]; then
-    DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME" --config "$ALLOC_CONFIG")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
-  else
-    DEFAULT_ALLOC_JSON="$(bash "$MODEL_ALLOC" --role implementation --runner "$RUNTIME")" || { echo "ERROR: default model allocation denied" >&2; exit 2; }
-  fi
-  DEFAULT_ALLOC_FIELDS="$(node -e 'const { effortValid } = require(process.argv[1]); try { const v=JSON.parse(process.argv[2]), model=v.impl_model, effort=v.impl_effort; if (typeof model !== "string" || !effortValid(model, effort)) process.exit(2); process.stdout.write(model + "\t" + effort); } catch (e) { process.exit(2); }' "$RUNTIME_REGISTRY" "$DEFAULT_ALLOC_JSON")" || { echo "ERROR: default model allocator returned invalid JSON" >&2; exit 2; }
-  oldIFS=$IFS; IFS="$(printf '\t')"; set -- $DEFAULT_ALLOC_FIELDS; IFS=$oldIFS
-  MODEL="${1:-}"; [ -n "$EFFORT" ] || EFFORT="${2:-}"
+  resolve_model_allocation implementation "$RUNTIME"
+  MODEL="$ALLOC_RESOLVED_MODEL"
+  [ -n "$EFFORT" ] || EFFORT="$ALLOC_RESOLVED_EFFORT"
   [ -n "$MODEL" ] && [ -n "$EFFORT" ] || { echo "ERROR: default allocation did not resolve model and effort" >&2; exit 2; }
 fi
 
