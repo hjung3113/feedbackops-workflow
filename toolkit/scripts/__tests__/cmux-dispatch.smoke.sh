@@ -538,13 +538,22 @@ else
   fail "dry-run maps legacy read-only and watchdog timeout flags (ec=$ec: $timeout_printed)"
 fi
 
+# #157: this dispatch carries --tier standard, so the tier default tuple
+# (equal to the watchdog's own hardcoded defaults) is now synthesized — one
+# exact pair per budget flag, no duplicates.
 if [ "$(argv_pair_count "$runner_printed_line" --role implementation)" -eq 1 ] \
   && [ "$(argv_pair_count "$runner_printed_line" --mode write)" -eq 1 ] \
-  && [ "$(argv_token_count "$runner_printed_line" --first-progress-timeout)" -eq 0 ] \
-  && [ "$(argv_token_count "$runner_printed_line" --stall-timeout)" -eq 0 ]; then
+  && [ "$(argv_pair_count "$runner_printed_line" --first-progress-timeout 240)" -eq 1 ] \
+  && [ "$(argv_pair_count "$runner_printed_line" --stall-timeout 180)" -eq 1 ] \
+  && [ "$(argv_pair_count "$runner_printed_line" --max-retries 2)" -eq 1 ] \
+  && [ "$(argv_pair_count "$runner_printed_line" --max-wallclock 3600)" -eq 1 ] \
+  && [ "$(argv_token_count "$runner_printed_line" --first-progress-timeout)" -eq 1 ] \
+  && [ "$(argv_token_count "$runner_printed_line" --stall-timeout)" -eq 1 ] \
+  && [ "$(argv_token_count "$runner_printed_line" --max-retries)" -eq 1 ] \
+  && [ "$(argv_token_count "$runner_printed_line" --max-wallclock)" -eq 1 ]; then
   pass "dry-run defaults legacy writes to an explicit implementation role"
 else
-  fail "dry-run omits optional watchdog timeouts when unspecified (got: $printed)"
+  fail "standard-tier dry-run synthesizes exactly the standard budget tuple (got: $printed)"
 fi
 
 usage_out="$TMP_ROOT/usage.stderr"
@@ -554,6 +563,65 @@ if [ "$ec" -ne 0 ] && grep -q -- "--first-progress-timeout" "$usage_out" && grep
   pass "usage mentions both watchdog timeout flags"
 else
   fail "usage mentions both watchdog timeout flags (ec=$ec: $(cat "$usage_out"))"
+fi
+if grep -q -- "--max-retries" "$usage_out" && grep -q -- "--max-wallclock" "$usage_out"; then
+  pass "usage mentions the max-retries and max-wallclock flags"
+else
+  fail "usage mentions the max-retries and max-wallclock flags ($(cat "$usage_out"))"
+fi
+
+# --- tier-scaled watchdog budgets (#157): --tier fills in unset flags only ---
+tier_budget_case() {
+  tier_label="$1"; tier_name="$2"; want_fpt="$3"; want_stall="$4"; want_retries="$5"; want_wall="$6"
+  tier_out="$TMP_ROOT/dry-run-tier-$tier_name.stdout"
+  bash "$DISPATCH" --issue 301 --worktree "$WT" --read-only --tier "$tier_name" --dry-run >"$tier_out" 2>&1
+  tier_ec=$?
+  tier_line="$(sed -n 's/^runner [^:]*: //p' "$tier_out")"
+  if [ "$tier_ec" -eq 0 ] \
+    && [ "$(argv_pair_count "$tier_line" --first-progress-timeout "$want_fpt")" -eq 1 ] \
+    && [ "$(argv_pair_count "$tier_line" --stall-timeout "$want_stall")" -eq 1 ] \
+    && [ "$(argv_pair_count "$tier_line" --max-retries "$want_retries")" -eq 1 ] \
+    && [ "$(argv_pair_count "$tier_line" --max-wallclock "$want_wall")" -eq 1 ]; then
+    pass "tier $tier_label dry-run scales all four watchdog budgets"
+  else
+    fail "tier $tier_label dry-run scales all four watchdog budgets (ec=$tier_ec: $(cat "$tier_out"))"
+  fi
+}
+tier_budget_case trivial trivial 120 90 1 1800
+tier_budget_case standard standard 240 180 2 3600
+tier_budget_case "full_cluster" full_cluster 480 360 3 7200
+
+# Explicit CLI flags win over the tier default for the same flag; the other
+# tier defaults still fill in.
+override_out="$TMP_ROOT/dry-run-tier-override.stdout"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --read-only --tier full_cluster --stall-timeout 77 --dry-run >"$override_out" 2>&1
+override_ec=$?
+override_line="$(sed -n 's/^runner [^:]*: //p' "$override_out")"
+if [ "$override_ec" -eq 0 ] \
+  && [ "$(argv_pair_count "$override_line" --stall-timeout 77)" -eq 1 ] \
+  && [ "$(argv_token_count "$override_line" --stall-timeout)" -eq 1 ] \
+  && [ "$(argv_pair_count "$override_line" --first-progress-timeout 480)" -eq 1 ] \
+  && [ "$(argv_pair_count "$override_line" --max-retries 3)" -eq 1 ] \
+  && [ "$(argv_pair_count "$override_line" --max-wallclock 7200)" -eq 1 ]; then
+  pass "explicit --stall-timeout overrides the full_cluster tier default"
+else
+  fail "explicit --stall-timeout overrides the full_cluster tier default (ec=$override_ec: $(cat "$override_out"))"
+fi
+
+# Tier-absent dispatch synthesizes nothing — byte-identical to pre-#157
+# behavior (the watchdog's own env-var defaults apply).
+tier_absent_out="$TMP_ROOT/dry-run-tier-absent.stdout"
+bash "$DISPATCH" --issue 301 --worktree "$WT" --read-only --dry-run >"$tier_absent_out" 2>&1
+tier_absent_ec=$?
+tier_absent_line="$(sed -n 's/^runner [^:]*: //p' "$tier_absent_out")"
+if [ "$tier_absent_ec" -eq 0 ] \
+  && [ "$(argv_token_count "$tier_absent_line" --first-progress-timeout)" -eq 0 ] \
+  && [ "$(argv_token_count "$tier_absent_line" --stall-timeout)" -eq 0 ] \
+  && [ "$(argv_token_count "$tier_absent_line" --max-retries)" -eq 0 ] \
+  && [ "$(argv_token_count "$tier_absent_line" --max-wallclock)" -eq 0 ]; then
+  pass "tier-absent dry-run synthesizes no watchdog budget flags"
+else
+  fail "tier-absent dry-run synthesizes no watchdog budget flags (ec=$tier_absent_ec: $(cat "$tier_absent_out"))"
 fi
 
 # --- dry-run does not call the real cmux binary ---
@@ -600,6 +668,7 @@ rm -rf "$RUNNER_FIXTURE/__tests__" "$RUNNER_FIXTURE/install-profiles"
 cp -R "$PRODUCT_HOME/schemas" "$TMP_ROOT/schemas"
 cat > "$RUNNER_FIXTURE/agent-watchdog.sh" <<'EOF'
 #!/usr/bin/env bash
+. "$STUB_CAPTURE_HELPER"
 printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"
 issue=""
 cwd=""
@@ -659,7 +728,10 @@ ec=$?
 # absolute (space-containing) worktree as its only --cwd value. DEEP_WT has
 # spaces, so verification is fixed-string adjacency plus an exact --cwd token
 # count; the mutation check proves this rejects a hijacked and a glued --cwd.
-cmux_exec_line="$(tail -n 1 "$TMP_ROOT/cmux-exec-argv.txt")"
+# The fixture watchdog also sources the #164 capture helper (for the #157
+# tier-budget cases below), so the log now ends with the watchdog argv; the
+# cmux line is the (last) line headed by the workspace-create subcommand.
+cmux_exec_line="$(sed -n '/^workspace create /p' "$TMP_ROOT/cmux-exec-argv.txt" | tail -n 1)"
 cmux_exec_cwd_tokens="$(printf '%s\n' "$cmux_exec_line" | tr ' ' '\n' | grep -Fxc -- '--cwd')"
 case "$cmux_exec_line" in
   "workspace create "*)
@@ -698,6 +770,36 @@ if [ "$ec" -eq 0 ] && [ -n "$runner_333" ] && [ -x "$runner_333" ] && grep -q "f
 else
   fail "deep dispatch uses a short relative runner and preserves watchdog argv (ec=$ec: $(cat "$runner_transport_out"))"
 fi
+
+# --- #157 executed watchdog argv carries the tier-scaled budgets ---
+# The fixture watchdog sources the #164 stub-argv capture helper, so the
+# STUB_ARGS_LOG tail is the watchdog's actual argv (the cmux stub logs its
+# own workspace-create line first). One executed case per tier proves the
+# launch runner — not just the dry-run preview — forwards the scaled flags.
+watchdog_tier_case() {
+  wd_label="$1"; wd_tier="$2"; wd_fpt="$3"; wd_stall="$4"; wd_retries="$5"; wd_wall="$6"
+  wd_args_log="$TMP_ROOT/watchdog-tier-$wd_tier-args.txt"
+  : > "$wd_args_log"
+  printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-335-PROMPT.txt"
+  WATCHDOG_ARGV_FILE="$TMP_ROOT/watchdog-tier-$wd_tier-argv.txt" STUB_ARGS_LOG="$wd_args_log" \
+  AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
+    bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 335 --worktree "$DEEP_WT" \
+    --read-only --tier "$wd_tier" --poll-timeout 3 >"$TMP_ROOT/watchdog-tier-$wd_tier.out" 2>&1
+  wd_ec=$?
+  wd_line="$(tail -n 1 "$wd_args_log")"
+  if [ "$wd_ec" -eq 0 ] \
+    && [ "$(argv_pair_count "$wd_line" --first-progress-timeout "$wd_fpt")" -eq 1 ] \
+    && [ "$(argv_pair_count "$wd_line" --stall-timeout "$wd_stall")" -eq 1 ] \
+    && [ "$(argv_pair_count "$wd_line" --max-retries "$wd_retries")" -eq 1 ] \
+    && [ "$(argv_pair_count "$wd_line" --max-wallclock "$wd_wall")" -eq 1 ]; then
+    pass "executed watchdog argv carries the $wd_label tier budgets"
+  else
+    fail "executed watchdog argv carries the $wd_label tier budgets (ec=$wd_ec: $(cat "$TMP_ROOT/watchdog-tier-$wd_tier.out"))"
+  fi
+}
+watchdog_tier_case trivial trivial 120 90 1 1800
+watchdog_tier_case standard standard 240 180 2 3600
+watchdog_tier_case "full_cluster" full_cluster 480 360 3 7200
 
 # --- capability proof comes from workspace create --help itself (AC-112) ---
 # The dispatch seam admits a delegation-style help (live 0.64.22 wording) and
