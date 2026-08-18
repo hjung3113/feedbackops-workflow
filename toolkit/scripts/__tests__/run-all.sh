@@ -97,13 +97,17 @@ if [ -n "$FOR_PATHS" ]; then
   COVERAGE_MANIFEST="$SCRIPT_DIR/smoke-coverage.manifest"
   for given_path in $FOR_PATHS; do
     path_matched=0
+    # Exact matches stay exact; prefix matches require a directory boundary.
+    # A bare string prefix would misclassify an uncovered file (route) as its
+    # covered lexical neighbor (route.sh) instead of failing open.
+    given_path_norm="${given_path%/}"
     if [ -f "$COVERAGE_MANIFEST" ]; then
       while IFS= read -r manifest_line; do
         case "$manifest_line" in ''|'#'*) continue ;; esac
         manifest_source="${manifest_line%% *}"
         manifest_smoke="${manifest_line#* }"
         case "$manifest_source" in
-          "$given_path"|"$given_path"*)
+          "$given_path_norm"|"$given_path_norm"/*)
             path_matched=1
             case "$SELECTED_SMOKES" in
               *" $manifest_smoke "*) ;;

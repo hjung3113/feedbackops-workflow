@@ -296,6 +296,27 @@ else
   fail "AC-165-2 directory-prefix path narrows via prefix matching (ec=$fp_dir_ec output=$(cat "$fp_dir_out"))"
 fi
 
+# --- AC-165-11: a lexical file-prefix collision is not coverage ---
+# Extend the fixture manifest with toolkit/scripts/routex.sh; the given path
+# toolkit/scripts/route must NOT match it (bare string prefix) and must warn
+# and fall open to the full suite instead of narrowing.
+printf '%s\n%s\n' 'toolkit/scripts/covered-source.sh covered-fixture.smoke.sh' \
+  'toolkit/scripts/routex.sh covered-fixture.smoke.sh' \
+  > "$FP_FIXTURE_DIR/smoke-coverage.manifest"
+fp_pfx_out="$TMP_ROOT/for-paths-prefix.out"
+TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
+  --for-paths 'toolkit/scripts/route' >"$fp_pfx_out" 2>&1
+fp_pfx_ec=$?
+if [ "$fp_pfx_ec" -eq 0 ] \
+  && grep -F -q -- 'WARNING: toolkit/scripts/route has no known smoke coverage in smoke-coverage.manifest — falling back to the full suite' "$fp_pfx_out" \
+  && grep -F -q -- 'ok - covered-fixture.smoke.sh' "$fp_pfx_out" \
+  && grep -F -q -- 'ok - uncovered-fixture.smoke.sh' "$fp_pfx_out" \
+  && grep -F -x -q -- '--- 2/2 passed' "$fp_pfx_out"; then
+  pass "AC-165-11 lexical file-prefix collision warns and falls open, not narrows"
+else
+  fail "AC-165-11 lexical file-prefix collision warns and falls open, not narrows (ec=$fp_pfx_ec output=$(cat "$fp_pfx_out"))"
+fi
+
 # --- AC-165-3: an uncovered path fails open to the full suite ---
 fp_fb_out="$TMP_ROOT/for-paths-fallback.out"
 TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
@@ -451,6 +472,21 @@ if [ -z "$coverage_bad" ] && [ -z "$coverage_missing_src" ]; then
   pass "AC-165-9 coverage manifest references only real smokes and real source files"
 else
   fail "AC-165-9 coverage manifest references only real smokes and real source files (bad=$coverage_bad missing=$coverage_missing_src)"
+fi
+
+# --- AC-165-10: every live smoke is a covering smoke or the acknowledged
+# docs-only exception. This catches the drift class where a new smoke with
+# production-source coverage ships without any manifest lines: --for-paths on
+# its sources would silently skip it. Proving the reverse mapping complete
+# (that no existing smoke gained uncovered coverage of an already-mapped
+# source) is not mechanically derivable without parsing bash — that residual
+# is bounded by the mandatory full-suite PR/merge gate in the playbook.
+cov_uncovered="$(comm -23 "$cov_live" "$cov_names")"
+cov_exceptions='dispatch-operator-contract.smoke.sh'
+if [ "$cov_uncovered" = "$cov_exceptions" ]; then
+  pass "AC-165-10 every live smoke is a covering smoke or the sole docs-only exception"
+else
+  fail "AC-165-10 every live smoke is a covering smoke or the sole docs-only exception (uncovered=$cov_uncovered)"
 fi
 
 echo "---"
