@@ -67,6 +67,8 @@ toolkit/scripts/rebase-inflight.sh rebase-inflight.smoke.sh
 toolkit/scripts/redispatch-check.sh redispatch-check.smoke.sh
 toolkit/scripts/review-archive.sh review-archive.smoke.sh
 toolkit/scripts/review-capsule.sh review-capsule.smoke.sh
+toolkit/scripts/round-state-init.sh round-state-init.smoke.sh
+toolkit/scripts/round-state-render-ac.sh round-state-render-ac.smoke.sh
 toolkit/scripts/route.sh cmux-dispatch.smoke.sh
 toolkit/scripts/route.sh route.smoke.sh
 toolkit/scripts/route.sh runtime-registry-containment.smoke.sh
