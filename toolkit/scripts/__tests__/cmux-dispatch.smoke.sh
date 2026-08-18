@@ -298,6 +298,14 @@ for policy_tier in trivial standard full_cluster; do
     fail "policy initial $policy_tier refuses before model allocation probe (ec=$ec: $(cat "$policy_initial_out"))"
   fi
 done
+# #163: an admission-stage refusal exits before the watchdog ever runs, so no
+# RUN.json exists — but the same exit must append an admission_refused line to
+# the issue's append-only EVENTS.jsonl for await-based callers.
+if node -e 'const fs=require("fs");const lines=fs.readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);if(!lines.some(l=>l.event==="admission_refused"&&l.status==="refused"&&l.detail==="route_mode_unbound"&&l.attempt===0&&typeof l.ts==="string"))process.exit(1)' "$WT/.review/ISSUE-301-EVENTS.jsonl"; then
+  pass "#163 admission refusal appends admission_refused EVENTS.jsonl line"
+else
+  fail "#163 admission refusal appends admission_refused EVENTS.jsonl line"
+fi
 manual_policy_out="$TMP_ROOT/manual-policy-bypass.out"
 manual_probe="$TMP_ROOT/manual-policy-probe"
 AGENT_WORKFLOW_HOST_STATE="$ROUTE_HOST_STATE" AGENT_WORKFLOW_MODEL_PROBE_CMD="touch '$manual_probe'; exit 9" bash "$DISPATCH" --issue 301 --worktree "$WT" --tier standard --round-state "$INITIAL_STATE" --manifest-revision 1 --model gpt-5.6-terra --effort low >"$manual_policy_out" 2>&1

@@ -148,6 +148,21 @@ file_started_at() {
   node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).started_at || "unknown")); } catch (e) { process.stdout.write("unknown"); }' "$1" 2>/dev/null
 }
 
+# append_event <event> <status> [detail] — append one line to the issue's
+# append-only EVENTS.jsonl log alongside RUN.json (#163). Callers that exit
+# before the watchdog ever runs (admission refusals) have no RUN.json at all;
+# this gives every failure path a pollable artifact. Never truncates.
+append_event() {
+  events_file="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-EVENTS.jsonl"
+  mkdir -p "$ABS_WORKTREE/.review" || return 1
+  AGENT_EVENT="$1" AGENT_STATUS="$2" AGENT_DETAIL="${3:-}" AGENT_EVENTS_FILE="$events_file" node -e '
+const fs=require("fs");
+const line=JSON.stringify({ts:new Date().toISOString().replace(/\.\d+Z$/,"Z"),attempt:0,event:process.env.AGENT_EVENT,status:process.env.AGENT_STATUS,detail:process.env.AGENT_DETAIL})+"\n";
+fs.appendFileSync(process.env.AGENT_EVENTS_FILE,line);
+' || return 1
+  return 0
+}
+
 write_launch_runner() {
   runner_dir="$(mktemp -d "$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-launch.XXXXXX")" || return 1
   runner="$runner_dir/launch.sh"
@@ -317,6 +332,48 @@ NODE
   fi
   return 0
 }
+
+# await subcommand (#163): purely a reader of the append-only EVENTS.jsonl.
+# It launches nothing, never touches RUN.json, and never enters the normal
+# dispatch logic below — the existing launch-supervision poll loop's exit-code
+# semantics are unchanged for every existing caller.
+if [ "${1:-}" = "await" ]; then
+  shift
+  AW_ISSUE=""; AW_CWD=""; AW_TIMEOUT=3600
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --issue) AW_ISSUE="$2"; shift 2 ;;
+      --cwd) AW_CWD="$2"; shift 2 ;;
+      --timeout-seconds) AW_TIMEOUT="$2"; shift 2 ;;
+      *) echo "usage: dispatch-core.sh await --issue N --cwd DIR [--timeout-seconds SECS]" >&2; exit 2 ;;
+    esac
+  done
+  [ -n "$AW_ISSUE" ] && [ -n "$AW_CWD" ] || { echo "usage: dispatch-core.sh await --issue N --cwd DIR [--timeout-seconds SECS]" >&2; exit 2; }
+  [ -d "$AW_CWD" ] || { echo "ERROR: await cwd not found: $AW_CWD" >&2; exit 2; }
+  AW_EVENTS="$AW_CWD/.review/ISSUE-${AW_ISSUE}-EVENTS.jsonl"
+  AW_STARTED="$(date +%s)"
+  while :; do
+    AW_TERMINAL="$(node -e '
+const fs=require("fs");
+const terminal=new Set(["exited","killed_stall","refused","exhausted"]);
+try {
+  const lines=fs.readFileSync(process.argv[1],"utf8").split("\n");
+  for (let i=lines.length-1;i>=0;i--) {
+    const text=lines[i].trim();
+    if (!text) continue;
+    try { const value=JSON.parse(text); if (value && terminal.has(value.status)) { process.stdout.write(text); process.exit(0); } } catch (_) {}
+  }
+} catch (_) {}
+' "$AW_EVENTS" 2>/dev/null || true)"
+    if [ -n "$AW_TERMINAL" ]; then printf '%s\n' "$AW_TERMINAL"; exit 0; fi
+    AW_ELAPSED=$(( $(date +%s) - AW_STARTED ))
+    if [ "$AW_ELAPSED" -ge "$AW_TIMEOUT" ]; then
+      echo "ERROR: await timed out after ${AW_TIMEOUT}s waiting for terminal status in $AW_EVENTS" >&2
+      exit 1
+    fi
+    sleep "$POLL_INTERVAL"
+  done
+fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -530,6 +587,7 @@ if [ "$ROLE" = "implementation" ] && [ "$READ_ONLY" -eq 0 ] && [ "$PRODUCE_REVIE
       exit 3
     }
     if [ "$INITIAL_WRITE" -eq 1 ]; then
+      append_event admission_refused refused route_mode_unbound || true
       printf '%s\n' '{"status":"refused","code":"route_mode_unbound"}'
       exit 3
     fi
@@ -1007,20 +1065,20 @@ try {
   process.stdout.write(JSON.stringify(value));
 } catch (_) { process.exit(2); }
 NODE
-)" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
+)" || { append_event admission_refused refused route_demand_invalid || true; printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
     ROUTE_PROBE="$(AGENT_WORKFLOW_ROUTE_EXECUTABLE="$RUNTIME_BIN_PIN" AGENT_WORKFLOW_ROUTE_CAPABILITY_JSON="$RUNTIME_CAPABILITY_JSON" AGENT_WORKFLOW_ROUTE_PERMISSION_FILE="$RUNTIME_PERMISSION_FILE" bash "$ROUTE_SCRIPT" probe --runtime "$RUNTIME" --depth static)"
     route_probe_status=$?
     if [ "$route_probe_status" -ne 0 ]; then
       printf '%s\n' "$ROUTE_PROBE"
       exit "$route_probe_status"
     fi
-    ROUTE_OFFER="$(node -e 'try { const value=JSON.parse(process.argv[1]); if (value.status !== "admitted" || !value.offer || typeof value.offer !== "object") process.exit(2); process.stdout.write(JSON.stringify(value.offer)); } catch (_) { process.exit(2); }' "$ROUTE_PROBE")" || { printf '%s\n' '{"status":"refused","code":"runner_offer_invalid"}'; exit 3; }
+    ROUTE_OFFER="$(node -e 'try { const value=JSON.parse(process.argv[1]); if (value.status !== "admitted" || !value.offer || typeof value.offer !== "object") process.exit(2); process.stdout.write(JSON.stringify(value.offer)); } catch (_) { process.exit(2); }' "$ROUTE_PROBE")" || { append_event admission_refused refused runner_offer_invalid || true; printf '%s\n' '{"status":"refused","code":"runner_offer_invalid"}'; exit 3; }
     ROUTE_ALLOC="$(node - "$MODEL" "$EFFORT" <<'NODE'
 const [model, effort] = process.argv.slice(2);
 if (!model || !effort) process.exit(2);
 process.stdout.write(JSON.stringify({ model, effort }));
 NODE
-)" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
+)" || { append_event admission_refused refused route_demand_invalid || true; printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
     ROUTE_RESULT="$(bash "$ROUTE_SCRIPT" decide --demand "$ROUTE_DEMAND" --offer "$ROUTE_OFFER" --policy "$ROUTE_POLICY_JSON" --policy-digest "$ROUTE_POLICY_DIGEST" --model-alloc "$ROUTE_ALLOC" --now "$(date -u '+%Y-%m-%dT%H:%M:%SZ')")"
     route_status=$?
     if [ "$route_status" -ne 0 ]; then
@@ -1028,6 +1086,7 @@ NODE
       exit "$route_status"
     fi
     ROUTE_DIGEST="$(node -e 'try { const v=JSON.parse(process.argv[1]); if (v.status !== "admitted" || !/^[a-f0-9]{64}$/.test(v.route_digest || "")) process.exit(2); process.stdout.write(v.route_digest); } catch (e) { process.exit(2); }' "$ROUTE_RESULT")" || {
+      append_event admission_refused refused route_demand_invalid || true
       printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'
       exit 3
     }
@@ -1049,7 +1108,7 @@ try {
   }));
 } catch (_) { process.exit(2); }
 NODE
-)" || { printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
+)" || { append_event admission_refused refused route_demand_invalid || true; printf '%s\n' '{"status":"refused","code":"route_demand_invalid"}'; exit 3; }
     model_compatibility_preflight || exit $?
   fi
 

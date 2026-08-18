@@ -16,6 +16,13 @@ write_marker() {
   mkdir -p "$CWD/.review" || return 1
   AGENT_MARKER="$marker" AGENT_ISSUE="$ISSUE_N" AGENT_ATTEMPT="$attempt" AGENT_RUNTIME="$RUNTIME" AGENT_ROLE="$ROLE" AGENT_VERSION="$RUNTIME_VERSION" AGENT_STATUS="$status" AGENT_PID="$pid" AGENT_EXIT="$exit_code" AGENT_REFUSAL_REASON="$refusal_reason" AGENT_TIME="$(iso_now)" node -e '
 const fs=require("fs"); const o={schema_version:"1",artifact_type:"agent_run",issue:Number(process.env.AGENT_ISSUE),attempt:Number(process.env.AGENT_ATTEMPT),runtime:process.env.AGENT_RUNTIME,role:process.env.AGENT_ROLE,runtime_version:process.env.AGENT_VERSION,started_at:process.env.AGENT_TIME,updated_at:process.env.AGENT_TIME,status:process.env.AGENT_STATUS}; if(process.env.AGENT_PID)o.pid=Number(process.env.AGENT_PID); if(process.env.AGENT_EXIT)o.exit_code=Number(process.env.AGENT_EXIT); if(process.env.AGENT_REFUSAL_REASON)o.refusal_reason=process.env.AGENT_REFUSAL_REASON; fs.writeFileSync(process.env.AGENT_MARKER,JSON.stringify(o,null,2)+"\n");'
+  # #163: append the same status transition to the append-only EVENTS.jsonl
+  # log alongside RUN.json. RUN.json keeps its exact single-slot-overwrite
+  # contract; this only adds a pollable terminal-status record per write.
+  AGENT_EVENTS_FILE="$CWD/.review/ISSUE-${ISSUE_N}-EVENTS.jsonl" AGENT_ATTEMPT="$attempt" AGENT_STATUS="$status" AGENT_TIME="$(iso_now)" node -e '
+const fs=require("fs");
+fs.appendFileSync(process.env.AGENT_EVENTS_FILE,JSON.stringify({ts:process.env.AGENT_TIME,attempt:Number(process.env.AGENT_ATTEMPT),event:"run_status",status:process.env.AGENT_STATUS,detail:""})+"\n");
+' || true
 }
 progressed() { find "$CWD" -path '*/node_modules' -prune -o -path '*/.git' -prune -o -path '*/.review' -prune -o -newer "$STAMP" -print -quit | grep -q . || [ "$OUTPUT" -nt "$STAMP" ]; }
 kill_tree() { pkill -TERM -P "$1" 2>/dev/null || true; kill -TERM "$1" 2>/dev/null || true; sleep 1; pkill -KILL -P "$1" 2>/dev/null || true; kill -KILL "$1" 2>/dev/null || true; }

@@ -4,6 +4,16 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
 
 ## In progress: v0.21 generic distribution and runtime symmetry
 
+- Dispatch failures now leave a pollable terminal-status artifact even when
+  admission refuses before the watchdog starts (#163): every watchdog
+  `write_marker` appends a `run_status` line to the append-only
+  `.review/ISSUE-N-EVENTS.jsonl`, admission refusals append an
+  `admission_refused` line (`status:"refused"`, `attempt:0`, refusal code in
+  `detail`), and a new `dispatch-core.sh await --issue N --cwd DIR
+  [--timeout-seconds SECS]` subcommand blocks on that log's last terminal
+  status. RUN.json's single-slot-overwrite contract is byte-identical and no
+  existing caller's behavior changes without opting into `await`.
+
 - The three transport adapters now share one implementation each of semver
   parsing and floor checks (`scripts/lib/semver.cjs`, prerelease-aware, with a
   strict whole-string mode for Orca's runtime appVersion), capability payload

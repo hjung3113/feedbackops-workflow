@@ -363,6 +363,25 @@ exit and any requested host publication gate succeeds. It proves termination,
 not completion. Legacy `codex_run` remains schema-readable only for historical
 compatibility. No RUN shape has `completed` or `failed` status.
 
+Alongside RUN.json, every watchdog `write_marker` call appends one line to the
+issue-scoped, append-only event log `ISSUE-N-EVENTS.jsonl` (JSON Lines, one
+object per line: `ts` ISO-8601 UTC, `attempt`, `event:"run_status"`, `status`
+with the same `running|exited|killed_stall|refused|exhausted` vocabulary,
+`detail`). RUN.json's single-slot-overwrite contract is unchanged; the event
+log is purely additive. Admission-stage failures that exit before the watchdog
+ever runs (which therefore never write RUN.json) append an
+`event:"admission_refused"` line with `status:"refused"`, `attempt:0`, and the
+refusal code in `detail`, so every dispatch failure path leaves a pollable
+artifact. Callers that need the actual terminal outcome — instead of the
+dispatch poll's launch-supervision success — use
+`scripts/agent-workflow.sh dispatch-core await --issue N --cwd DIR
+[--timeout-seconds SECS]` (default 3600, poll interval 5s or
+`AGENT_WORKFLOW_POLL_INTERVAL`): it launches nothing, never touches RUN.json,
+prints the last terminal-status event line to stdout on success, and exits 1
+with an `ERROR: await timed out` diagnostic on timeout. Terminal statuses are
+`exited|killed_stall|refused|exhausted`, including `refused` from an
+`admission_refused` line.
+
 `--produce-review` requires reviewer read mode. Non-Codex reviewer stdout may
 contain prose around fenced `json` blocks; the host transcribes only the last
 parseable fenced JSON object (or a whole-buffer JSON object), then still
