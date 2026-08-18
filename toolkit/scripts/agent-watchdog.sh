@@ -9,7 +9,7 @@ RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 CONTROL_PUBLISHER="$SCRIPT_DIR/conductor-control-publish.sh"
 ISSUE_N=""; RUNTIME=""; ROLE=""; MODE=""; PROMPT_FILE=""; CWD=""; MODEL=""; EFFORT=""; PERMISSION_FILE=""; PRODUCE_REVIEW=0; CONDUCTOR_CONTROL=0
 FIRST_PROGRESS_TIMEOUT="${AGENT_WATCHDOG_FIRST_PROGRESS_TIMEOUT:-240}"; STALL_TIMEOUT="${AGENT_WATCHDOG_STALL_TIMEOUT:-180}"; MAX_RETRIES="${AGENT_WATCHDOG_MAX_RETRIES:-2}"; POLL_INTERVAL="${AGENT_WATCHDOG_POLL_INTERVAL:-15}"; PROBE_GAP="${AGENT_WATCHDOG_PROBE_GAP:-10}"; MAX_WALLCLOCK="${AGENT_WATCHDOG_MAX_WALLCLOCK:-3600}"
-usage() { echo "usage: agent-watchdog.sh --issue N --runtime $(node "$RUNTIME_REGISTRY" pipe) --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --prompt-file F --cwd DIR [--model M] [--effort E] [--opencode-permission-file F] [--produce-review|--conductor-control] [--max-retries N]" >&2; }
+usage() { echo "usage: agent-watchdog.sh --issue N --runtime $(node "$RUNTIME_REGISTRY" pipe) --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --prompt-file F --cwd DIR [--model M] [--effort E] [--opencode-permission-file F] [--produce-review|--conductor-control] [--max-retries N] [--max-wallclock SECS]" >&2; }
 iso_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 write_marker() {
   status="$1"; attempt="$2"; pid="$3"; exit_code="$4"; refusal_reason="${5:-}"; marker="$CWD/.review/ISSUE-${ISSUE_N}-RUN.json"
@@ -98,7 +98,7 @@ failure_is_refused() {
   # diagnostic is not a transient work failure. Keep this deliberately narrow.
   grep -Eiq 'auth(entication|orization)?|unauthori[sz]ed|forbidden|invalid[ _-]?(api[ _-]?)?key|api[ _-]?key|model[[:space:]_-].*(not[[:space:]_-]?(found|available)|unsupported)|capability[_ -]missing|runtime[_ -](unavailable|capability)|opencode_permission|permission[_ -](config|required|not)|unsupported_(role|mode)' "$1"
 }
-while [ "$#" -gt 0 ]; do case "$1" in --issue) ISSUE_N="$2"; shift 2;; --runtime) RUNTIME="$2"; shift 2;; --role) ROLE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt-file) PROMPT_FILE="$2"; shift 2;; --cwd) CWD="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --effort) EFFORT="$2"; shift 2;; --opencode-permission-file) PERMISSION_FILE="$2"; shift 2;; --produce-review) PRODUCE_REVIEW=1; shift;; --conductor-control) CONDUCTOR_CONTROL=1; shift;; --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2;; --stall-timeout) STALL_TIMEOUT="$2"; shift 2;; --max-retries) MAX_RETRIES="$2"; shift 2;; *) usage; exit 2;; esac; done
+while [ "$#" -gt 0 ]; do case "$1" in --issue) ISSUE_N="$2"; shift 2;; --runtime) RUNTIME="$2"; shift 2;; --role) ROLE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --prompt-file) PROMPT_FILE="$2"; shift 2;; --cwd) CWD="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --effort) EFFORT="$2"; shift 2;; --opencode-permission-file) PERMISSION_FILE="$2"; shift 2;; --produce-review) PRODUCE_REVIEW=1; shift;; --conductor-control) CONDUCTOR_CONTROL=1; shift;; --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2;; --stall-timeout) STALL_TIMEOUT="$2"; shift 2;; --max-retries) MAX_RETRIES="$2"; shift 2;; --max-wallclock) MAX_WALLCLOCK="$2"; shift 2;; *) usage; exit 2;; esac; done
 [ -n "$ISSUE_N" ] && [ -n "$RUNTIME" ] && [ -n "$ROLE" ] && [ -n "$MODE" ] && [ -n "$PROMPT_FILE" ] && [ -n "$CWD" ] || { usage; exit 2; }
 [ -d "$CWD" ] && [ -f "$PROMPT_FILE" ] || { echo 'invalid cwd or prompt file' >&2; exit 2; }
 [ "$PRODUCE_REVIEW" -eq 0 ] || { [ "$ROLE" = reviewer ] && [ "$MODE" = read ] || { echo '--produce-review requires reviewer read mode' >&2; exit 2; }; }
@@ -113,6 +113,7 @@ BLOCKER_BEFORE_SIG="$(blocker_signature "$BLOCKER_PATH")"
 PR_DRAFT_PATH="$CWD/.review/ISSUE-${ISSUE_N}-PR-DRAFT.json"
 PR_DRAFT_BEFORE_SIG="$(blocker_signature "$PR_DRAFT_PATH")"
 case "$MAX_RETRIES" in ''|*[!0-9]*) echo '--max-retries must be a non-negative integer' >&2; exit 2;; esac
+case "$MAX_WALLCLOCK" in ''|*[!0-9]*) echo '--max-wallclock must be a non-negative integer' >&2; exit 2;; esac
 CAPABILITIES="$($RUNTIME_EXEC capabilities --runtime "$RUNTIME")" || { echo "$CAPABILITIES" >&2; exit 3; }
 RUNTIME_VERSION="$(printf '%s' "$CAPABILITIES" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).version||"")}catch(_){process.exit(2)}})')" || { echo 'runtime capability output lacks version' >&2; exit 3; }
 # Stash ownership is registry policy (stash_by): "runtime" means the runtime's

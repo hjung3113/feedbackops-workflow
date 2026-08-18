@@ -82,6 +82,8 @@ ALLOCATOR_ROLE=""
 TIER=""
 FIRST_PROGRESS_TIMEOUT=""
 STALL_TIMEOUT=""
+MAX_RETRIES=""
+MAX_WALLCLOCK=""
 ROUND_STATE=""
 MANIFEST_REVISION=""
 READ_ONLY=0
@@ -97,7 +99,7 @@ POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--max-retries N] [--max-wallclock SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # is_registered_adapter <name> — membership in the transport registry, which is
@@ -162,6 +164,8 @@ write_launch_runner() {
     [ -n "$EFFORT" ] && printf '%q %q ' --effort "$EFFORT"
     [ -n "$FIRST_PROGRESS_TIMEOUT" ] && printf '%q %q ' --first-progress-timeout "$FIRST_PROGRESS_TIMEOUT"
     [ -n "$STALL_TIMEOUT" ] && printf '%q %q ' --stall-timeout "$STALL_TIMEOUT"
+    [ -n "$MAX_RETRIES" ] && printf '%q %q ' --max-retries "$MAX_RETRIES"
+    [ -n "$MAX_WALLCLOCK" ] && printf '%q %q ' --max-wallclock "$MAX_WALLCLOCK"
     [ "$PRODUCE_REVIEW" -eq 1 ] && printf '%q ' --produce-review
     [ "$CONDUCTOR_CONTROL" -eq 1 ] && printf '%q ' --conductor-control
     [ -n "$RUNTIME_PERMISSION_FILE" ] && printf '%q %q ' --opencode-permission-file "$RUNTIME_PERMISSION_FILE"
@@ -330,6 +334,8 @@ while [ $# -gt 0 ]; do
     --tier) TIER="$2"; shift 2 ;;
     --first-progress-timeout) FIRST_PROGRESS_TIMEOUT="$2"; shift 2 ;;
     --stall-timeout) STALL_TIMEOUT="$2"; shift 2 ;;
+    --max-retries) MAX_RETRIES="$2"; shift 2 ;;
+    --max-wallclock) MAX_WALLCLOCK="$2"; shift 2 ;;
     --round-state) ROUND_STATE="$2"; shift 2 ;;
     --manifest-revision) MANIFEST_REVISION="$2"; shift 2 ;;
     --read-only) READ_ONLY=1; shift 1 ;;
@@ -407,6 +413,32 @@ case "$ROLE" in
 esac
 RUNTIME_MODE="read"
 [ "$ROLE" = "implementation" ] && RUNTIME_MODE="write"
+# Tier-scaled watchdog budgets (#157): fill in only what the caller did NOT
+# pass explicitly; any explicit CLI flag wins over the tier default. Tier is
+# already known and validated at admission time — no evidence computation.
+# Standard equals the watchdog's own hardcoded defaults. Tier-absent
+# dispatches synthesize nothing, so watchdog env-var defaults apply exactly
+# as before this change.
+case "$TIER" in
+  trivial)
+    [ -z "$FIRST_PROGRESS_TIMEOUT" ] && FIRST_PROGRESS_TIMEOUT=120
+    [ -z "$STALL_TIMEOUT" ] && STALL_TIMEOUT=90
+    [ -z "$MAX_RETRIES" ] && MAX_RETRIES=1
+    [ -z "$MAX_WALLCLOCK" ] && MAX_WALLCLOCK=1800
+    ;;
+  standard)
+    [ -z "$FIRST_PROGRESS_TIMEOUT" ] && FIRST_PROGRESS_TIMEOUT=240
+    [ -z "$STALL_TIMEOUT" ] && STALL_TIMEOUT=180
+    [ -z "$MAX_RETRIES" ] && MAX_RETRIES=2
+    [ -z "$MAX_WALLCLOCK" ] && MAX_WALLCLOCK=3600
+    ;;
+  full_cluster)
+    [ -z "$FIRST_PROGRESS_TIMEOUT" ] && FIRST_PROGRESS_TIMEOUT=480
+    [ -z "$STALL_TIMEOUT" ] && STALL_TIMEOUT=360
+    [ -z "$MAX_RETRIES" ] && MAX_RETRIES=3
+    [ -z "$MAX_WALLCLOCK" ] && MAX_WALLCLOCK=7200
+    ;;
+esac
 if [ "$REREVIEW" -eq 1 ] && [ "$PRODUCE_REVIEW" -eq 0 ]; then
   echo "ERROR: --re-review requires --produce-review" >&2
   exit 2
@@ -1207,6 +1239,8 @@ RUNNER_PREVIEW="$RUNNER_PREVIEW $WATCHDOG --runtime $RUNTIME --role $ROLE --mode
 # (or declare --read-only so heartbeat liveness applies).
 [ -n "$FIRST_PROGRESS_TIMEOUT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --first-progress-timeout $FIRST_PROGRESS_TIMEOUT"
 [ -n "$STALL_TIMEOUT" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --stall-timeout $STALL_TIMEOUT"
+[ -n "$MAX_RETRIES" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --max-retries $MAX_RETRIES"
+[ -n "$MAX_WALLCLOCK" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --max-wallclock $MAX_WALLCLOCK"
 [ "$PRODUCE_REVIEW" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --produce-review"
 [ "$CONDUCTOR_CONTROL" -eq 1 ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --conductor-control"
 [ -n "$RUNTIME_PERMISSION_FILE" ] && RUNNER_PREVIEW="$RUNNER_PREVIEW --opencode-permission-file $RUNTIME_PERMISSION_FILE"
