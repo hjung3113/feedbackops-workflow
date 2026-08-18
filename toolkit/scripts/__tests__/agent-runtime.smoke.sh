@@ -4,7 +4,8 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"; RUNTIME="$SCRIPT_DIR/../agent-runtime.sh"; TMP_DIR="$(mktemp -d)"; trap 'rm -rf "$TMP_DIR"' EXIT; FAILURES=0
 ok() { echo "ok   - $1"; }; bad() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 BIN="$TMP_DIR/bin"; WT="$TMP_DIR/wt"; mkdir -p "$BIN" "$WT"; printf 'prompt\n' > "$WT/prompt.txt"
-make_bin() { name="$1"; help="$2"; printf '#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo test-version; exit 0; fi\nif [ "$1" = "--help" ] || [ "$2" = "--help" ]; then printf "%%s\\n" %s; exit 0; fi\nprintf "%%s\\n" "$@" > "$RUNTIME_ARGV"\n' "'$help'" > "$BIN/$name"; chmod +x "$BIN/$name"; }
+. "$SCRIPT_DIR/lib/stub-argv.sh"; make_stub_capture_helper "$TMP_DIR/stub-capture.sh"; STUB_CAPTURE_HELPER="$TMP_DIR/stub-capture.sh"; export STUB_CAPTURE_HELPER
+make_bin() { name="$1"; help="$2"; printf '#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo test-version; exit 0; fi\nif [ "$1" = "--help" ] || [ "$2" = "--help" ]; then printf "%%s\\n" %s; exit 0; fi\nprintf "%%s\\n" "$@" > "$RUNTIME_ARGV"\n. "$STUB_CAPTURE_HELPER"\n' "'$help'" > "$BIN/$name"; chmod +x "$BIN/$name"; }
 make_bin codex 'exec --sandbox --cd --model --config --output-last-message --json'; make_bin claude '--print --permission-mode --output-format --model --effort --include-partial-messages'; make_bin opencode 'run --dir --format --agent --model --variant json'
 # Refuse launches unless the documented inline config and explicit primary
 # agent are consumed. This proves config application, not only local parsing.
@@ -31,6 +32,7 @@ NODE
 status=$?
 [ "$status" -eq 0 ] || exit "$status"
 printf '%s\n' "$@" > "$RUNTIME_ARGV"
+. "$STUB_CAPTURE_HELPER"
 EOF
 chmod +x "$BIN/opencode"
 for runtime in codex claude opencode; do out="$TMP_DIR/$runtime.json"; PATH="$BIN:$PATH" bash "$RUNTIME" capabilities --runtime "$runtime" > "$out" 2>/dev/null; if [ $? -eq 0 ] && grep -F '"fallback":false' "$out" >/dev/null && grep -F '"conductor"' "$out" >/dev/null && grep -F '"implementation"' "$out" >/dev/null && grep -F '"executable":' "$out" >/dev/null && grep -F '"version":' "$out" >/dev/null; then ok "$runtime declares complete roles, pin, and no fallback"; else bad "$runtime capability contract"; fi; done
@@ -50,4 +52,16 @@ NODE
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/websearch-mismatch.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode write requires webfetch/websearch allow on both scopes'; else bad 'opencode websearch allow required'; fi
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/read.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode write requires edit allow'; else bad 'opencode write permission'; fi
 RUNTIME_ARGV="$TMP_DIR/opencode-write.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role release --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/write.json"; if grep -Fx -- "$WT" "$TMP_DIR/opencode-write.argv" >/dev/null && grep -Fx -- agent-workflow "$TMP_DIR/opencode-write.argv" >/dev/null; then ok 'opencode write uses explicit cwd and configured agent'; else bad 'opencode write argv'; fi
+# #164 stub argv capture contract: the claude launcher must forward the manual
+# model/effort tuple as adjacent argv pairs and keep the plan permission mode.
+# Per-token greps above cannot see adjacency; the single "$*" capture line can.
+: > "$TMP_DIR/claude-model.args"
+RUNTIME_ARGV="$TMP_DIR/claude-model.argv" STUB_ARGS_LOG="$TMP_DIR/claude-model.args" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime claude --role conductor --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt" --model m2 --effort high
+claude_args="$(tail -n 1 "$TMP_DIR/claude-model.args")"
+if [ "$(printf '%s\n' "$claude_args" | grep -c -- '--permission-mode plan')" -eq 1 ] && printf '%s\n' "$claude_args" | grep -q -- '--model m2' && printf '%s\n' "$claude_args" | grep -q -- '--effort high'; then ok '#164 claude launch forwards model/effort pairs with plan permission adjacency'; else bad '#164 claude launch argv pair capture (got: '"$claude_args"')'; fi
+# Mutation check: the same pair greps must reject a reverted permission mode
+# and a token-glued mutation that per-token greps would still accept.
+mutation_reverted='--print --permission-mode acceptEdits --model m2 --effort high'
+mutation_glued='--print --permission-mode--model m2 --effort high'
+if ! printf '%s\n' "$mutation_reverted" | grep -q -- '--permission-mode plan' && ! printf '%s\n' "$mutation_glued" | grep -q -- '--permission-mode plan'; then ok '#164 claude argv mutation check rejects reverted and glued permission pairs'; else bad '#164 claude argv mutation check accepted a mutated argv'; fi
 [ "$FAILURES" -eq 0 ] && { echo 'ALL CASES PASS'; exit 0; }; echo "$FAILURES CASE(S) FAILED"; exit 1

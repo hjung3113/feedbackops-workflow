@@ -3,6 +3,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"; WATCHDOG="$SCRIPT_DIR/../agent-watchdog.sh"; TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT; FAIL=0
 ok(){ echo "ok   - $1"; }; bad(){ echo "NOT OK - $1"; FAIL=$((FAIL + 1)); }
 BIN="$TMP/bin"; WT="$TMP/wt"; mkdir -p "$BIN" "$WT"; printf 'p\n' > "$WT/prompt.txt"; git -C "$WT" init -q; git -C "$WT" config user.email t@t; git -C "$WT" config user.name t; git -C "$WT" add prompt.txt; git -C "$WT" commit -qm seed; HEAD="$(git -C "$WT" rev-parse HEAD)"
+. "$SCRIPT_DIR/lib/stub-argv.sh"; make_stub_capture_helper "$TMP/stub-capture.sh"; STUB_CAPTURE_HELPER="$TMP/stub-capture.sh"; export STUB_CAPTURE_HELPER
 cat > "$BIN/opencode" <<'EOF'
 #!/usr/bin/env bash
 if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
@@ -54,6 +55,7 @@ EOF
 chmod +x "$BIN/claude"
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
+. "$STUB_CAPTURE_HELPER"
 if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
 if [ "$1" = "--help" ]; then echo exec; exit 0; fi
 if [ "$1" = exec ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
@@ -123,4 +125,15 @@ eval "$(grep -E '^progressed\(\) ' "$WATCHDOG")"
 progressed_tmp="$TMP/progressed"; mkdir -p "$progressed_tmp/wt/.review"; CWD="$progressed_tmp/wt"; STAMP="$progressed_tmp/stamp"; OUTPUT="$progressed_tmp/out"
 touch "$STAMP"; sleep 1; touch "$OUTPUT"
 if progressed; then ok 'AC-142-A2a-4 progressed() treats OUTPUT newer than STAMP as progress even with .review pruned'; else bad 'AC-142-A2a-4 progressed() treats OUTPUT newer than STAMP as progress even with .review pruned'; fi
+# #164 stub argv capture contract: the codex read seat must launch with the
+# read-only sandbox, the manual model tuple, and the effort config token as
+# adjacent argv pairs. The mutation check proves the same pair greps reject a
+# reverted sandbox and a wrong-model mutation.
+: > "$TMP/codex-model.args"
+AGENT_WATCHDOG_POLL_INTERVAL=1 STUB_ARGS_LOG="$TMP/codex-model.args" PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 91 --runtime codex --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --model gpt-5.6-terra --effort low --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+codex_args="$(tail -n 1 "$TMP/codex-model.args")"
+if [ "$(printf '%s\n' "$codex_args" | grep -c -- '--sandbox read-only')" -eq 1 ] && printf '%s\n' "$codex_args" | grep -q -- '-m gpt-5.6-terra' && printf '%s\n' "$codex_args" | grep -q -- 'model_reasoning_effort=' && printf '%s\n' "$codex_args" | grep -q -- 'model_reasoning_effort="low"'; then ok '#164 codex watchdog seat forwards read-only sandbox and model/effort pairs'; else bad '#164 codex watchdog argv pair capture (got: '"$codex_args"')'; fi
+codex_mutation_reverted='exec --sandbox workspace-write --cd /wt -m gpt-5.6-terra -c model_reasoning_effort="low"'
+codex_mutation_model='exec --sandbox read-only --cd /wt -m wrong-model -c model_reasoning_effort="low"'
+if ! printf '%s\n' "$codex_mutation_reverted" | grep -q -- '--sandbox read-only' && ! printf '%s\n' "$codex_mutation_model" | grep -q -- '-m gpt-5.6-terra'; then ok '#164 codex argv mutation check rejects reverted sandbox and wrong model'; else bad '#164 codex argv mutation check accepted a mutated argv'; fi
 [ "$FAIL" -eq 0 ] && { echo 'ALL CASES PASS'; exit 0; }; exit 1

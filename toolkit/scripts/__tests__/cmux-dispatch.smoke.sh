@@ -17,6 +17,10 @@ cp -R "$ROOT/scripts" "$PRODUCT_HOME/scripts"
 cp -R "$ROOT/schemas" "$PRODUCT_HOME/schemas"
 cp "$ROOT/model-alloc.json" "$PRODUCT_HOME/model-alloc.json"
 PRODUCT_DISPATCH="$PRODUCT_HOME/scripts/cmux-dispatch.sh"
+. "$SCRIPT_DIR/lib/stub-argv.sh"
+make_stub_capture_helper "$TMP_ROOT/stub-capture.sh"
+STUB_CAPTURE_HELPER="$TMP_ROOT/stub-capture.sh"
+export STUB_CAPTURE_HELPER
 # Runtime admission capability-probes the executable. Use a deterministic
 # Codex-shaped fake instead of /usr/bin/true, which correctly lacks `exec`.
 if [ -z "${AGENT_WORKFLOW_CODEX_BIN:-}" ]; then
@@ -618,6 +622,7 @@ mkdir -p "$RUNNER_BIN"
 cat > "$RUNNER_BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 . "$CMUX_PROBE_HELPER"
+. "$STUB_CAPTURE_HELPER"
 cwd=""
 command=""
 shift 2
@@ -642,12 +647,40 @@ EOF
 chmod +x "$RUNNER_BIN/cmux"
 
 runner_transport_out="$TMP_ROOT/runner-transport.out"
-WATCHDOG_ARGV_FILE="$TMP_ROOT/watchdog-argv.txt" \
+: > "$TMP_ROOT/cmux-exec-argv.txt"
+WATCHDOG_ARGV_FILE="$TMP_ROOT/watchdog-argv.txt" STUB_ARGS_LOG="$TMP_ROOT/cmux-exec-argv.txt" \
 AGENT_WORKFLOW_POLL_INTERVAL=1 PATH="$RUNNER_BIN:$PATH" \
-bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 333 --worktree "$DEEP_WT" \
+  bash "$RUNNER_FIXTURE/cmux-dispatch.sh" --issue 333 --worktree "$DEEP_WT" \
   --read-only --model gpt-5.6-terra --effort medium \
   --first-progress-timeout 1500 --stall-timeout 900 --poll-timeout 3 >"$runner_transport_out" 2>&1
 ec=$?
+# #164 stub argv capture contract: the executed (non-dry-run) cmux argv — not
+# only the printed dry-run line above — must be `workspace create` carrying the
+# absolute (space-containing) worktree as its only --cwd value. DEEP_WT has
+# spaces, so verification is fixed-string adjacency plus an exact --cwd token
+# count; the mutation check proves this rejects a hijacked and a glued --cwd.
+cmux_exec_line="$(tail -n 1 "$TMP_ROOT/cmux-exec-argv.txt")"
+cmux_exec_cwd_tokens="$(printf '%s\n' "$cmux_exec_line" | tr ' ' '\n' | grep -Fxc -- '--cwd')"
+case "$cmux_exec_line" in
+  "workspace create "*)
+    if [ "$cmux_exec_cwd_tokens" -eq 1 ] && printf '%s\n' "$cmux_exec_line" | grep -Fq -- "--cwd $DEEP_WT --command"; then
+      pass "#164 executed cmux argv is workspace create with the absolute worktree as its only --cwd"
+    else
+      fail "#164 executed cmux argv is workspace create with the absolute worktree as its only --cwd (cwd tokens=$cmux_exec_cwd_tokens got: $cmux_exec_line)"
+    fi ;;
+  *)
+    fail "#164 executed cmux argv is workspace create with the absolute worktree as its only --cwd (got: $cmux_exec_line)" ;;
+esac
+cmux_exec_hijack="workspace create --name n --cwd $TMP_ROOT/hijacked-wt --command bash x"
+cmux_exec_glued="workspace create --name n --prompt-file--cwd $DEEP_WT --command bash x"
+cmux_hijack_green=no; cmux_glued_green=no
+if [ "$(printf '%s\n' "$cmux_exec_hijack" | tr ' ' '\n' | grep -Fxc -- '--cwd')" -eq 1 ] && printf '%s\n' "$cmux_exec_hijack" | grep -Fq -- "--cwd $DEEP_WT --command"; then cmux_hijack_green=yes; fi
+if [ "$(printf '%s\n' "$cmux_exec_glued" | tr ' ' '\n' | grep -Fxc -- '--cwd')" -eq 1 ] && printf '%s\n' "$cmux_exec_glued" | grep -Fq -- "--cwd $DEEP_WT --command"; then cmux_glued_green=yes; fi
+if [ "$cmux_hijack_green" = no ] && [ "$cmux_glued_green" = no ]; then
+  pass "#164 cmux argv mutation check rejects hijacked and glued --cwd values"
+else
+  fail "#164 cmux argv mutation check accepted a mutated argv (hijack=$cmux_hijack_green glued=$cmux_glued_green)"
+fi
 runner_333="$(find "$DEEP_WT/.review" -path '*/ISSUE-333-launch.*/launch.sh' -type f -print -quit)"
 if [ "$ec" -eq 0 ] && [ -n "$runner_333" ] && [ -x "$runner_333" ] && grep -q "fresh RUN.json present" "$runner_transport_out" \
   && grep -Fx -- "--issue" "$TMP_ROOT/watchdog-argv.txt" >/dev/null && grep -Fx -- "333" "$TMP_ROOT/watchdog-argv.txt" >/dev/null \
