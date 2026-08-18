@@ -78,6 +78,17 @@ assert_case "missing delimiters are rejected" 1 "$TMP_DIR/no-block.md" "PROMPT_A
 write_prompt "$TMP_DIR/malformed.md" '[{"id":"AC-1"}]'
 assert_case "malformed entry is rejected" 1 "$TMP_DIR/malformed.md" "PROMPT_AC_MALFORMED"
 
+BAD_STATE="$TMP_DIR/bad-state.json"
+node -e 'const fs=require("fs"); const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); delete v.lifecycle; fs.writeFileSync(process.argv[2], JSON.stringify(v));' "$STATE" "$BAD_STATE"
+out="$TMP_DIR/schema-invalid.out"
+bash "$CHECK" --round-state "$BAD_STATE" --manifest-revision 3 --prompt-file "$TMP_DIR/happy.md" >"$out" 2>&1
+ec=$?
+if [ "$ec" -eq 2 ] && grep -F -q "ROUND-STATE schema validation failed:" "$out" && grep -F -q "lifecycle" "$out"; then
+  pass "invalid ROUND-STATE schema surfaces error detail"
+else
+  fail "invalid ROUND-STATE schema surfaces error detail (exit=$ec output=$(cat "$out"))"
+fi
+
 if [ "$FAILURES" -eq 0 ]; then echo "ALL TESTS PASS"; exit 0; fi
 echo "$FAILURES CASE(S) FAILED"
 exit 1

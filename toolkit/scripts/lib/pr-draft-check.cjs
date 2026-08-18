@@ -11,7 +11,8 @@ try {
   const artifact = JSON.parse(fs.readFileSync(artifactFile, "utf8"));
   const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
   const { validate } = require(validatorFile);
-  if (validate(schema, artifact).length) throw new Error("schema_invalid");
+  const schemaErrors = validate(schema, artifact);
+  if (schemaErrors.length) throw new Error("schema_invalid: " + JSON.stringify(schemaErrors));
   if (!artifact.issue || Number(artifact.issue.number) !== Number(issueNumber)) throw new Error("issue_mismatch");
   if (artifact.lifecycle === "superseded") throw new Error("lifecycle_not_consumable");
   if (!path.isAbsolute(artifact.worktree_path)) throw new Error("worktree_not_absolute");
