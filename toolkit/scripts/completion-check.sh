@@ -79,8 +79,9 @@ const fs = require("fs");
 const { execFileSync } = require("child_process");
 const [roundStateFile, contractValidatorsFile, expectedRevision] = process.argv.slice(2);
 
-function error(code, message) {
-  process.stdout.write(JSON.stringify({ status: "error", mismatches: [{ code }], error: message }) + "\n");
+function error(code, message, details) {
+  const mismatch = details !== undefined ? { code, details } : { code };
+  process.stdout.write(JSON.stringify({ status: "error", mismatches: [mismatch], error: message }) + "\n");
   process.exit(2);
 }
 const DISCOVERY_DIAGNOSTIC_LIMIT = 4096;
@@ -155,7 +156,7 @@ let schema, validate;
 try { ({ schema, validate } = require(contractValidatorsFile).loadSchema("round_state.schema.json")); }
 catch (e) { error("invalid_round_state", "cannot load schema validator: " + e.message); }
 const schemaErrors = validate(schema, state);
-if (schemaErrors.length) error("invalid_round_state", "ROUND-STATE schema validation failed");
+if (schemaErrors.length) error("invalid_round_state", "ROUND-STATE schema validation failed", schemaErrors);
 if (state.lifecycle !== "active" && state.lifecycle !== "final") error("invalid_round_state", "ROUND-STATE lifecycle is not gateable");
 
 const mismatches = [];

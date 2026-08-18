@@ -222,7 +222,7 @@ done
 cp "$TMP_DIR/state.json" "$TMP_DIR/invalid-extractor-state.json"
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); v.contract.test_count={pattern:"tests ([0-9]+)",group:-1,extra:true}; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/invalid-extractor-state.json"
 ( bash "$CHECK" --round-state "$TMP_DIR/invalid-extractor-state.json" --manifest-revision 3 ) > "$TMP_DIR/invalid-extractor-output.json" 2>/dev/null
-if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_round_state" ? 0 : 1)' "$TMP_DIR/invalid-extractor-output.json"; then
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.mismatches[0].code === "invalid_round_state" && Array.isArray(v.mismatches[0].details) && v.mismatches[0].details.length > 0 ? 0 : 1)' "$TMP_DIR/invalid-extractor-output.json"; then
   echo "ok   - malformed extractor shape fails schema validation"
 else
   echo "NOT OK - malformed extractor shape validation"
@@ -231,7 +231,7 @@ fi
 
 node -e 'const fs=require("fs"); const f=process.argv[1]; const v=JSON.parse(fs.readFileSync(f,"utf8")); delete v.acceptance.expected_test_count; fs.writeFileSync(f,JSON.stringify(v));' "$TMP_DIR/state.json"
 ( bash "$CHECK" --round-state "$TMP_DIR/state.json" --manifest-revision 3 ) > "$TMP_DIR/error.json" 2>/dev/null
-if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.status === "error" && v.mismatches[0].code === "invalid_round_state" ? 0 : 1)' "$TMP_DIR/error.json"; then
+if [ "$?" -eq 2 ] && node -e 'const v=require(process.argv[1]); process.exit(v.status === "error" && v.mismatches[0].code === "invalid_round_state" && Array.isArray(v.mismatches[0].details) && v.mismatches[0].details.length > 0 ? 0 : 1)' "$TMP_DIR/error.json"; then
   echo "ok   - invalid ROUND-STATE has machine-readable error"
 else
   echo "NOT OK - invalid ROUND-STATE machine-readable error"

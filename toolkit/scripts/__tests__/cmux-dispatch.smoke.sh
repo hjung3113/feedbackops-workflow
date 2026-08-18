@@ -587,23 +587,13 @@ git -C "$DEEP_WT" -c user.name="Smoke Test" -c user.email="smoke@example.test" c
 printf '%s\n' "prompt body" > "$DEEP_WT/.review/ISSUE-333-PROMPT.txt"
 
 RUNNER_FIXTURE="$TMP_ROOT/runner-fixture"
-mkdir -p "$RUNNER_FIXTURE"
-cp "$DISPATCH" "$RUNNER_FIXTURE/cmux-dispatch.sh"
-cp "$SCRIPT_DIR/../dispatch-core.sh" "$RUNNER_FIXTURE/dispatch-core.sh"
-cp "$SCRIPT_DIR/../agent-runtime.sh" "$RUNNER_FIXTURE/agent-runtime.sh"
-mkdir -p "$RUNNER_FIXTURE/adapters" "$TMP_ROOT/schemas" "$RUNNER_FIXTURE/lib"
-cp "$SCRIPT_DIR/../adapters/cmux.sh" "$RUNNER_FIXTURE/adapters/cmux.sh"
-cp "$ROOT/schemas/transport_receipt.schema.json" "$TMP_ROOT/schemas/transport_receipt.schema.json"
-cp "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$RUNNER_FIXTURE/lib/json-schema-subset.cjs"
-cp "$SCRIPT_DIR/../lib/contract-validators.cjs" "$RUNNER_FIXTURE/lib/contract-validators.cjs"
-cp "$SCRIPT_DIR/../lib/capability-result.cjs" "$RUNNER_FIXTURE/lib/capability-result.cjs"
-cp "$SCRIPT_DIR/../lib/cmux-handles.cjs" "$RUNNER_FIXTURE/lib/cmux-handles.cjs"
-cp "$SCRIPT_DIR/../lib/launch-result.cjs" "$RUNNER_FIXTURE/lib/launch-result.cjs"
-cp "$SCRIPT_DIR/../lib/transport-registry.cjs" "$RUNNER_FIXTURE/lib/transport-registry.cjs"
-cp "$SCRIPT_DIR/../lib/runtime-registry.cjs" "$RUNNER_FIXTURE/lib/runtime-registry.cjs"
-cp "$SCRIPT_DIR/../lib/semver.cjs" "$RUNNER_FIXTURE/lib/semver.cjs"
-cp "$SCRIPT_DIR/../lib/adapter-json.cjs" "$RUNNER_FIXTURE/lib/adapter-json.cjs"
-cp "$SCRIPT_DIR/../lib/adapter-helpers.sh" "$RUNNER_FIXTURE/lib/adapter-helpers.sh"
+# Reuse the full source-tree copy already staged at $PRODUCT_HOME/scripts
+# (line 16) instead of hand-listing individual files here — a second,
+# independently-maintained file list is exactly what goes stale when a new
+# shared lib is added (see #115/#130).
+cp -R "$PRODUCT_HOME/scripts" "$RUNNER_FIXTURE"
+rm -rf "$RUNNER_FIXTURE/__tests__" "$RUNNER_FIXTURE/install-profiles"
+cp -R "$PRODUCT_HOME/schemas" "$TMP_ROOT/schemas"
 cat > "$RUNNER_FIXTURE/agent-watchdog.sh" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" > "$WATCHDOG_ARGV_FILE"

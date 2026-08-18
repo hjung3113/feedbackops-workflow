@@ -84,8 +84,9 @@ try {
   console.error("cannot read canonical input: " + error.message);
   process.exit(2);
 }
-if (validate(schema, state).length) {
-  console.error("ROUND-STATE schema validation failed");
+const schemaErrors = validate(schema, state);
+if (schemaErrors.length) {
+  console.error("ROUND-STATE schema validation failed: " + JSON.stringify(schemaErrors));
   process.exit(2);
 }
 if ((state.lifecycle !== "active" && state.lifecycle !== "final") || String(state.revision) !== expectedRevision) {
