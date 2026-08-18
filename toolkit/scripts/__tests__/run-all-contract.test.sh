@@ -249,6 +249,246 @@ else
   fail "AC-INV-4 duplicate manifest entry is rejected before set-equality"
 fi
 
+# --- AC-165-*: --for-paths selection and flake registry ---
+# Fixture suite: runner copy beside two smokes, one covered by a fixture
+# coverage manifest and one uncovered by it.
+FP_FIXTURE_DIR="$TMP_ROOT/for-paths-suite"
+FP_TMP="$TMP_ROOT/for-paths-tmp"
+mkdir -p "$FP_FIXTURE_DIR" "$FP_TMP"
+cp "$RUNNER" "$FP_FIXTURE_DIR/run-all.sh"
+cat > "$FP_FIXTURE_DIR/covered-fixture.smoke.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "ok   - covered fixture ran"
+exit 0
+EOF
+cat > "$FP_FIXTURE_DIR/uncovered-fixture.smoke.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "ok   - uncovered fixture ran"
+exit 0
+EOF
+printf '%s\n' 'toolkit/scripts/covered-source.sh covered-fixture.smoke.sh' \
+  > "$FP_FIXTURE_DIR/smoke-coverage.manifest"
+
+# --- AC-165-1: a covered path runs only the matching subset ---
+fp_out="$TMP_ROOT/for-paths-covered.out"
+TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
+  --for-paths 'toolkit/scripts/covered-source.sh' >"$fp_out" 2>&1
+fp_ec=$?
+if [ "$fp_ec" -eq 0 ] \
+  && grep -F -x -q -- 'ok - covered-fixture.smoke.sh' "$fp_out" \
+  && ! grep -F -q -- 'uncovered-fixture' "$fp_out" \
+  && grep -F -x -q -- '--- 1/1 passed' "$fp_out"; then
+  pass "AC-165-1 covered path runs only the matching smoke subset"
+else
+  fail "AC-165-1 covered path runs only the matching smoke subset (ec=$fp_ec output=$(cat "$fp_out"))"
+fi
+
+# --- AC-165-2: a directory-prefix path also narrows correctly ---
+fp_dir_out="$TMP_ROOT/for-paths-dir.out"
+TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
+  --for-paths 'toolkit/scripts/' >"$fp_dir_out" 2>&1
+fp_dir_ec=$?
+if [ "$fp_dir_ec" -eq 0 ] \
+  && grep -F -q -- 'ok - covered-fixture.smoke.sh' "$fp_dir_out" \
+  && ! grep -F -q -- 'uncovered-fixture' "$fp_dir_out"; then
+  pass "AC-165-2 directory-prefix path narrows via prefix matching"
+else
+  fail "AC-165-2 directory-prefix path narrows via prefix matching (ec=$fp_dir_ec output=$(cat "$fp_dir_out"))"
+fi
+
+# --- AC-165-11: a lexical file-prefix collision is not coverage ---
+# Extend the fixture manifest with toolkit/scripts/routex.sh; the given path
+# toolkit/scripts/route must NOT match it (bare string prefix) and must warn
+# and fall open to the full suite instead of narrowing.
+printf '%s\n%s\n' 'toolkit/scripts/covered-source.sh covered-fixture.smoke.sh' \
+  'toolkit/scripts/routex.sh covered-fixture.smoke.sh' \
+  > "$FP_FIXTURE_DIR/smoke-coverage.manifest"
+fp_pfx_out="$TMP_ROOT/for-paths-prefix.out"
+TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
+  --for-paths 'toolkit/scripts/route' >"$fp_pfx_out" 2>&1
+fp_pfx_ec=$?
+if [ "$fp_pfx_ec" -eq 0 ] \
+  && grep -F -q -- 'WARNING: toolkit/scripts/route has no known smoke coverage in smoke-coverage.manifest — falling back to the full suite' "$fp_pfx_out" \
+  && grep -F -q -- 'ok - covered-fixture.smoke.sh' "$fp_pfx_out" \
+  && grep -F -q -- 'ok - uncovered-fixture.smoke.sh' "$fp_pfx_out" \
+  && grep -F -x -q -- '--- 2/2 passed' "$fp_pfx_out"; then
+  pass "AC-165-11 lexical file-prefix collision warns and falls open, not narrows"
+else
+  fail "AC-165-11 lexical file-prefix collision warns and falls open, not narrows (ec=$fp_pfx_ec output=$(cat "$fp_pfx_out"))"
+fi
+
+# --- AC-165-3: an uncovered path fails open to the full suite ---
+fp_fb_out="$TMP_ROOT/for-paths-fallback.out"
+TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
+  --for-paths 'docs/nothing-covers-this.md' >"$fp_fb_out" 2>&1
+fp_fb_ec=$?
+if [ "$fp_fb_ec" -eq 0 ] \
+  && grep -F -q -- 'WARNING: docs/nothing-covers-this.md has no known smoke coverage in smoke-coverage.manifest — falling back to the full suite' "$fp_fb_out" \
+  && grep -F -q -- 'ok - covered-fixture.smoke.sh' "$fp_fb_out" \
+  && grep -F -q -- 'ok - uncovered-fixture.smoke.sh' "$fp_fb_out" \
+  && grep -F -x -q -- '--- 2/2 passed' "$fp_fb_out"; then
+  pass "AC-165-3 uncovered path warns and falls back to the full suite"
+else
+  fail "AC-165-3 uncovered path warns and falls back to the full suite (ec=$fp_fb_ec output=$(cat "$fp_fb_out"))"
+fi
+
+# --- AC-165-3b: a covered path followed by an uncovered path still falls
+# fully open (not a partial run of just the already-matched smoke) ---
+fp_fb2_out="$TMP_ROOT/for-paths-fallback-partial.out"
+TMPDIR="$FP_TMP" bash "$FP_FIXTURE_DIR/run-all.sh" \
+  --for-paths 'toolkit/scripts/covered-source.sh
+docs/nothing-covers-this.md' >"$fp_fb2_out" 2>&1
+fp_fb2_ec=$?
+if [ "$fp_fb2_ec" -eq 0 ] \
+  && grep -F -q -- 'WARNING: docs/nothing-covers-this.md has no known smoke coverage in smoke-coverage.manifest — falling back to the full suite' "$fp_fb2_out" \
+  && grep -F -q -- 'ok - covered-fixture.smoke.sh' "$fp_fb2_out" \
+  && grep -F -q -- 'ok - uncovered-fixture.smoke.sh' "$fp_fb2_out" \
+  && grep -F -x -q -- '--- 2/2 passed' "$fp_fb2_out"; then
+  pass "AC-165-3b covered-then-uncovered path still falls open to the full suite, not a partial run"
+else
+  fail "AC-165-3b covered-then-uncovered path still falls open to the full suite, not a partial run (ec=$fp_fb2_ec output=$(cat "$fp_fb2_out"))"
+fi
+
+# --- AC-165-4: --for-paths with --list, or empty, is a usage error ---
+fp_usage1_ec=0
+bash "$FP_FIXTURE_DIR/run-all.sh" --list --for-paths 'toolkit/scripts/x.sh' \
+  >"$TMP_ROOT/fp-usage1.out" 2>&1 || fp_usage1_ec=$?
+fp_usage2_ec=0
+bash "$FP_FIXTURE_DIR/run-all.sh" --for-paths '   ' >"$TMP_ROOT/fp-usage2.out" 2>&1 || fp_usage2_ec=$?
+if [ "$fp_usage1_ec" -eq 2 ] && [ "$fp_usage2_ec" -eq 2 ]; then
+  pass "AC-165-4 --for-paths misuse (--list combination, empty value) exits 2"
+else
+  fail "AC-165-4 --for-paths misuse (--list combination, empty value) exits 2 (ec1=$fp_usage1_ec ec2=$fp_usage2_ec)"
+fi
+
+# Flake-registry fixtures: one failing smoke per registry state.
+make_flake_suite() {
+  flake_dir="$1"
+  mkdir -p "$flake_dir"
+  cp "$RUNNER" "$flake_dir/run-all.sh"
+  cat > "$flake_dir/flaky-fixture.smoke.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "flaky fixture failed on purpose"
+exit 5
+EOF
+  cat > "$flake_dir/passing-fixture.smoke.sh" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+}
+
+FUTURE_DATE="$(date -u -v+30d +%Y-%m-%d)"
+PAST_DATE="$(date -u -v-30d +%Y-%m-%d)"
+
+# --- AC-165-5: a registered, unexpired flake prints FLAKY and exits 0 ---
+FLAKE_DIR="$TMP_ROOT/flake-active-suite"
+FLAKE_TMP="$TMP_ROOT/flake-active-tmp"
+make_flake_suite "$FLAKE_DIR"
+mkdir -p "$FLAKE_TMP"
+printf '%s\n' "flaky-fixture.smoke.sh testowner $FUTURE_DATE AC165_test_flake" \
+  > "$FLAKE_DIR/flake-registry.manifest"
+flake_out="$TMP_ROOT/flake-active.out"
+TMPDIR="$FLAKE_TMP" bash "$FLAKE_DIR/run-all.sh" >"$flake_out" 2>&1
+flake_ec=$?
+if [ "$flake_ec" -eq 0 ] \
+  && grep -F -x -q -- "FLAKY - flaky-fixture.smoke.sh (exit 5, known flake: owner=testowner expires=$FUTURE_DATE reason=AC165_test_flake)" "$flake_out" \
+  && ! grep -F -q -- 'NOT OK - flaky-fixture' "$flake_out" \
+  && grep -F -x -q -- '--- 1/2 passed (1 known-flake)' "$flake_out" \
+  && grep -F -q -- 'diagnostic retained:' "$flake_out"; then
+  pass "AC-165-5 unexpired registered flake reports FLAKY, retains diagnostics, exits 0"
+else
+  fail "AC-165-5 unexpired registered flake reports FLAKY, retains diagnostics, exits 0 (ec=$flake_ec output=$(cat "$flake_out"))"
+fi
+
+# --- AC-165-6: an expired flake registration graduates to a failure ---
+EXP_DIR="$TMP_ROOT/flake-expired-suite"
+EXP_TMP="$TMP_ROOT/flake-expired-tmp"
+make_flake_suite "$EXP_DIR"
+mkdir -p "$EXP_TMP"
+printf '%s\n' "flaky-fixture.smoke.sh testowner $PAST_DATE AC165_test_flake" \
+  > "$EXP_DIR/flake-registry.manifest"
+exp_out="$TMP_ROOT/flake-expired.out"
+TMPDIR="$EXP_TMP" bash "$EXP_DIR/run-all.sh" >"$exp_out" 2>&1
+exp_ec=$?
+if [ "$exp_ec" -eq 1 ] \
+  && grep -F -x -q -- 'NOT OK - flaky-fixture.smoke.sh (exit 5)' "$exp_out" \
+  && ! grep -F -q -- 'FLAKY -' "$exp_out" \
+  && grep -F -x -q -- '--- 1/2 passed' "$exp_out"; then
+  pass "AC-165-6 expired flake registration falls through to ordinary failure"
+else
+  fail "AC-165-6 expired flake registration falls through to ordinary failure (ec=$exp_ec output=$(cat "$exp_out"))"
+fi
+
+# --- AC-165-7: a malformed registry line warns and does not crash ---
+MAL_DIR="$TMP_ROOT/flake-malformed-suite"
+MAL_TMP="$TMP_ROOT/flake-malformed-tmp"
+make_flake_suite "$MAL_DIR"
+mkdir -p "$MAL_TMP"
+printf '%s\n' 'flaky-fixture.smoke.sh testowner not-a-date AC165_test_flake' \
+  > "$MAL_DIR/flake-registry.manifest"
+mal_out="$TMP_ROOT/flake-malformed.out"
+TMPDIR="$MAL_TMP" bash "$MAL_DIR/run-all.sh" >"$mal_out" 2>&1
+mal_ec=$?
+if [ "$mal_ec" -eq 1 ] \
+  && grep -F -q -- 'WARNING: malformed flake-registry.manifest line for flaky-fixture.smoke.sh: flaky-fixture.smoke.sh testowner not-a-date AC165_test_flake' "$mal_out" \
+  && grep -F -x -q -- 'NOT OK - flaky-fixture.smoke.sh (exit 5)' "$mal_out" \
+  && grep -F -x -q -- '--- 1/2 passed' "$mal_out"; then
+  pass "AC-165-7 malformed registry line warns, falls through to NOT OK, run continues"
+else
+  fail "AC-165-7 malformed registry line warns, falls through to NOT OK, run continues (ec=$mal_ec output=$(cat "$mal_out"))"
+fi
+
+# --- AC-165-8: zero-flake summary stays byte-identical to today ---
+if grep -F -x -q -- '--- 2/2 passed' "$fp_fb_out" \
+  && ! grep -F -q -- '(0 known-flake)' "$fp_fb_out" \
+  && ! grep -F -q -- '(0 known-flake)' "$green_out"; then
+  pass "AC-165-8 zero-flake summary line keeps today's exact text"
+else
+  fail "AC-165-8 zero-flake summary line keeps today's exact text"
+fi
+
+# --- AC-165-9: the live coverage manifest names only real smoke files ---
+COVERAGE="$SCRIPT_DIR/smoke-coverage.manifest"
+live_list2="$TMP_ROOT/live-list2.txt"
+bash "$RUNNER" --list >"$live_list2" 2>&1
+coverage_bad=""
+cov_dups="$TMP_ROOT/coverage-dups.txt"
+cov_lines="$TMP_ROOT/coverage-lines.txt"
+cov_names="$TMP_ROOT/coverage-names.txt"
+cov_live="$TMP_ROOT/coverage-live.txt"
+sort "$COVERAGE" > "$cov_lines"
+uniq -d "$cov_lines" > "$cov_dups"
+[ -s "$cov_dups" ] && coverage_bad="$(cat "$cov_dups")"
+awk '{print $2}' "$cov_lines" | sort -u > "$cov_names"
+sort "$live_list2" > "$cov_live"
+cov_only="$(comm -23 "$cov_names" "$cov_live")"
+[ -n "$cov_only" ] && coverage_bad="${coverage_bad}${coverage_bad:+
+}${cov_only}"
+coverage_missing_src="$(grep -v '^#' "$COVERAGE" | awk '{print $1}' | while IFS= read -r cov_src; do
+  [ -n "$cov_src" ] || continue
+  [ -f "$SCRIPT_DIR/../../${cov_src#toolkit/}" ] || echo "$cov_src"
+done)"
+if [ -z "$coverage_bad" ] && [ -z "$coverage_missing_src" ]; then
+  pass "AC-165-9 coverage manifest references only real smokes and real source files"
+else
+  fail "AC-165-9 coverage manifest references only real smokes and real source files (bad=$coverage_bad missing=$coverage_missing_src)"
+fi
+
+# --- AC-165-10: every live smoke is a covering smoke or the acknowledged
+# docs-only exception. This catches the drift class where a new smoke with
+# production-source coverage ships without any manifest lines: --for-paths on
+# its sources would silently skip it. Proving the reverse mapping complete
+# (that no existing smoke gained uncovered coverage of an already-mapped
+# source) is not mechanically derivable without parsing bash — that residual
+# is bounded by the mandatory full-suite PR/merge gate in the playbook.
+cov_uncovered="$(comm -23 "$cov_live" "$cov_names")"
+cov_exceptions='dispatch-operator-contract.smoke.sh'
+if [ "$cov_uncovered" = "$cov_exceptions" ]; then
+  pass "AC-165-10 every live smoke is a covering smoke or the sole docs-only exception"
+else
+  fail "AC-165-10 every live smoke is a covering smoke or the sole docs-only exception (uncovered=$cov_uncovered)"
+fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"
