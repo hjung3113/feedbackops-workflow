@@ -72,6 +72,9 @@ review="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"f
 wrapped_review="$(printf 'reviewer summary\n\n```json\n%s\n```\n\n```json\nnot valid JSON\n```\n' "$review")"
 OPENCODE_STUB_OUTPUT="$wrapped_review" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 77 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.artifact_type!=="agent_run"||o.runtime!=="opencode"||o.role!=="reviewer"||!o.runtime_version||o.status!=="exited")process.exit(1)' "$WT/.review/ISSUE-77-RUN.json" && [ -f "$WT/.review/ISSUE-77-REVIEW.json" ]; then ok 'prose-wrapped non-Codex reviewer JSON publishes validated review'; else bad 'prose-wrapped reviewer publication'; fi
+# #163: write_marker must also append a run_status line per call to the
+# append-only EVENTS.jsonl log alongside (never instead of) RUN.json.
+if node -e 'const fs=require("fs");const lines=fs.readFileSync(process.argv[1],"utf8").trim().split("\n").map(JSON.parse);const last=lines[lines.length-1];if(lines.length<2||last.event!=="run_status"||last.status!=="exited"||last.attempt!==1||typeof last.ts!=="string"||!("detail" in last))process.exit(1)' "$WT/.review/ISSUE-77-EVENTS.jsonl" && node -e 'const o=require(process.argv[1]); if(o.status!=="exited")process.exit(1)' "$WT/.review/ISSUE-77-RUN.json"; then ok '#163 write_marker appends terminal run_status line to EVENTS.jsonl'; else bad '#163 EVENTS.jsonl run_status append'; fi
 # #137 regression: bash-denied reviewer receives the host-pinned HEAD in the
 # launch prompt (a), and a wrong model-returned reviewed_head_sha is corrected
 # to the host's launch-time value before schema validation (b).
