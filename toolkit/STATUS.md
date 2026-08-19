@@ -4,6 +4,17 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
 
 ## In progress: v0.21 generic distribution and runtime symmetry
 
+- CONDUCTOR no longer hand-copies a prior issue's ROUND-STATE (#159):
+  `scripts/round-state-init.sh <issue-number> --worktree <path>` scaffolds a
+  schema-validated skeleton (issue identity and AC candidates from
+  `gh issue view`, git base/head SHAs, worktree path; scaffold-once with
+  `--force` opt-in), and `scripts/round-state-render-ac.sh --round-state
+  <path>` renders the prompt AC block from canonical
+  `acceptance.criteria[]`, eliminating the hand-duplicated copy that could
+  drift past `prompt-ac-check.sh`. Author-owned contract fields remain
+  explicit TODO placeholders seeded to satisfy the schema's minLength/minItems
+  floors; the tool automates no CONDUCTOR judgment calls.
+
 - Dispatch failures now leave a pollable terminal-status artifact even when
   admission refuses before the watchdog starts (#163): every watchdog
   `write_marker` appends a `run_status` line to the append-only
