@@ -49,6 +49,38 @@ if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCT
 make_proposal 722 1 '.review/ISSUE-722-ROUND-STATE.json'
 CONTROL_PROPOSAL="$TMP/proposal.json" CLAUDE_NDJSON_FENCE=1 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/claude-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 722 --runtime claude --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >"$TMP/722.out" 2>&1
 if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCTOR")process.exit(1)' "$WT/.review/ISSUE-722-ROUND-STATE.json"; then ok 'AC-142-A2b2-5 claude stream-json NDJSON conductor proposal with fenced-json body publishes host-validated control'; else cat "$TMP/722.out" >&2; bad 'AC-142-A2b2-5 claude stream-json NDJSON conductor proposal with fenced-json body publishes host-validated control'; fi
+# #155: opencode NDJSON conductor equivalent of the claude-ndjson cases
+# above — a real 12-event opencode stream shape (step_start/tool_use/
+# step_finish x3, then step_start/text/step_finish) whose terminal
+# {"type":"text"} event carries the proposal in part.text.
+cat > "$BIN/opencode-ndjson" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
+if [ "$1" = "--help" ] || { [ "$1" = run ] && [ "$2" = "--help" ]; }; then echo 'run --dir --format --agent --model --variant json'; exit 0; fi
+CONTROL_PROPOSAL="$CONTROL_PROPOSAL" OPENCODE_NDJSON_FENCE="${OPENCODE_NDJSON_FENCE:-0}" node <<'NODE'
+const fs=require("fs");
+const proposal=fs.readFileSync(process.env.CONTROL_PROPOSAL,"utf8");
+const body = process.env.OPENCODE_NDJSON_FENCE === "1" ? "here is the proposal\n\n```json\n"+proposal+"\n```\n" : proposal;
+const step=t=>JSON.stringify({type:t,part:{type:t==="step_start"?"step-start":"step-finish"}});
+const out=[];
+for (const file of ["round-state.md","proposal.json","STATUS.md"]) {
+  out.push(step("step_start"));
+  out.push(JSON.stringify({type:"tool_use",part:{type:"tool",tool:"read",state:{status:"completed",input:{filePath:"/wt/"+file}}}}));
+  out.push(step("step_finish"));
+}
+out.push(step("step_start"));
+out.push(JSON.stringify({type:"text",part:{type:"text",text:body}}));
+out.push(step("step_finish"));
+process.stdout.write(out.join("\n")+"\n");
+NODE
+EOF
+chmod +x "$BIN/opencode-ndjson"
+make_proposal 723 1 '.review/ISSUE-723-ROUND-STATE.json'
+CONTROL_PROPOSAL="$TMP/proposal.json" AGENT_WORKFLOW_RUNTIME_BIN="$BIN/opencode-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 723 --runtime opencode --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --conductor-control --max-retries 0 >"$TMP/723.out" 2>&1
+if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCTOR")process.exit(1)' "$WT/.review/ISSUE-723-ROUND-STATE.json"; then ok '#155 opencode NDJSON conductor proposal publishes host-validated control'; else cat "$TMP/723.out" >&2; bad '#155 opencode NDJSON conductor proposal publishes host-validated control'; fi
+make_proposal 724 1 '.review/ISSUE-724-ROUND-STATE.json'
+CONTROL_PROPOSAL="$TMP/proposal.json" OPENCODE_NDJSON_FENCE=1 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/opencode-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 724 --runtime opencode --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --conductor-control --max-retries 0 >"$TMP/724.out" 2>&1
+if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCTOR")process.exit(1)' "$WT/.review/ISSUE-724-ROUND-STATE.json"; then ok '#155 opencode NDJSON conductor proposal with fenced-json body publishes host-validated control'; else cat "$TMP/724.out" >&2; bad '#155 opencode NDJSON conductor proposal with fenced-json body publishes host-validated control'; fi
 issue=705; make_proposal "$issue" 1 ".review/ISSUE-$issue-ROUND-STATE.json"
 CONTROL_PROPOSAL="$TMP/proposal.json" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue "$issue" --runtime codex --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >/dev/null 2>&1
 make_proposal "$issue" 2 ".review/ISSUE-$issue-ROUND-STATE.json"

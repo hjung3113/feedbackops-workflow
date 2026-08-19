@@ -63,8 +63,9 @@ const PROBE = {
 // text. Consumers resolve dotted paths by splitting on ".". `streams` is the
 // explicit, separately-tracked fact that agent-runtime.sh's launch for this
 // runtime actually applies `flags` right now — a populated flags/final shape
-// alone does not mean the runtime is currently launched streaming (codex and
-// opencode keep this false: their launch argv is unwired follow-up scope).
+// alone does not mean the runtime is currently launched streaming (codex
+// keeps this false: its launch argv is unwired follow-up scope; opencode is
+// wired since #155).
 // Consumers that decide whether to parse $OUTPUT as NDJSON must gate on
 // `streams`, never on `event_format` alone.
 const PROGRESS = {
@@ -86,7 +87,7 @@ const PROGRESS = {
     flags: ["--format", "json"],
     event_format: "ndjson",
     stream: "stdout",
-    streams: false,
+    streams: true,
     final: { match: [["type", "text"]], text_path: "part.text" },
   },
 };
