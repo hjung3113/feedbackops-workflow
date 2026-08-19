@@ -3,9 +3,12 @@
 Status: **design deliverable, not implemented**. No file under `toolkit/scripts/`
 is moved, renamed, or edited by this issue. Author: ARCHITECT seat, 2026-08-20.
 Input authority: `docs/plans/2026-08-20-adapter-runtime-capability-matrix.md`
-(the #136 matrix) and `docs/adr/0006-adapters-are-one-file-per-axis-member.md`
-(accepted). All file paths and line ranges below were read against the current
-worktree (base `fcc514e`), not assumed.
+(the #136 matrix, merged to `main` via #199 before this document's own PR
+#200 — this document has a hard dependency on that content existing on
+`main`, not an independent one) and
+`docs/adr/0006-adapters-are-one-file-per-axis-member.md` (accepted). All file
+paths and line ranges below were read against the current worktree (base
+`fcc514e`), not assumed.
 
 ## 1. What "reorganize by adapter × runtime axis" actually means here
 
@@ -91,7 +94,8 @@ toolkit/scripts/
 │                                  #   orchestration (terminal-read, blocking-wait,
 │                                  #   artifact-retrieval, teardown logic lives here
 │                                  #   and in lib/ — deliberately NOT per-axis)
-├── adapters/                      # UNCHANGED membership — transport axis members
+├── adapters/                      # UNCHANGED axis membership (still cmux/orca/herdr,
+│                                  #   no 4th real member) — gains one colocated file
 │   ├── cmux.sh                    #   (edit only: cmux-handles.cjs path, §5.4)
 │   ├── orca.sh
 │   ├── herdr.sh
@@ -223,7 +227,7 @@ logic changes.
 ### 5.3 `dispatch-core.sh` — the two inline runtime branches (the "mixed" residue)
 
 1. **`:714-719`** — `case "$RUNTIME" in codex) EFFORT="low";; claude|opencode) EFFORT="medium";; esac` (effort default). Extract to a new `EFFORT_DEFAULT` table + `effort-default` subcommand in `lib/runtime-registry.cjs` (beside `WS_SHORT_IMPL` :23-27, which solved the identical leak the same way); `dispatch-core.sh` reads it like `:793` already reads `ws-short-impl`.
-2. **`:775-782`** — the per-runtime model-compatibility probe argv inside `model_compatibility_preflight` (`codex exec --skip-git-repo-check …` / `claude --print …` / `opencode run …`). These duplicate the member launch argv shapes (vs `agent-runtime.sh:127,130,147`). Replace with delegation to the runtime boundary (a `probe` entry on `runtimes/$RUNTIME.sh` or `agent-runtime.sh`), keeping the `AGENT_WORKFLOW_MODEL_PROBE_CMD` host override (:770-774) and the fail-closed default (:781) verbatim.
+2. **`:775-782`** — the per-runtime model-compatibility probe argv inside `model_compatibility_preflight` (`codex exec --skip-git-repo-check …` / `claude --print …` / `opencode run …`). These duplicate the member launch argv shapes (vs `agent-runtime.sh:127,130,147`). **Owner, decided (not "or"): `agent-runtime.sh`**, not the individual `runtimes/*.sh` member files — it is already the runtime-axis router/boundary that `dispatch-core.sh` calls through for every other cross-cutting runtime concern (`capabilities`, `permission-file`), so the probe becomes a third subcommand on the same boundary: `agent-runtime.sh probe --runtime R --model M --effort E`, contract `exit 0` = compatible / non-zero = incompatible, stdout/stderr silenced by the caller exactly as the existing inline `>/dev/null 2>&1` redirects do. `dispatch-core.sh:775-782` becomes `bash "$RUNTIME_ADAPTER" probe --runtime "$RUNTIME" --model "$MODEL" --effort "$EFFORT" </dev/null >/dev/null 2>&1`, mirroring the existing `permission-file`/`capabilities` subcommand call shape at `dispatch-core.sh:622-630`. Internally `agent-runtime.sh probe` may `exec` into `runtimes/$RUNTIME.sh` for the actual argv, consistent with how `run` and `permission-file` delegate (§5.1) — but the *caller-facing* contract (the subcommand `dispatch-core.sh` invokes) lives on `agent-runtime.sh`, not on the member files directly, so `dispatch-core.sh` never needs to know the `runtimes/` path shape. Keeps the `AGENT_WORKFLOW_MODEL_PROBE_CMD` host override (:770-774) and the fail-closed default (:781) verbatim.
 
 After both extractions, `grep -E 'codex|claude|opencode|cmux|orca|herdr' dispatch-core.sh` returns nothing but comments — the ADR 0006 reviewer check passes. No other lines of `dispatch-core.sh` move anywhere.
 
@@ -238,45 +242,64 @@ Guiding rule: `lib/` never moves (except the single cmux-handles file), so the
 broad `SCRIPT_DIR/lib/…` web (27 root scripts, 46 references in
 `dispatch-core.sh` alone) is never broken wholesale. Each step lands green
 (`bash -n` on touched shell files + the affected `*.smoke.sh` mid-flight; full
-`run-all.sh` at the PR gate, per toolkit/AGENTS.md cadence), and doc/gate
-updates ride the same commit as their move (root AGENTS.md same-commit rule).
+`run-all.sh` at the PR gate, per toolkit/AGENTS.md cadence).
 
-1. **Step 1 — `runtimes/` member files, before any caller changes.** Create
-   `runtimes/{codex,claude,opencode}.sh` from the §5.1 extractions; `git mv
-   codex-safe.sh runtimes/` and `git mv runtime-permissions/*.json runtimes/`
-   with same-commit `SCRIPT_DIR` repoints inside `codex-safe.sh` (:64 gains
-   `/..`; :83, :189, :197, :222) and inside the new member files. At this point
-   `agent-runtime.sh` still has its inline branches (temporarily duplicated,
-   dead code reachable only via the new files' own smoke) — nothing existing
-   consumes the new paths yet, so nothing can break.
-2. **Step 2 — flip the router.** Replace `agent-runtime.sh:113-148` and
-   `:90-105` with `exec` into `runtimes/$RUNTIME.sh`; delete
-   `validate_opencode_permissions` from the router (now in the opencode
-   member). Same commit: `agent-runtime.smoke.sh`, `agent-watchdog.smoke.sh`
-   (indirect), `runtime-registry-containment.smoke.sh`, and
-   `smoke-coverage.manifest` rows for `agent-runtime.sh`/`codex-safe.sh`.
-3. **Step 3 — `dispatch-core.sh` extractions** (§5.3), now that delegation
-   targets exist: registry `effort-default` first (self-contained), then the
-   probe-argv delegation. Updates `runtime-model-preflight.smoke.sh` (it
-   references `../dispatch-core.sh`).
-4. **Step 4 — `cmux-handles.cjs` colocation** (independent of steps 1-3; can
-   run in parallel): `git mv lib/cmux-handles.cjs adapters/`, edit
-   `adapters/cmux.sh:6`, update `__tests__/install-into.smoke.sh`,
-   `__tests__/orchestrator-interface.smoke.sh`,
+**Same-commit rule, applied literally**: every step below bundles its `git mv`
++ its `SCRIPT_DIR`/caller repoints + its smoke-test path updates +
+`smoke-coverage.manifest` rows + the release-gate asserts for exactly the
+paths that step moves, all in that step's own commit — no step defers a gate
+update for a path it just moved. A prior draft of this section deferred all
+docs/gates to a final step, which is wrong: it would leave every intermediate
+commit's release gate red for the paths already moved. Corrected below.
+
+1. **Step 1 — create `runtimes/` member files AND flip the router AND move
+   the assets, atomically in one commit.** This step was previously split into
+   "create files" then "flip router" as two commits; that's broken as written
+   because the in-between state has `agent-runtime.sh`'s router still
+   resolving `$SCRIPT_DIR/codex-safe.sh` and
+   `$SCRIPT_DIR/runtime-permissions/opencode-{read,write}.json` while those
+   exact paths no longer exist post-`git mv`. Corrected: do the `git mv`, the
+   `SCRIPT_DIR` repoints inside the moved files (`codex-safe.sh:64` gains
+   `/..`; `:83,189,197,222`), creating `runtimes/{codex,claude,opencode}.sh`
+   from the §5.1 extractions, AND replacing `agent-runtime.sh:113-148` /
+   `:90-105` with `exec` into `runtimes/$RUNTIME.sh` — all in this one commit,
+   so there is no intermediate state where old paths are gone but the router
+   still points at them. Same commit: `agent-runtime.smoke.sh`,
+   `agent-watchdog.smoke.sh` (indirect), `runtime-registry-containment.smoke.sh`,
+   `codex-safe.smoke.sh`, `output-contract.smoke.sh` (its `../codex-safe.sh`
+   references, §7.1), and `smoke-coverage.manifest` rows for
+   `agent-runtime.sh`/`codex-safe.sh`/the 3 new `runtimes/*.sh` files.
+2. **Step 2 — `dispatch-core.sh` extractions** (§5.3), now that Step 1's
+   delegation targets exist: registry `effort-default` first (self-contained),
+   then the probe-argv delegation (owner decided in §5.3 below — no "or").
+   Same commit: `runtime-model-preflight.smoke.sh` (references
+   `../dispatch-core.sh`).
+3. **Step 3 — `cmux-handles.cjs` colocation** (independent of steps 1-2; can
+   run in parallel or any order relative to them): `git mv lib/cmux-handles.cjs
+   adapters/`, edit `adapters/cmux.sh:6`, same commit: update
+   `__tests__/install-into.smoke.sh`, `__tests__/orchestrator-interface.smoke.sh`,
    `smoke-coverage.manifest`, and the release-gate asserts
    (`.github/tests/release-contract.smoke.sh:131,216,227`).
-5. **Step 5 — docs and gates for the moved paths**: playbook
-   (`toolkit/docs/agents/multi-agent-workflow.md`, 11 script-path refs),
-   `toolkit/README.md` (6), `toolkit/STATUS.md` (5), skill
-   (`toolkit/.claude/skills/agent-workflow/SKILL.md:29` — `$WF/scripts/codex-safe.sh`
-   → `$WF/scripts/runtimes/codex-safe.sh`), release gate `:112-141,476,510-512`.
-   Must not be a separate PR from the move it describes.
+4. **Step 4 — end-state documentation sweep only** (playbook, README, STATUS,
+   skill doc path mentions: `toolkit/docs/agents/multi-agent-workflow.md` 11
+   refs, `toolkit/README.md` 6, `toolkit/STATUS.md` 5,
+   `toolkit/.claude/skills/agent-workflow/SKILL.md:29` — `$WF/scripts/codex-safe.sh`
+   → `$WF/scripts/runtimes/codex-safe.sh`). This step must contain **only**
+   descriptive prose updates — every path reference that functions as an
+   enforced contract (release-gate asserts, smoke-test sourcing, the manifest)
+   was already updated in the step that moved its target (Steps 1-3), per the
+   same-commit rule above. If any release-gate assert or smoke path still
+   needs updating by the time Step 4 starts, that is evidence a prior step's
+   commit was incomplete, not something Step 4 should absorb.
 
-Ordering rationale (why this sequence): member files must exist before the
-router delegates (step 2 depends on 1); `dispatch-core.sh`'s probe delegation
-needs the member files (3 depends on 1, ideally 2); docs/gates describe the end
-state (5 last). `agent-workflow.sh`, `install-into.sh`, and the installed-link
-contract never change because `agent-workflow.sh` stays at the scripts root.
+Ordering rationale (why this sequence): Step 1 is one atomic unit because
+splitting file-creation from router-flip creates the broken intermediate state
+above; `dispatch-core.sh`'s probe delegation (Step 2) needs Step 1's member
+files to exist; Step 3 is fully independent (different files, no shared
+dependency) and may interleave anywhere; Step 4 is end-state docs only,
+carrying no enforced path contract of its own. `agent-workflow.sh`,
+`install-into.sh`, and the installed-link contract never change because
+`agent-workflow.sh` stays at the scripts root.
 
 ## 7. Named risks (AC-198-3)
 
@@ -328,17 +351,20 @@ contract never change because `agent-workflow.sh` stays at the scripts root.
    asserts ~21 concrete script paths (`:112-141` layout asserts, `:191`
    transport-registry, `:476` installed herdr adapter, `:510-512`
    cmux-dispatch dry-runs) and contains a leaked-path denylist (`:238`).
-   Steps 1-4 each need their gate asserts updated same-commit or the repository
-   release gate fails CI.
+   Steps 1-3 (the steps that actually move paths) each need their gate
+   asserts updated same-commit, per §6's rule, or the repository release gate
+   fails CI. Step 4 (docs-only) carries no gate-assert obligation of its own.
 5. **Docs/skill path drift.** `SKILL.md:29` hardcodes
    `$WF/scripts/codex-safe.sh`; playbook/README/STATUS carry 22 more script
    path references. Root AGENTS.md requires playbook/README/STATUS updates in
    the same commit as any script contract change — a folder move counts.
-6. **Transient duplication window.** Step 1 intentionally duplicates the
-   runtime member logic (new files + still-inline router branches) until step
-   2 lands. Keep steps 1-2 in one PR to avoid a long-lived fork; the smoke
-   suite only exercises the router path, so the window is invisible to tests
-   but visible to readers.
+6. **No transient duplication window** — §6's corrected Step 1 does file
+   creation, the `git mv`s, and the router flip atomically in one commit, so
+   there is never a commit where both the new member files and the old inline
+   router branches exist simultaneously. (An earlier draft of this document
+   split those into two steps/commits and would have had this window along
+   with the broken-intermediate-state defect §6 documents fixing — both are
+   resolved by the same correction.)
 
 ## 8. `install-profiles/generic` — decision
 
@@ -366,9 +392,10 @@ design — owns keeping it structurally identical to `scripts/`.
 
 ## 10. Acceptance-criteria check
 
-- **AC-198-1** — §2 concrete target tree; §3 per-file table for all 68
-  non-test files with real current paths; §5 split boundaries cite exact read
-  line ranges (`agent-runtime.sh:60-79,90-105,114-148`;
+- **AC-198-1** — §2 concrete target tree; §3 per-file table for all 70
+  non-test files (27 root + 3 adapters + 2 runtime-permissions + 33 lib + 5
+  install-profile, §3.1-§3.5) with real current paths; §5 split boundaries
+  cite exact read line ranges (`agent-runtime.sh:60-79,90-105,114-148`;
   `dispatch-core.sh:714-719,775-782`; `adapters/cmux.sh:6`).
 - **AC-198-2** — §4 maps terminal-read / blocking-wait / artifact-retrieval /
   teardown to their shared locations with line evidence; no table row or tree
