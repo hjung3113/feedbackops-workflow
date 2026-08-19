@@ -317,33 +317,35 @@ an open question.
 `PROGRESS` carries a `streams` boolean per runtime, tracked separately from
 `event_format`/`flags`/`final` — it is the single explicit fact of whether
 `agent-runtime.sh`'s launch for that runtime actually applies `PROGRESS.flags`
-right now. Only when `streams` is true (currently `claude` only) do
-`transcribe_review()` and the `--conductor-control` proposal handoff extract
-the terminal event's result text first (the same match/text-path walk
-`runtime-registry.cjs extract-final <runtime> <file>` performs), then run
-that extracted text through the same whole-buffer-JSON-then-fenced-JSON
-fallback chain used for a plain-text runtime. A runtime with `streams: false`
-never enters the NDJSON extraction branch at all — this is a hard gate, not
-an inference from a populated `flags`/`final` shape, so a runtime whose
-`PROGRESS` entry exists purely as forward-looking registry data (`codex`,
-`opencode`) cannot be misread as already streaming even if its output ever
+right now. Only when `streams` is true (currently `claude` and `opencode`)
+do `transcribe_review()` and the `--conductor-control` proposal handoff
+extract the terminal event's result text first (the same match/text-path
+walk `runtime-registry.cjs extract-final <runtime> <file>` performs), then
+run that extracted text through the same whole-buffer-JSON-then-fenced-JSON
+fallback chain used for a plain-text runtime. A runtime with `streams:
+false` never enters the NDJSON extraction branch at all — this is a hard
+gate, not an inference from a populated `flags`/`final` shape, so a runtime
+whose `PROGRESS` entry exists purely as forward-looking registry data
+(`codex`) cannot be misread as already streaming even if its output ever
 incidentally resembles one matching event. `conductor-control-publish.sh`
 itself is deliberately untouched: it is a host-side security boundary and
 must not learn per-runtime output schemas, so `agent-watchdog.sh` performs
 the extraction into a clean, disposable temp file before ever calling it.
 
-As of this design, `claude` is the only runtime with `streams: true` —
-its `agent-runtime.sh` launch applies `PROGRESS.flags`
+As of this design, `claude` and `opencode` are the runtimes with
+`streams: true`. Claude's `agent-runtime.sh` launch applies `PROGRESS.flags`
 (`--output-format stream-json --verbose --include-partial-messages`,
-confirmed incremental at token-level resolution). `codex` and `opencode`
-keep their `PROGRESS` table entries as registry data only, with
-`streams: false`: `codex`'s incremental-output behavior still needs a live
-re-verification once its account quota resets, and `opencode` has a known,
-still-open upstream bug (opencode issue `#31435`) that drops `text`/
-`step_finish` events specifically in containerized/sandboxed environments —
-exactly this project's isolated-worktree dispatch shape. Wiring either
-runtime's launch argv to stream, and flipping its `streams` field to `true`,
-is separate follow-up scope.
+confirmed incremental at token-level resolution). Opencode's launch applies
+`--format json` (#155): a five-run reproduction against the real dispatch
+shape (macOS host, opencode 1.18.18, no container in the dispatch path)
+showed complete event streams with no drops from the known upstream bug
+(opencode issue `#31435`, which fires only under container-level event
+delivery latency) — the caveat is that a future container-based dispatch
+path or opencode upgrade would need re-verification. `codex` keeps its
+`PROGRESS` table entry as registry data only, with `streams: false`: its
+incremental-output behavior still needs a live re-verification once its
+account quota resets. Wiring that runtime's launch argv to stream, and
+flipping its `streams` field to `true`, is separate follow-up scope.
 
 The shared watchdog applies first-progress and stall budgets, kills the
 process tree on a stall, and permits `MAX_RETRIES + 1` total attempts. Each

@@ -52,6 +52,17 @@ NODE
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/websearch-mismatch.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode write requires webfetch/websearch allow on both scopes'; else bad 'opencode websearch allow required'; fi
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/read.json" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode write requires edit allow'; else bad 'opencode write permission'; fi
 RUNTIME_ARGV="$TMP_DIR/opencode-write.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role release --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/write.json"; if grep -Fx -- "$WT" "$TMP_DIR/opencode-write.argv" >/dev/null && grep -Fx -- agent-workflow "$TMP_DIR/opencode-write.argv" >/dev/null; then ok 'opencode write uses explicit cwd and configured agent'; else bad 'opencode write argv'; fi
+# #155: the opencode launch must carry the streaming format as an adjacent
+# argv pair. Per-token greps cannot see adjacency; the single "$*" capture
+# line can. Mutation checks prove the pair greps reject a reverted
+# --format default and a token-glued mutation.
+: > "$TMP_DIR/opencode-format.args"
+RUNTIME_ARGV="$TMP_DIR/opencode-format.argv" STUB_ARGS_LOG="$TMP_DIR/opencode-format.args" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role reviewer --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/read.json"
+opencode_args="$(tail -n 1 "$TMP_DIR/opencode-format.args")"
+if [ "$(printf '%s\n' "$opencode_args" | grep -c -- '--format json')" -eq 1 ]; then ok '#155 opencode launch forwards the --format json streaming pair'; else bad '#155 opencode argv pair capture (got: '"$opencode_args"')'; fi
+opencode_mutation_reverted='run --dir /wt --format default --agent agent-workflow'
+opencode_mutation_glued='run --dir /wt --formatjson --agent agent-workflow'
+if ! printf '%s\n' "$opencode_mutation_reverted" | grep -q -- '--format json' && ! printf '%s\n' "$opencode_mutation_glued" | grep -q -- '--format json'; then ok '#155 opencode argv mutation check rejects reverted and glued format pairs'; else bad '#155 opencode argv mutation check accepted a mutated argv'; fi
 # #164 stub argv capture contract: the claude launcher must forward the manual
 # model/effort tuple as adjacent argv pairs and keep the plan permission mode.
 # Per-token greps above cannot see adjacency; the single "$*" capture line can.

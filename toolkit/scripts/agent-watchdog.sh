@@ -43,8 +43,8 @@ const tryFenced=text=>{
   return false;
 };
 // `streams` is the explicit, separately-tracked fact that this runtime's
-// launch actually applies its PROGRESS.flags right now (currently claude
-// only) — a populated PROGRESS/final shape alone is not proof of that, so
+// launch actually applies its PROGRESS.flags right now (claude and
+// opencode) — a populated PROGRESS/final shape alone is not proof of that, so
 // this must not gate on event_format alone. A runtime not currently
 // launched streaming, or an NDJSON stream with no matching final event,
 // falls through unchanged below, preserving the pre-existing whole-file/

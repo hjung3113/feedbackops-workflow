@@ -120,6 +120,34 @@ wrapped_90="$(printf 'reviewer summary\n\n```json\n%s\n```\n' "$review_90")"
 result_event_90="$(node -e 'process.stdout.write(JSON.stringify({type:"result",subtype:"success",is_error:false,result:process.argv[1]}))' "$wrapped_90")"
 CLAUDE_STUB_RESULT_EVENT="$result_event_90" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 90 --runtime claude --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -eq 0 ] && [ -f "$WT/.review/ISSUE-90-REVIEW.json" ]; then ok 'AC-142-A2b2-2 claude stream-json result event with fenced-json body publishes validated review'; else bad 'AC-142-A2b2-2 claude stream-json result event with fenced-json body publishes validated review'; fi
+# #155: opencode now launches with --format json (PROGRESS.opencode.streams
+# is true), so transcribe_review walks its NDJSON stream. The stream shape is
+# the real 12-event sequence from the issue-155 reproduction evidence:
+# step_start/tool_use/step_finish x3, then step_start/text/step_finish, with
+# the terminal {"type":"text"} event carrying the payload in part.text.
+opencode_stream() {
+  OPENCODE_TEXT_BODY="$1" node <<'NODE'
+const body=process.env.OPENCODE_TEXT_BODY;
+const step=t=>JSON.stringify({type:t,sessionID:"ses_test",part:{type:t==="step_start"?"step-start":"step-finish"}});
+const out=[];
+for (const file of ["runtime-registry.cjs","opencode-read.json","STATUS.md"]) {
+  out.push(step("step_start"));
+  out.push(JSON.stringify({type:"tool_use",sessionID:"ses_test",part:{type:"tool",tool:"read",state:{status:"completed",input:{filePath:"/wt/"+file}}}}));
+  out.push(step("step_finish"));
+}
+out.push(step("step_start"));
+out.push(JSON.stringify({type:"text",sessionID:"ses_test",part:{type:"text",text:body}}));
+out.push(step("step_finish"));
+process.stdout.write(out.join("\n")+"\n");
+NODE
+}
+review_92="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":92},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"opencode-stream-json\",\"met\":true}]}"
+OPENCODE_STUB_OUTPUT="$(opencode_stream "$review_92")" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 92 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.artifact_type!=="agent_run"||o.runtime!=="opencode"||o.role!=="reviewer"||o.status!=="exited")process.exit(1)' "$WT/.review/ISSUE-92-RUN.json" && [ -f "$WT/.review/ISSUE-92-REVIEW.json" ]; then ok '#155 opencode NDJSON terminal text event publishes validated review'; else bad '#155 opencode NDJSON terminal text event publishes validated review'; fi
+review_93="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":93},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"opencode-fenced\",\"met\":true}]}"
+wrapped_93="$(printf 'reviewer summary\n\n```json\n%s\n```\n' "$review_93")"
+OPENCODE_STUB_OUTPUT="$(opencode_stream "$wrapped_93")" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 93 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -eq 0 ] && [ -f "$WT/.review/ISSUE-93-REVIEW.json" ]; then ok '#155 opencode NDJSON terminal text event with fenced-json body publishes validated review'; else bad '#155 opencode NDJSON terminal text event with fenced-json body publishes validated review'; fi
 wallclock_start="$(date +%s)"
 OPENCODE_STUB_MODE=heartbeat AGENT_WATCHDOG_MAX_WALLCLOCK=2 AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" timeout 20 bash "$WATCHDOG" --issue 88 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --first-progress-timeout 5 --stall-timeout 5 --max-retries 0 >/dev/null 2>&1
 wallclock_ec=$?; wallclock_elapsed=$(( $(date +%s) - wallclock_start )); rm -f "$WT/hb"

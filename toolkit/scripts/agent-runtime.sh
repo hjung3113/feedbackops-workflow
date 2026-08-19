@@ -144,6 +144,6 @@ PROGRESS_FLAGS
     # the named primary agent is required: an unknown/default agent may fall
     # back to OpenCode's built-in build agent, which is not an isolation path.
     OPENCODE_CONFIG_CONTENT="$(cat "$OPENCODE_PERMISSION_FILE")"; export OPENCODE_CONFIG_CONTENT
-    set -- "$BIN" run --dir "$CWD" --format default --agent agent-workflow
+    set -- "$BIN" run --dir "$CWD" --format json --agent agent-workflow
     [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --variant "$EFFORT"; exec "$@" "$PROMPT";;
 esac
