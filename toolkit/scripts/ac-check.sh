@@ -138,7 +138,7 @@ if [ "$node_status" -ne 0 ]; then
   exit 2
 fi
 
-bash "$FRESH_CHECK" "$round_state" >/dev/null
+bash "$FRESH_CHECK" --require-worktree "$round_state" >/dev/null
 fresh_status=$?
 if [ "$fresh_status" -eq 1 ]; then
   printf 'STALE ROUND-STATE freshness check failed\n'

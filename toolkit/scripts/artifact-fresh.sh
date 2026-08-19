@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 # artifact-fresh.sh — is a .review artifact still current against its base?
 #
-# Usage: scripts/artifact-fresh.sh <artifact.json> [<integration-branch-override>]
+# Usage: scripts/artifact-fresh.sh [--require-worktree] <artifact.json> [<integration-branch-override>]
 #
 # Exit 0 = fresh (current). Non-zero = stale/error. Callers (readers) MUST
 # treat any non-zero result as "artifact invalid", not merely log it.
+#
+# --require-worktree: refuse (exit 2) instead of falling back to the
+# caller's own cwd HEAD when worktree_path is missing/not-a-directory. Use
+# this whenever the caller needs an authoritative answer regardless of where
+# it happens to be invoked from. Without it, a missing/gone worktree_path
+# (e.g. cleaned up after merge) degrades to a WARN + caller-HEAD guess,
+# which is only correct if the caller happens to be checked out on the
+# artifact's own branch. pr_draft already always requires a real
+# worktree_path, flag or not.
 #
 # Freshness is computed against the artifact's OWN declared base_branch (or a
 # CLI override), NOT a hardcoded integration branch. If neither exists the
@@ -15,8 +24,14 @@ set -u
 
 PROG="artifact-fresh"
 
+require_worktree=0
+if [ "${1:-}" = "--require-worktree" ]; then
+  require_worktree=1
+  shift
+fi
+
 if [ "$#" -lt 1 ]; then
-  echo "$PROG: usage: $0 <artifact.json> [<integration-branch-override>]" >&2
+  echo "$PROG: usage: $0 [--require-worktree] <artifact.json> [<integration-branch-override>]" >&2
   exit 2
 fi
 
@@ -80,8 +95,12 @@ artifact_type="$(read_field artifact_type)" || {
   echo "$PROG: ERROR — could not parse $artifact" >&2
   exit 2
 }
-if [ "$artifact_type" = "pr_draft" ] && { [ -z "$worktree_path" ] || [ ! -d "$worktree_path" ]; }; then
-  echo "$PROG: ERROR — PR-DRAFT requires a real worktree_path to resolve its branch HEAD" >&2
+if { [ "$artifact_type" = "pr_draft" ] || [ "$require_worktree" -eq 1 ]; } && { [ -z "$worktree_path" ] || [ ! -d "$worktree_path" ]; }; then
+  if [ "$artifact_type" = "pr_draft" ]; then
+    echo "$PROG: ERROR — PR-DRAFT requires a real worktree_path to resolve its branch HEAD" >&2
+  else
+    echo "$PROG: ERROR — --require-worktree given but worktree_path is missing/not a directory" >&2
+  fi
   exit 2
 fi
 if [ -n "$worktree_path" ] && [ -d "$worktree_path" ]; then
