@@ -150,6 +150,49 @@ run_case_cwd "worktree-aware: fresh resolved in worktree_path, not caller cwd" \
 run_case_cwd "worktree-aware: stale after merge-base moves in worktree_path" \
   1 "$REPO" "$a_wt_fresh"
 
+# --- --require-worktree flag ---
+a_no_wt=$(write_json no_wt.json "{\"base_sha\":\"$MB\",\"base_branch\":\"base\"}")
+( cd "$REPO" && bash "$FRESH" --require-worktree "$a_no_wt" ) >/dev/null 2>"$TMP_DIR/err.txt"
+actual=$?
+if [ "$actual" -eq 2 ]; then
+  echo "ok   - --require-worktree refuses when worktree_path missing (exit 2)"
+else
+  echo "NOT OK - --require-worktree should refuse (expected 2, got $actual)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+a_gone_wt=$(write_json gone_wt.json \
+  "{\"base_sha\":\"$MB\",\"base_branch\":\"base\",\"worktree_path\":\"$TMP_DIR/does-not-exist\"}")
+( cd "$REPO" && bash "$FRESH" --require-worktree "$a_gone_wt" ) >/dev/null 2>"$TMP_DIR/err.txt"
+actual=$?
+if [ "$actual" -eq 2 ]; then
+  echo "ok   - --require-worktree refuses when worktree_path is gone (exit 2)"
+else
+  echo "NOT OK - --require-worktree should refuse on gone worktree_path (expected 2, got $actual)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+( cd "$REPO" && bash "$FRESH" --require-worktree "$a_wt_fresh" ) >/dev/null 2>"$TMP_DIR/err.txt"
+actual=$?
+if [ "$actual" -eq 1 ]; then
+  echo "ok   - --require-worktree still resolves via worktree_path when present (exit 1, stale after dev advance)"
+else
+  echo "NOT OK - --require-worktree with valid worktree_path should behave normally (expected 1, got $actual)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# --- pr_draft always requires worktree_path, flag or not ---
+a_pr_draft=$(write_json pr_draft.json \
+  "{\"base_sha\":\"$MB\",\"base_branch\":\"base\",\"artifact_type\":\"pr_draft\"}")
+( cd "$REPO" && bash "$FRESH" "$a_pr_draft" ) >/dev/null 2>"$TMP_DIR/err.txt"
+actual=$?
+if [ "$actual" -eq 2 ]; then
+  echo "ok   - pr_draft without worktree_path refuses (exit 2), no flag needed"
+else
+  echo "NOT OK - pr_draft should refuse without worktree_path (expected 2, got $actual)"
+  FAILURES=$((FAILURES + 1))
+fi
+
 echo "---"
 if [ "$FAILURES" -eq 0 ]; then
   echo "ALL CASES PASS"

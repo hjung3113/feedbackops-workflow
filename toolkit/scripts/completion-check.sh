@@ -67,7 +67,7 @@ if [ ! -x "$FRESH_CHECK" ]; then
   exit 2
 fi
 
-bash "$FRESH_CHECK" "$round_state" >/dev/null
+bash "$FRESH_CHECK" --require-worktree "$round_state" >/dev/null
 fresh_status=$?
 if [ "$fresh_status" -ne 0 ]; then
   emit_error "round_state_not_fresh"
