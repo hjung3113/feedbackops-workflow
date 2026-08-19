@@ -25,6 +25,7 @@ toolkit/scripts/codex-safe.sh sandbox-network-deny.smoke.sh
 toolkit/scripts/completion-check.sh completion-check.smoke.sh
 toolkit/scripts/conductor-control-publish.sh conductor-control.smoke.sh
 toolkit/scripts/conductor-rebuild.sh conductor-rebuild.smoke.sh
+toolkit/scripts/dispatch-core.sh dispatch-await.smoke.sh
 toolkit/scripts/dispatch-core.sh runtime-model-preflight.smoke.sh
 toolkit/scripts/dispatch-core.sh runtime-registry-containment.smoke.sh
 toolkit/scripts/install-into.sh install-into.smoke.sh

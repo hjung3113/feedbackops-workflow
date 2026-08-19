@@ -377,8 +377,21 @@ exit 0
 EOF
 }
 
-FUTURE_DATE="$(date -u -v+30d +%Y-%m-%d)"
-PAST_DATE="$(date -u -v-30d +%Y-%m-%d)"
+# Relative-date helper that works on both GNU date (Linux CI) and BSD date
+# (macOS dev boxes): compute the epoch offset, then render with whichever
+# epoch-input flag this host's date supports. Bash 3.2-compatible.
+portable_offset_date() {
+  offset_days="$1"
+  epoch="$(( $(date -u +%s) + offset_days * 86400 ))"
+  if date -u -d @0 +%Y-%m-%d >/dev/null 2>&1; then
+    date -u -d "@$epoch" +%Y-%m-%d
+  else
+    date -u -r "$epoch" +%Y-%m-%d
+  fi
+}
+
+FUTURE_DATE="$(portable_offset_date 30)"
+PAST_DATE="$(portable_offset_date -30)"
 
 # --- AC-165-5: a registered, unexpired flake prints FLAKY and exits 0 ---
 FLAKE_DIR="$TMP_ROOT/flake-active-suite"
