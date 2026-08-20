@@ -43,6 +43,11 @@ case "$COMMAND" in
     printf '%s\n' "$OPENCODE_PERMISSION_FILE"
     exit 0
     ;;
+  probe)
+    OPENCODE_CONFIG_CONTENT="$(cat "$OPENCODE_PERMISSION_FILE")"; export OPENCODE_CONFIG_CONTENT
+    set -- "$BIN" run --dir "$CWD" --format default --agent agent-workflow --model "$MODEL" --variant "$EFFORT" "reply exactly OK"
+    exec "$@"
+    ;;
   run) ;;
   *) exit 2;;
 esac

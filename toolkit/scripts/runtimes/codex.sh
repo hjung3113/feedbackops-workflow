@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
+  probe)
+    set -- "$BIN" exec --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "reply exactly OK"
+    exec "$@"
+    ;;
   run) ;;
   *) exit 2;;
 esac

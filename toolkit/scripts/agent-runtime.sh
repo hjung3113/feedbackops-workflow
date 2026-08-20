@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 RUNTIME=""; ROLE=""; MODE=""; CWD=""; PROMPT_FILE=""; MODEL=""; EFFORT=""; OPENCODE_PERMISSION_FILE=""; ISSUE_N=""; PRODUCE_REVIEW=0; BIN=""; PROMPT=""
 registry_runtime_pipe() { node "$RUNTIME_REGISTRY" pipe; }
-usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; }
+usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; echo "       agent-runtime.sh probe --runtime R --model M --effort E" >&2; }
 machine_error() { printf '{"ok":false,"code":"%s","detail":"%s"}\n' "$1" "$2" >&2; exit 3; }
 runtime_bin() {
   # dispatch-core may pin one absolute, capability-proved executable. Never
@@ -68,6 +68,14 @@ case "$COMMAND" in
   permission-file)
     [ -n "$ROLE" ] || machine_error role_required 'pass --role'
     [ -d "$CWD" ] || machine_error worktree_invalid 'worktree must exist'
+    ;;
+  probe)
+    [ -n "$MODEL" ] || machine_error model_required 'pass --model'
+    [ -n "$EFFORT" ] || machine_error effort_required 'pass --effort'
+    CWD="${AGENT_WORKFLOW_RUNTIME_PROBE_CWD:-$PWD}"
+    OPENCODE_PERMISSION_FILE="${AGENT_WORKFLOW_RUNTIME_PROBE_PERMISSION_FILE:-$OPENCODE_PERMISSION_FILE}"
+    [ -d "$CWD" ] || machine_error cwd_invalid 'probe cwd must exist'
+    BIN="$(runtime_bin "$RUNTIME")"
     ;;
   run)
     case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) machine_error unsupported_role 'role must be explicit';; esac

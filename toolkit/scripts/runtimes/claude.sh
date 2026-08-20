@@ -7,6 +7,10 @@ RUNTIME_REGISTRY="$SCRIPT_DIR/../lib/runtime-registry.cjs"
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
+  probe)
+    set -- "$BIN" --print --permission-mode plan --output-format text --model "$MODEL" --effort "$EFFORT" "reply exactly OK"
+    exec "$@"
+    ;;
   run) ;;
   *) exit 2;;
 esac
