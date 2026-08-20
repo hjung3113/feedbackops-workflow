@@ -12,6 +12,7 @@ conductor-rebuild.smoke.sh
 contract-validators.smoke.sh
 dispatch-await.smoke.sh
 dispatch-operator-contract.smoke.sh
+herdr-live.smoke.sh
 install-into.smoke.sh
 live-tui-contract.smoke.sh
 model-alloc.smoke.sh

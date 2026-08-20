@@ -3,6 +3,7 @@ toolkit/scripts/ac-check.sh ac-check.smoke.sh
 toolkit/scripts/adapters/cmux.sh orchestrator-interface.smoke.sh
 toolkit/scripts/adapters/cmux-handles.cjs install-into.smoke.sh
 toolkit/scripts/adapters/cmux-handles.cjs orchestrator-interface.smoke.sh
+toolkit/scripts/adapters/herdr.sh herdr-live.smoke.sh
 toolkit/scripts/adapters/herdr.sh install-into.smoke.sh
 toolkit/scripts/adapters/herdr.sh orchestrator-interface.smoke.sh
 toolkit/scripts/adapters/orca.sh orchestrator-interface.smoke.sh

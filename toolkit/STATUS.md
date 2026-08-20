@@ -28,6 +28,16 @@ _Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagree
   Covered by `scripts/__tests__/orca-live.smoke.sh` (fake orca CLI asserting
   received argv per ADR 0004).
 
+- T3 lands the Herdr live adapter path: the agent facade
+  (`start/prompt --wait/wait/read/send-keys`) behind the T1 session seam,
+  `--kind` forwarded as launch-spec data, NUL-exact argv forwarding, and a
+  per-capability-call fresh/untrusted-worktree trust-prompt race acceptance
+  test (herdrdev/herdr#2410) that keeps live unavailable — headless intact —
+  unless the installed herdr classifies the trust-prompt sentinel as
+  `blocked`. Covered offline by `herdr-live.smoke.sh`, including native
+  `agent_prompt_stalled`, settled-without-fresh-artifact refusal, and
+  same-issue duplicate-prompt prevention through the full live dispatch E2E.
+
 - CONDUCTOR no longer hand-copies a prior issue's ROUND-STATE (#159):
   `scripts/round-state-init.sh <issue-number> --worktree <path>` scaffolds a
   schema-validated skeleton (issue identity and AC candidates from
