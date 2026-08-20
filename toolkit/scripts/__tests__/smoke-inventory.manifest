@@ -5,6 +5,7 @@ agent-watchdog.smoke.sh
 artifact-fresh.smoke.sh
 atomic-fs.smoke.sh
 cmux-dispatch.smoke.sh
+cmux-live.smoke.sh
 codex-safe.smoke.sh
 completion-check.smoke.sh
 conductor-control.smoke.sh

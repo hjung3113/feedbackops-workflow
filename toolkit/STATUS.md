@@ -38,6 +38,19 @@ _Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagree
   `agent_prompt_stalled`, settled-without-fresh-artifact refusal, and
   same-issue duplicate-prompt prevention through the full live dispatch E2E.
 
+- T4 lands the cmux live adapter: direct-argv `run` launch with structured
+  `{workspace, surface, terminal}` handles (no `external_handle` alias),
+  byte-exact `--bytes` prompt delivery plus a separate `send-key enter`,
+  readiness via `wait-for` as a sync-only gate, and `wait-settled` admitted
+  only through the help-proven `list-agents` state query (otherwise cmux
+  never reports `settled`; canonical artifacts stay the only completion
+  authority). Live token proof runs under `capabilities --worktree <path>
+  --probe-live` and at subcommand use time so headless dispatches make zero
+  extra vendor calls; live dispatch admission for cmux additionally waits on
+  a dispatch-core live-intent signal (T1 seam follow-up). Installed cmux
+  0.64.x lacks the direct-argv surface, so its live capability correctly
+  fails closed today. Covered by `scripts/__tests__/cmux-live.smoke.sh`.
+
 - CONDUCTOR no longer hand-copies a prior issue's ROUND-STATE (#159):
   `scripts/round-state-init.sh <issue-number> --worktree <path>` scaffolds a
   schema-validated skeleton (issue identity and AC candidates from

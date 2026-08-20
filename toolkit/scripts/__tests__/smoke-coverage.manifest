@@ -1,6 +1,8 @@
 toolkit/scripts/__tests__/net-deny-probe.mjs sandbox-network-deny.smoke.sh
 toolkit/scripts/ac-check.sh ac-check.smoke.sh
+toolkit/scripts/adapters/cmux.sh cmux-live.smoke.sh
 toolkit/scripts/adapters/cmux.sh orchestrator-interface.smoke.sh
+toolkit/scripts/adapters/cmux-handles.cjs cmux-live.smoke.sh
 toolkit/scripts/adapters/cmux-handles.cjs install-into.smoke.sh
 toolkit/scripts/adapters/cmux-handles.cjs orchestrator-interface.smoke.sh
 toolkit/scripts/adapters/herdr.sh herdr-live.smoke.sh
@@ -40,6 +42,7 @@ toolkit/scripts/runtimes/opencode.sh runtime-model-preflight.smoke.sh
 toolkit/scripts/completion-check.sh completion-check.smoke.sh
 toolkit/scripts/conductor-control-publish.sh conductor-control.smoke.sh
 toolkit/scripts/conductor-rebuild.sh conductor-rebuild.smoke.sh
+toolkit/scripts/dispatch-core.sh cmux-live.smoke.sh
 toolkit/scripts/dispatch-core.sh dispatch-await.smoke.sh
 toolkit/scripts/dispatch-core.sh live-tui-contract.smoke.sh
 toolkit/scripts/dispatch-core.sh runtime-model-preflight.smoke.sh
@@ -70,6 +73,7 @@ toolkit/scripts/lib/json-schema-subset.cjs telemetry.smoke.sh
 toolkit/scripts/lib/codex-policy.sh live-tui-contract.smoke.sh
 toolkit/scripts/lib/handle-result.cjs live-tui-contract.smoke.sh
 toolkit/scripts/lib/launch-spec.cjs live-tui-contract.smoke.sh
+toolkit/scripts/lib/live-session-supervisor.sh cmux-live.smoke.sh
 toolkit/scripts/lib/live-session-supervisor.sh live-tui-contract.smoke.sh
 toolkit/scripts/lib/live-session-supervisor.sh orca-live.smoke.sh
 toolkit/scripts/lib/parallel-plan.cjs parallel-safety.smoke.sh

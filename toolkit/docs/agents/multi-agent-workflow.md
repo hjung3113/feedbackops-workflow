@@ -101,6 +101,38 @@ always a hint, with completion owned by the canonical artifact gate. A stale
 terminal handle is reacquired once by exact worktree + seat-title identity;
 zero or several matches fail closed.
 
+#### cmux live sessions (direct argv, surface handles)
+
+The cmux live path uses only the generic direct-argv surface
+(`cmux run --new-workspace --cwd --name --json -- <argv...>` plus
+`send`/`send-key`/`read-screen`/`wait-for`/`close-workspace`), never the
+`claude-teams`/`codex-teams`/`omo` team wrappers, which change orchestration
+semantics. Every primitive is help-proven from the installed binary's own
+`--help` tokens, never from a version number; one missing token keeps
+headless available while live stays unadmitted. The run envelope yields
+three structured handles — lifecycle (workspace), io (PTY surface), agent
+(terminal id) — with no `external_handle` alias, so a workspace handle can
+never be substituted for the I/O surface. The prompt is delivered byte-exact
+as base64 `--bytes` plus a separate `send-key enter`; a failed send never
+receives the enter key and an uncertain send is never retried. `wait-for`
+is a screen-regex synchronization primitive only (readiness gate); agent
+lifecycle state comes exclusively from the `list-agents` state query
+(`working|blocked|idle|done|unknown`). When that query is not help-proven,
+cmux never reports `settled` at all and canonical artifacts remain the only
+completion authority; `unknown` is never success evidence and maps to
+`stale`. A launch-spec carrying `env` or non-transport `prompt_delivery` is
+refused because the documented run envelope cannot deliver either
+faithfully.
+
+Live token probing is deliberately not part of the plain capability probe
+that dispatch issues on every headless dispatch: it runs under
+`capabilities --worktree <path> --probe-live` (and per-subcommand at use
+time), so headless dispatches make zero additional vendor calls. Until
+dispatch-core passes a live-intent signal to its capability probe, a
+`--execution-mode live-tui` dispatch on cmux refuses with
+`live_tui_capability_missing` before any prompt delivery; admitting cmux
+live dispatch requires that intent signal first (follow-up to the T1 seam).
+
 The coordination model consumes one target-owned profile (`schemas/target-profile.schema.json`) for target facts. `target-verify.sh` is target-neutral and is the sole verifier; worktree setup commands come from the same profile. Read `.claude/skills/agent-workflow/references/adoption.md` before adoption.
 
 ## Product home and repository context
@@ -450,7 +482,7 @@ The public interface has three commands: `capabilities`, `dispatch`, and `inspec
 
 The typed `role` is an admission, access-mode, and provenance contract; it is not a runtime-specific hidden persona prompt. The canonical prompt/capsule supplied by the conductor remains the explicit source of role instructions and task scope. This keeps the same auditable prompt semantics across Codex, Claude Code, and OpenCode instead of silently injecting different vendor behavior.
 
-The cmux adapter creates one workspace with the exact `--cwd` and short runner command. Before admission it runs only side-effect-free version/help probes: cmux must be at least `0.64.0`, `workspace create` must exist, and its documented create flags must include `--cwd` and `--command`. A present binary whose probes exit non-zero is unavailable. The Orca adapter first proves `orca terminal create` supports every launch flag (`--worktree`, `--title`, `--command`, `--json`) and that read-only terminal listing supports `--worktree` and `--json`; it then creates one fresh bare-shell terminal with `--worktree path:<exact-worktree>` and the same short runner. It does not create or open a repository/worktree/UI, inject another agent, focus the GUI, reuse a supplied handle, or fall back. Missing proof returns `required_capability_missing` before admission and does not consume a marker. `cmux-dispatch.sh` remains an explicit-cmux compatibility facade over this same core.
+The cmux adapter creates one workspace with the exact `--cwd` and short runner command. Before admission it runs only side-effect-free version/help probes: cmux must be at least `0.64.0`, `workspace create` must exist, and its documented create flags must include `--cwd` and `--command`. A present binary whose probes exit non-zero is unavailable. The Orca adapter first proves `orca terminal create` supports every launch flag (`--worktree`, `--title`, `--command`, `--json`) and that read-only terminal listing supports `--worktree` and `--json`; it then creates one fresh bare-shell terminal with `--worktree path:<exact-worktree>` and the same short runner. It does not create or open a repository/worktree/UI, inject another agent, focus the GUI, reuse a supplied handle, or fall back. Missing proof returns `required_capability_missing` before admission and does not consume a marker. `cmux-dispatch.sh` remains an explicit-cmux compatibility facade over this same core. cmux additionally implements the live-tui session subcommands described under "Execution mode and live-TUI sessions" above; its live token proof lives in `cmux.sh`/`cmux-handles.cjs` and is probed only under `--probe-live` or at subcommand use time.
 
 All three transport adapters share one helper set instead of reimplementing the same concerns: `scripts/lib/semver.cjs` owns prerelease-aware version parsing and floor checks (Orca uses its strict whole-string mode for the runtime `appVersion`), `scripts/lib/adapter-json.cjs` emits capability payloads from the field set `scripts/lib/capability-result.cjs` owns as the acceptance gate, and `scripts/lib/adapter-helpers.sh` owns `help_has` help probing, the `.review/ISSUE-*-launch.*/launch.sh` runner-path guard, the graceful exit-0 `handle_unverifiable` fallback, and the `"<version>;binary-sha256:<digest>"` provenance format. Per-adapter CLI arg loops and case dispatch are deliberately not unified into a framework while only three adapters exist.
 
