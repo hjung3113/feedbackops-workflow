@@ -159,7 +159,7 @@ for runtime in claude opencode; do
   echo 'implementation prompt' > "$WT/.review/ISSUE-902-PROMPT.txt"
   blocker_target="$WT/.review/ISSUE-902-BLOCKER.json"
   permission_args=""
-  [ "$runtime" = opencode ] && permission_args="--opencode-permission-file $SCRIPT_DIR/../runtime-permissions/opencode-write.json"
+  [ "$runtime" = opencode ] && permission_args="--opencode-permission-file $SCRIPT_DIR/../runtimes/opencode-write.json"
   if env EMIT_BLOCKER=1 BLOCKER_TARGET="$blocker_target" PATH="$BIN:$PATH" "$runtime_var=$BIN/$runtime" bash "$SCRIPT_DIR/../agent-watchdog.sh" --issue 902 --runtime "$runtime" --role implementation --mode write --prompt-file "$WT/.review/ISSUE-902-PROMPT.txt" --cwd "$WT" --model good-model --effort medium $permission_args --max-retries 0 >"$TMP/$runtime.blocker.out" 2>&1; then
     bad "$runtime rejects malformed BLOCKER output"
   elif grep -q 'BLOCKER output is not schema-valid' "$TMP/$runtime.blocker.out" && [ -f "$blocker_target" ]; then

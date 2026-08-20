@@ -66,18 +66,18 @@ fi
 exit 0
 EOF
 chmod +x "$BIN/codex"
-CODEX_BLOCKER="$WT/.review/ISSUE-9-BLOCKER.json" PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../codex-safe.sh" --issue 9 --prompt hello --cwd "$WT" >/dev/null 2>&1
+CODEX_BLOCKER="$WT/.review/ISSUE-9-BLOCKER.json" PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../runtimes/codex-safe.sh" --issue 9 --prompt hello --cwd "$WT" >/dev/null 2>&1
 if [ "$?" -ne 0 ]; then ok "nonconforming BLOCKER is rejected by codex-safe"; else bad "nonconforming BLOCKER is rejected by codex-safe"; fi
 PREEXISTING="$TMP/preexisting"
 mkdir -p "$PREEXISTING/.review"
 printf '%s\n' '{"reason_code":"ambiguous_requirement"}' > "$PREEXISTING/.review/ISSUE-11-BLOCKER.json"
-if PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../codex-safe.sh" --issue 11 --prompt hello --cwd "$PREEXISTING" >/dev/null 2>&1; then ok "unrelated pre-existing malformed BLOCKER is ignored"; else bad "unrelated pre-existing malformed BLOCKER is ignored"; fi
+if PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../runtimes/codex-safe.sh" --issue 11 --prompt hello --cwd "$PREEXISTING" >/dev/null 2>&1; then ok "unrelated pre-existing malformed BLOCKER is ignored"; else bad "unrelated pre-existing malformed BLOCKER is ignored"; fi
 for blocker_mode in wrong_issue stale_head superseded; do
   blocker_wt="$TMP/blocker-$blocker_mode"
   mkdir -p "$blocker_wt/.review"
   git init -q "$blocker_wt"
   git -C "$blocker_wt" -c user.name=Smoke -c user.email=smoke@example.test commit --allow-empty -q -m init
-  if CODEX_BLOCKER="$blocker_wt/.review/ISSUE-9-BLOCKER.json" CODEX_BLOCKER_MODE="$blocker_mode" PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../codex-safe.sh" --issue 9 --prompt hello --cwd "$blocker_wt" >/dev/null 2>&1; then
+  if CODEX_BLOCKER="$blocker_wt/.review/ISSUE-9-BLOCKER.json" CODEX_BLOCKER_MODE="$blocker_mode" PATH="$BIN:$PATH" bash "$SCRIPT_DIR/../runtimes/codex-safe.sh" --issue 9 --prompt hello --cwd "$blocker_wt" >/dev/null 2>&1; then
     bad "$blocker_mode BLOCKER is rejected by codex-safe"
   else
     ok "$blocker_mode BLOCKER is rejected by codex-safe"

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Smoke test for scripts/codex-safe.sh argument validation only.
+# Smoke test for scripts/runtimes/codex-safe.sh argument validation only.
 # bash-3.2-compatible. Run: bash scripts/__tests__/codex-safe.smoke.sh
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-CODEX_SAFE="$SCRIPT_DIR/../codex-safe.sh"
+CODEX_SAFE="$SCRIPT_DIR/../runtimes/codex-safe.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 FAILURES=0
