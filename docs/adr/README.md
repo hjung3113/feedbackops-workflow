@@ -51,3 +51,4 @@ result of a real trade-off (see ADR-FORMAT.md for the full test). Skip it otherw
 | [0003](0003-dispatch-retry-timeouts-do-not-scale-with-task-size.md) | Watchdog stall/retry timeouts are fixed regardless of task scope | proposed — filed as #157 |
 | [0004](0004-test-doubles-must-assert-on-received-input.md) | Smoke-test doubles must capture and assert on received input, not just that they ran | accepted (retrofit tracked as #164) |
 | [0005](0005-routing-authority-boundaries.md) | Routing authority stays diagnostic-only; completion authority stays with REVIEW/VERIFY | accepted |
+| [0007](0007-live-tui-execution-mode.md) | Live TUI execution is separate from permission mode and session control belongs to adapters | accepted |

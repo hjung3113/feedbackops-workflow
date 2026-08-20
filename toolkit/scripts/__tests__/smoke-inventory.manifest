@@ -13,6 +13,7 @@ contract-validators.smoke.sh
 dispatch-await.smoke.sh
 dispatch-operator-contract.smoke.sh
 install-into.smoke.sh
+live-tui-contract.smoke.sh
 model-alloc.smoke.sh
 orchestrator-interface.smoke.sh
 output-contract.smoke.sh

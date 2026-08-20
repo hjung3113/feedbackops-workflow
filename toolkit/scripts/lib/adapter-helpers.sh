@@ -7,6 +7,8 @@
 ADAPTER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ADAPTER_SEMVER="$ADAPTER_LIB_DIR/semver.cjs"
 ADAPTER_JSON="$ADAPTER_LIB_DIR/adapter-json.cjs"
+ADAPTER_TRANSPORT_REGISTRY="$ADAPTER_LIB_DIR/transport-registry.cjs"
+ADAPTER_HANDLE_RESULT="$ADAPTER_LIB_DIR/handle-result.cjs"
 
 # help_has <help-text> <flag-or-word>: true when the captured --help
 # output contains the needle as a whole token. Non-token characters are
@@ -32,6 +34,44 @@ runner_path_allowed() {
 # adapter_lifecycle_json <lifecycle> <reason>: typed lifecycle JSON.
 adapter_lifecycle_json() {
   node "$ADAPTER_JSON" lifecycle "$1" "$2"
+}
+
+# adapter_session_json <lifecycle> <handles-json> [external-handle]: emit the
+# normalized live session result. The external handle is optional because
+# composite identities (for example workspace + surface) have no safe alias.
+adapter_session_json() {
+  if [ "$#" -ge 3 ]; then
+    node "$ADAPTER_JSON" session "$1" "$2" "$3"
+  else
+    node "$ADAPTER_JSON" session "$1" "$2"
+  fi
+}
+
+# adapter_live_capabilities_json: canonical semantic capability vocabulary.
+adapter_live_capabilities_json() {
+  node "$ADAPTER_TRANSPORT_REGISTRY" live-capabilities | node -e '
+const fs=require("fs");
+const values=fs.readFileSync(0,"utf8").split(/\r?\n/).filter(Boolean);
+process.stdout.write(JSON.stringify(values));
+'
+}
+
+# adapter_has_live_capabilities <capabilities-json>: all phase-1 live session
+# primitives must be proven before a caller may select live-tui.
+adapter_has_live_capabilities() {
+  node - "$1" "$ADAPTER_TRANSPORT_REGISTRY" <<'NODE'
+const [raw, registry] = process.argv.slice(2);
+try {
+  const actual = JSON.parse(raw), required = require(registry).LIVE_CAPABILITIES;
+  if (!Array.isArray(actual) || !required.every(value => actual.indexOf(value) !== -1)) process.exit(2);
+} catch (_) { process.exit(2); }
+NODE
+}
+
+# adapter_availability_split_json <adapter> <headless-json> <live-json>:
+# preserve separate availability claims for capability survey/adapters.
+adapter_availability_split_json() {
+  node "$ADAPTER_JSON" availability "$1" "$2" "$3"
 }
 
 # adapter_handle_unverifiable <reason>: graceful exit-0 JSON fallback

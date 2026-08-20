@@ -1,8 +1,17 @@
 # Status
 
-_Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
+_Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
 
 ## In progress: v0.21 generic distribution and runtime symmetry
+
+- T1 adds an additive `execution_mode=headless|live-tui` seam, shell-free
+  runtime launch specs, structured live handles, semantic session capability
+  vocabulary, and transport receipt schema v4. Headless remains the default
+  and existing runner/watchdog behavior is preserved. Live phase 1 is
+  implementation/write-only and fails closed until a transport proves the
+  complete live contract; Orca, Herdr, and cmux adapter implementations land
+  in the dependent follow-up tasks. `LIVE.json` is launch/liveness evidence,
+  not completion authority.
 
 - CONDUCTOR no longer hand-copies a prior issue's ROUND-STATE (#159):
   `scripts/round-state-init.sh <issue-number> --worktree <path>` scaffolds a
@@ -113,7 +122,7 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
 - Planned dispatch admission binds issue, round/revision, base HEAD, real worktree, seat, and exact ROUND-STATE allowlist before atomically consuming a same-seat plan hash. Existing initial/redispatch/integrated-fix protections remain layered underneath.
 - Ordered candidate integration records every source/resulting HEAD and blocks stale/unrebased sources, unexpected paths, conflicts, dirt, and duplicate/missing/reordered integration steps. Candidate closure requires each underlying artifact to carry the same direct attempt binding, accepts only final REVIEW plus active PR-DRAFT lifecycle, rejects wrapper-only same-HEAD relabels and invalid RFC3339 instants, and becomes stale after any later commit.
 
-- Added opt-in local append-only model/task telemetry with salted project pseudonyms, canonical artifact digests, truthful observed/estimated/unavailable usage, concurrency-safe idempotence, and explicit single-sample deletion. Green consumes the parallel-safety producer's canonical closure plus its canonical integration/evidence sources through byte-identical shared #14 schemas, actual byte digests, strict semantic RFC3339 dates, and generation/RUN freshness ordering; salt/store realpaths must remain target-local. Policy-routed telemetry v2 validates a v3 transport receipt against the current host admission binding and derives runtime/model/effort/transport only from the matching host tuple; raw digest and CLI tuple injection are refused. Route probing caches static pinned executable/configuration identity for at most 1800 seconds by default (3600 maximum), without asserting remote model availability. Retry reports enforce immutable project/issue/round/revision lineage, contiguous admitted attempts and valid edges, expose per-attempt allocation, and suppress mixed-model chains from single-model cohorts. v2 routing cohorts use homogeneous policy samples, complete independent-chain thresholds, complete-green rate, mean retries-to-green, mean wall time, and a confounder warning. Reports are advisory and cannot mutate allocation or tier policy.
+- Added opt-in local append-only model/task telemetry with salted project pseudonyms, canonical artifact digests, truthful observed/estimated/unavailable usage, concurrency-safe idempotence, and explicit single-sample deletion. Green consumes the parallel-safety producer's canonical closure plus its canonical integration/evidence sources through byte-identical shared #14 schemas, actual byte digests, strict semantic RFC3339 dates, and generation/RUN freshness ordering; salt/store realpaths must remain target-local. Policy-routed telemetry v2 validates a v3 or v4 transport receipt against the current host admission binding and derives runtime/model/effort/transport only from the matching host tuple; raw digest and CLI tuple injection are refused. Route probing caches static pinned executable/configuration identity for at most 1800 seconds by default (3600 maximum), without asserting remote model availability. Retry reports enforce immutable project/issue/round/revision lineage, contiguous admitted attempts and valid edges, expose per-attempt allocation, and suppress mixed-model chains from single-model cohorts. v2 routing cohorts use homogeneous policy samples, complete independent-chain thresholds, complete-green rate, mean retries-to-green, mean wall time, and a confounder warning. Reports are advisory and cannot mutate allocation or tier policy.
 - Candidate closure and telemetry now consume one strict calendar-valid RFC3339 parser. Telemetry sample semantics bind closure source/hash/value to unique canonical closure, integration, and candidate-evidence artifact paths and digests, with dedicated schema-valid semantic pass/fail fixtures.
 - cmux create-result normalization and workspace-list inspection now consume one handle module with a single ID/ref allowlist, preventing launch and inspection identity rules from drifting.
 
