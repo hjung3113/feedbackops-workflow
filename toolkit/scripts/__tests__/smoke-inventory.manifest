@@ -15,6 +15,7 @@ dispatch-operator-contract.smoke.sh
 install-into.smoke.sh
 live-tui-contract.smoke.sh
 model-alloc.smoke.sh
+orca-live.smoke.sh
 orchestrator-interface.smoke.sh
 output-contract.smoke.sh
 parallel-safety.smoke.sh

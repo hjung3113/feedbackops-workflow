@@ -132,6 +132,8 @@ NODE_OPTIONS= "$PRODUCT_HOME/scripts/agent-workflow.sh" dispatch \
 
 실행 방식은 권한 `--mode`와 별도의 `--execution-mode headless|live-tui` 축입니다. 기본값은 `headless`이며 기존 runner/watchdog 경로를 그대로 사용합니다. T1의 `live-tui`는 CLI에서만 선택할 수 있고 implementation/write seat만 허용합니다. runtime이 shell-free `launch-spec` JSON(`argv[]`, `env`, `prompt_delivery`)을 만들고 adapter가 live session을 제어합니다. 준비 완료와 prompt 시작 activity는 `.review/ISSUE-N-launch.*/LIVE.json` 및 schema v4 transport receipt에 기록되지만 completion은 아니며, canonical PR-DRAFT/BLOCKER/REVIEW/VERIFY가 계속 authority입니다. 필요한 live capability가 증명되지 않으면 headless로 바꾸지 않고 거부합니다.
 
+Orca(T2)는 첫 `session.*` live capability를 증명하는 adapter입니다. `orca terminal read/send/wait/close --help`에서 `--terminal`, `--cursor`, `--for`, `tui-idle`, `--timeout-ms`, `--text`, `--enter` 토큰이 모두 확인되어야 live가 admitted 되고, 하나라도 없으면 headless는 정상·live는 unavailable로 분리됩니다. `launch-live`는 launch-spec의 env 할당과 argv 토큰을 각각 `printf %q`로 인용해 Orca의 단일 `--command` 문자열로 합치고(Orca는 argv-array 형식이 없으므로 단순 연결은 주입면이 됩니다), 같은 worktree + seat 제목의 terminal이 이미 있으면 두 번째 프롬프트를 보내지 않고 거부합니다. `wait-ready`는 tui-idle readiness 게이트 전용, `read`는 volatile 필드를 제거한 안정된 output+cursor만 반환, `wait-settled`는 tui-idle을 `settled` 힌트로, unsatisfied를 `working`으로, native `blockedReason`을 `blocked`로 매핑하며 completion은 언제나 canonical artifact gate가 소유합니다. stale terminal handle은 exact worktree + seat identity로 정확히 1개일 때만 재획득하고 0개/2개 이상이면 fail-closed입니다.
+
 ```bash
 NODE_OPTIONS= "$PRODUCT_HOME/scripts/agent-workflow.sh" dispatch \
   --orchestrator orca --runtime codex --role implementation \

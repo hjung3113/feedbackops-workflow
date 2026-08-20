@@ -6,8 +6,10 @@ toolkit/scripts/adapters/cmux-handles.cjs orchestrator-interface.smoke.sh
 toolkit/scripts/adapters/herdr.sh install-into.smoke.sh
 toolkit/scripts/adapters/herdr.sh orchestrator-interface.smoke.sh
 toolkit/scripts/adapters/orca.sh orchestrator-interface.smoke.sh
+toolkit/scripts/adapters/orca.sh orca-live.smoke.sh
 toolkit/scripts/agent-runtime.sh agent-runtime.smoke.sh
 toolkit/scripts/agent-runtime.sh live-tui-contract.smoke.sh
+toolkit/scripts/agent-runtime.sh orca-live.smoke.sh
 toolkit/scripts/agent-runtime.sh runtime-registry-containment.smoke.sh
 toolkit/scripts/agent-watchdog.sh agent-watchdog.smoke.sh
 toolkit/scripts/agent-watchdog.sh conductor-control.smoke.sh
@@ -68,6 +70,7 @@ toolkit/scripts/lib/codex-policy.sh live-tui-contract.smoke.sh
 toolkit/scripts/lib/handle-result.cjs live-tui-contract.smoke.sh
 toolkit/scripts/lib/launch-spec.cjs live-tui-contract.smoke.sh
 toolkit/scripts/lib/live-session-supervisor.sh live-tui-contract.smoke.sh
+toolkit/scripts/lib/live-session-supervisor.sh orca-live.smoke.sh
 toolkit/scripts/lib/parallel-plan.cjs parallel-safety.smoke.sh
 toolkit/scripts/lib/review-publish.cjs review-publish.smoke.sh
 toolkit/scripts/lib/review-snapshot.cjs review-publish.smoke.sh

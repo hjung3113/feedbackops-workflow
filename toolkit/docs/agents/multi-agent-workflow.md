@@ -82,6 +82,25 @@ live supervisor uses `LIVE_WAIT_READY_TIMEOUT_MS`,
 `LIVE_SESSION_TIMEOUT_MS`; adapter settled states are never accepted without
 the canonical artifact gate.
 
+The Orca live adapter proves the complete interactive token set (`--terminal`,
+`--cursor`, `--for`, `tui-idle`, `--timeout-ms`, `--text`, `--enter` across
+`orca terminal read/send/wait/close --help`) before claiming any `session.*`
+capability; one missing token keeps headless available and live refused. Its
+`launch-live` quotes every launch-spec env assignment and argv token with
+`printf %q` into Orca's single `--command` string (Orca documents no
+argv-array form, so naive concatenation would be a shell-injection surface)
+and refuses to create a second terminal titled for the same worktree + seat,
+so a same-issue re-dispatch can never double-prompt a live seat.
+`wait-ready` is `terminal wait --for tui-idle` used strictly as a readiness
+gate, never completion; `read` emits only stable output+cursor bytes
+(volatile vendor fields are dropped so repeated reads compare equal until
+real activity); `send` requires positive byte-delivery evidence;
+`wait-settled` maps a satisfied tui-idle to the `settled` hint, an
+unsatisfied wait to `working`, and a native `blockedReason` to `blocked` —
+always a hint, with completion owned by the canonical artifact gate. A stale
+terminal handle is reacquired once by exact worktree + seat-title identity;
+zero or several matches fail closed.
+
 The coordination model consumes one target-owned profile (`schemas/target-profile.schema.json`) for target facts. `target-verify.sh` is target-neutral and is the sole verifier; worktree setup commands come from the same profile. Read `.claude/skills/agent-workflow/references/adoption.md` before adoption.
 
 ## Product home and repository context

@@ -13,6 +13,21 @@ _Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagree
   in the dependent follow-up tasks. `LIVE.json` is launch/liveness evidence,
   not completion authority.
 
+- T2 makes Orca the first live-capable transport: its capability probe now
+  help-proves every interactive primitive (`--terminal`, `--cursor`, `--for`,
+  `tui-idle`, `--timeout-ms`, `--text`, `--enter` across `orca terminal
+  read/send/wait/close --help`) before emitting the `session.*` vocabulary,
+  keeping headless/live availability split when a token is missing.
+  `launch-live` builds Orca's single `--command` string by `printf %q`-quoting
+  each launch-spec env assignment and argv token, refuses a second terminal
+  for one worktree + seat (duplicate-prompt prevention), and returns
+  structured terminal handles. `wait-ready` gates on tui-idle only, `read`
+  emits stable output+cursor bytes, `wait-settled` maps tui-idle→settled /
+  unsatisfied→working / native blockedReason→blocked as hints, and stale
+  handles are reacquired only on an exact single worktree + seat-title match.
+  Covered by `scripts/__tests__/orca-live.smoke.sh` (fake orca CLI asserting
+  received argv per ADR 0004).
+
 - CONDUCTOR no longer hand-copies a prior issue's ROUND-STATE (#159):
   `scripts/round-state-init.sh <issue-number> --worktree <path>` scaffolds a
   schema-validated skeleton (issue identity and AC candidates from
