@@ -3,8 +3,8 @@
 # optional abort-stash for partial work preservation.
 #
 # Usage:
-#   scripts/codex-safe.sh --issue 33 --prompt-file /path/to/prompt.txt
-#   scripts/codex-safe.sh --issue 33 --prompt "inline prompt"
+#   scripts/runtimes/codex-safe.sh --issue 33 --prompt-file /path/to/prompt.txt
+#   scripts/runtimes/codex-safe.sh --issue 33 --prompt "inline prompt"
 set -euo pipefail
 
 ISSUE_N=""
@@ -80,7 +80,7 @@ cleanup() {
     rm -f "$REVIEW_OUTPUT_FILE"
   fi
   if [[ $s -ne 0 && "$PRODUCE_REVIEW" -eq 0 ]]; then
-    "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$CWD" || true
+    "$SCRIPT_DIR/../workflow-stash.sh" "$ISSUE_N" "$CWD" || true
   fi
   trap - EXIT
   exit "$s"
@@ -186,7 +186,7 @@ set -e
 stop_heartbeat
 BLOCKER_AFTER_SIG="$(blocker_signature "$BLOCKER_PATH")"
 if [[ "$PRODUCE_REVIEW" -eq 0 && "$BLOCKER_AFTER_SIG" != "$BLOCKER_BEFORE_SIG" && "$BLOCKER_AFTER_SIG" != "absent" ]]; then
-  if ! node "$SCRIPT_DIR/lib/blocker-check.cjs" "$BLOCKER_PATH" "$SCRIPT_DIR/../schemas/blocker.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" >/dev/null 2>&1
+  if ! node "$SCRIPT_DIR/../lib/blocker-check.cjs" "$BLOCKER_PATH" "$SCRIPT_DIR/../../schemas/blocker.schema.json" "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" >/dev/null 2>&1
   then
     echo "ERROR: BLOCKER output is not schema-valid/current/consumable for this issue; preserve it and regenerate the canonical artifact before redispatch" >&2
     CODEX_EXIT=1
@@ -194,7 +194,7 @@ if [[ "$PRODUCE_REVIEW" -eq 0 && "$BLOCKER_AFTER_SIG" != "$BLOCKER_BEFORE_SIG" &
 fi
 if [[ "$CODEX_EXIT" -eq 0 && "$PRODUCE_REVIEW" -eq 1 ]]; then
   canonical_review="$CWD/.review/ISSUE-${ISSUE_N}-REVIEW.json"
-if ! node - "$REVIEW_OUTPUT_FILE" "$SCRIPT_DIR/../schemas/review.schema.json" "$SCRIPT_DIR/lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" <<'NODE'
+if ! node - "$REVIEW_OUTPUT_FILE" "$SCRIPT_DIR/../../schemas/review.schema.json" "$SCRIPT_DIR/../lib/json-schema-subset.cjs" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" <<'NODE'
 const fs = require("fs");
 const [artifactFile, schemaFile, validatorFile, issueNumber, worktree, expectedHead] = process.argv.slice(2);
 try {
@@ -219,7 +219,7 @@ NODE
     echo "ERROR: REVIEW output is not a schema-valid canonical artifact for this issue and live HEAD" >&2
     exit 1
   fi
-  if ! node "$SCRIPT_DIR/lib/review-publish.cjs" "$REVIEW_OUTPUT_FILE" "$CWD/.review" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" >/dev/null 2>&1; then
+  if ! node "$SCRIPT_DIR/../lib/review-publish.cjs" "$REVIEW_OUTPUT_FILE" "$CWD/.review" "$ISSUE_N" "$CWD" "$REVIEW_START_HEAD" >/dev/null 2>&1; then
     echo "ERROR: REVIEW publication lost its pinned HEAD or conflicted with immutable evidence" >&2
     exit 1
   fi

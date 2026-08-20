@@ -11,6 +11,14 @@ FAILURES=0
 ok() { echo "ok   - $1"; }
 bad() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1)); }
 
+if [ "$(node "$SCRIPT_DIR/../lib/runtime-registry.cjs" effort-default codex)" = low ] \
+  && [ "$(node "$SCRIPT_DIR/../lib/runtime-registry.cjs" effort-default claude)" = medium ] \
+  && [ "$(node "$SCRIPT_DIR/../lib/runtime-registry.cjs" effort-default opencode)" = medium ]; then
+  ok "runtime registry owns per-runtime omitted-effort defaults"
+else
+  bad "runtime registry omitted-effort defaults"
+fi
+
 cat > "$BIN/cmux" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--version" ]; then echo 'cmux 0.64.18'; exit 0; fi
@@ -81,10 +89,13 @@ for runtime in claude opencode; do
   fi
   if RUNTIME_ARGS_LOG="$TMP/$runtime.args" env PATH="$BIN:$PATH" "$runtime_var=$BIN/$runtime" bash "$CORE" --adapter cmux --runtime "$runtime" --role reviewer --issue 901 --worktree "$WT" --produce-review --model good-model --poll-timeout 1 >"$TMP/$runtime.good" 2>&1; then
     head="$(git -C "$WT" rev-parse HEAD)"
-    if [ -f "$WT/.review/ISSUE-901-REVIEW.json" ] && [ -f "$WT/.review/ISSUE-901-REVIEW-$head.json" ] && cmp -s "$WT/.review/ISSUE-901-REVIEW.json" "$WT/.review/ISSUE-901-REVIEW-$head.json" && grep -q -- "$effort_marker" "$TMP/$runtime.args"; then
+    case "$runtime" in claude) probe_marker='--output-format text';; opencode) probe_marker='--format default';; esac
+    if [ -f "$WT/.review/ISSUE-901-REVIEW.json" ] && [ -f "$WT/.review/ISSUE-901-REVIEW-$head.json" ] && cmp -s "$WT/.review/ISSUE-901-REVIEW.json" "$WT/.review/ISSUE-901-REVIEW-$head.json" && grep -q -- "$effort_marker" "$TMP/$runtime.args" && grep -q -- "$probe_marker" "$TMP/$runtime.args"; then
       ok "$runtime publishes immutable REVIEW snapshot before canonical publication"
+      ok "$runtime model probe delegates its runtime-specific argv"
     else
       bad "$runtime did not publish head-bound snapshot before canonical publication: $(cat "$TMP/$runtime.good" 2>/dev/null)"
+      bad "$runtime model probe did not delegate its runtime-specific argv"
     fi
   elif [ -s "$CMUX_LOG" ]; then
     ok "$runtime reached launch after selected model preflight"
@@ -159,7 +170,7 @@ for runtime in claude opencode; do
   echo 'implementation prompt' > "$WT/.review/ISSUE-902-PROMPT.txt"
   blocker_target="$WT/.review/ISSUE-902-BLOCKER.json"
   permission_args=""
-  [ "$runtime" = opencode ] && permission_args="--opencode-permission-file $SCRIPT_DIR/../runtime-permissions/opencode-write.json"
+  [ "$runtime" = opencode ] && permission_args="--opencode-permission-file $SCRIPT_DIR/../runtimes/opencode-write.json"
   if env EMIT_BLOCKER=1 BLOCKER_TARGET="$blocker_target" PATH="$BIN:$PATH" "$runtime_var=$BIN/$runtime" bash "$SCRIPT_DIR/../agent-watchdog.sh" --issue 902 --runtime "$runtime" --role implementation --mode write --prompt-file "$WT/.review/ISSUE-902-PROMPT.txt" --cwd "$WT" --model good-model --effort medium $permission_args --max-retries 0 >"$TMP/$runtime.blocker.out" 2>&1; then
     bad "$runtime rejects malformed BLOCKER output"
   elif grep -q 'BLOCKER output is not schema-valid' "$TMP/$runtime.blocker.out" && [ -f "$blocker_target" ]; then

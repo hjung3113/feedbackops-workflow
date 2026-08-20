@@ -111,7 +111,7 @@ assert_current_content() {
   assert_true "$label includes review capsule schema" test -e "$target/.agent-workflow/schemas/review_capsule.schema.json"
   assert_true "$label includes local telemetry command" test -x "$target/.agent-workflow/scripts/telemetry.sh"
   assert_true "$label includes shared RFC3339 parser" test -e "$target/.agent-workflow/scripts/lib/rfc3339.cjs"
-  assert_true "$label includes shared cmux handle normalizer" test -e "$target/.agent-workflow/scripts/lib/cmux-handles.cjs"
+  assert_true "$label includes shared cmux handle normalizer" test -e "$target/.agent-workflow/scripts/adapters/cmux-handles.cjs"
   assert_true "$label includes telemetry sample semantic validator" test -e "$target/.agent-workflow/scripts/lib/telemetry-sample.cjs"
   assert_true "$label includes telemetry schemas" test -e "$target/.agent-workflow/schemas/telemetry_sample.schema.json"
   assert_true "$label includes telemetry report schema" test -e "$target/.agent-workflow/schemas/telemetry_report.schema.json"

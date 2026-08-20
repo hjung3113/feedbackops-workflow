@@ -5,7 +5,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 product_root="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 repo_root="$(git -C "$product_root" rev-parse --show-toplevel)"
-SCRIPT="$product_root/scripts/codex-safe.sh"
+SCRIPT="$product_root/scripts/runtimes/codex-safe.sh"
 FAILURES=0
 
 run_case() {

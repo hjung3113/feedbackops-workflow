@@ -3,7 +3,7 @@
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/../lib/adapter-helpers.sh"
-CMUX_HANDLES="$SCRIPT_DIR/../lib/cmux-handles.cjs"
+CMUX_HANDLES="$SCRIPT_DIR/cmux-handles.cjs"
 
 command_name="${1:-}"
 shift || true

@@ -227,7 +227,7 @@ Made `cmux-dispatch.sh` the mandatory visible dispatch path; fixed cwd/prompt re
 ### v0.5 — wrapper contracts, acceptance gate, and portable skill entrypoint
 
 - `cmux-dispatch.sh` forwards model/effort and optional liveness budgets.
-- `codex-safe.sh` grants only a linked worktree's or plain checkout's resolved Git metadata dir and supports read-only heartbeats.
+- `runtimes/codex-safe.sh` grants only a linked worktree's or plain checkout's resolved Git metadata dir and supports read-only heartbeats.
 - `codex-watchdog.sh` classifies refusal from two failed probes rather than stderr text. (Historical: the script was later removed in #127.)
 - `ac-check.sh` rejects duplicate or undiscovered manifest AC ids before review.
 - The integrated wrapper changes passed clean-context review and a full smoke run at `main@5500d6a`.
@@ -316,7 +316,7 @@ Worktree preparation and tier routing are target-profile concerns. See `.claude/
 ## Key operating facts
 
 - A process exit or worker prose is not completion evidence. Review and verification must match the live HEAD.
-- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected cmux/Orca/Herdr adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `codex-safe.sh`; `cmux-dispatch.sh` remains a compatibility path, and `codex-watchdog.sh` was removed (#127).
+- Write-capable Codex dispatch goes through `agent-workflow.sh` → shared dispatch core → explicitly selected cmux/Orca/Herdr adapter → `agent-watchdog.sh` → `agent-runtime.sh` → `runtimes/codex-safe.sh`; `cmux-dispatch.sh` remains a compatibility path, and `codex-watchdog.sh` was removed (#127).
 - Read-only seats use `--read-only`; optional first-progress/stall budgets are forwarded only when supplied.
 - Parallel write chunks require separate worktrees. Suites sharing a stateful service require separate throwaway service instances.
 - The sandbox cannot reach a local DB, so VERIFIER runs outside it with a local, low-privilege URL.
@@ -327,7 +327,7 @@ Worktree preparation and tier routing are target-profile concerns. See `.claude/
 
 - **P0 toolkit separation:** #27–#31 are shipped: relocatable product home, single `toolkit/` authority, safe legacy migration, and release enforcement.
 - **P1 procedure/templates:** #9, #10, and #11 are shipped (circuit breaker, compile-atomic chunks, and canonical Standard round-0 state).
-- **P2 toolkit/procedure:** #13, #14, #17, and #19 are shipped: verifier freshness, integrated-head closure, re-review capsules, and the `codex-safe.sh` main-checkout grant.
+- **P2 toolkit/procedure:** #13, #14, #17, and #19 are shipped: verifier freshness, integrated-head closure, re-review capsules, and the `runtimes/codex-safe.sh` main-checkout grant.
 - **P3 telemetry:** #18 is shipped. Any future tier-allocation revision still requires merged live evidence; no follow-up issue is currently open.
 - **Upstream blocked:** [openai/codex#6737](https://github.com/openai/codex/issues/6737) remains open as of 2026-07-20; reconsider in-sandbox loopback verification only if a containment-preserving allowance ships.
 

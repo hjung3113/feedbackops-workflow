@@ -4,9 +4,9 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
-RUNTIME=""; ROLE=""; MODE=""; CWD=""; PROMPT_FILE=""; MODEL=""; EFFORT=""; OPENCODE_PERMISSION_FILE=""; ISSUE_N=""; PRODUCE_REVIEW=0
+RUNTIME=""; ROLE=""; MODE=""; CWD=""; PROMPT_FILE=""; MODEL=""; EFFORT=""; OPENCODE_PERMISSION_FILE=""; ISSUE_N=""; PRODUCE_REVIEW=0; BIN=""; PROMPT=""
 registry_runtime_pipe() { node "$RUNTIME_REGISTRY" pipe; }
-usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; }
+usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; echo "       agent-runtime.sh probe --runtime R --model M --effort E" >&2; }
 machine_error() { printf '{"ok":false,"code":"%s","detail":"%s"}\n' "$1" "$2" >&2; exit 3; }
 runtime_bin() {
   # dispatch-core may pin one absolute, capability-proved executable. Never
@@ -57,93 +57,39 @@ probe_runtime() {
     opencode) if [ "$contract" -eq 1 ]; then printf '{"runtime":"opencode","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"inline_deny_first_config_plus_explicit_agent","config_application":"OPENCODE_CONFIG_CONTENT","fallback":false,"requires":["opencode_permission_file","opencode_config_content","opencode_run_agent"]}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"opencode","available":false,"code":"capability_missing_run_contract"}'; return 1; fi;;
   esac
 }
-validate_opencode_permissions() {
-  [ -n "$1" ] || machine_error opencode_permission_config_required "OpenCode requires explicit deny-first permission config"
-  [ -f "$1" ] || machine_error opencode_permission_config_missing "permission file does not exist"
-  set +e
-  node - "$1" "$2" <<'NODE'
-const fs = require("fs"); try {
-  const c=JSON.parse(fs.readFileSync(process.argv[2],"utf8")), p=c.permission,
-    m=process.argv[3], a=c.agent && c.agent["agent-workflow"], ap=a && a.permission;
-  if (!p || p["*"] !== "deny") process.exit(10);
-  if (p.external_directory !== "deny") process.exit(14);
-  if (!a || a.mode !== "primary" || !ap || ap["*"] !== "deny") process.exit(15);
-  if (ap.external_directory !== "deny") process.exit(14);
-  // write (implementation) may fetch docs/packages; read (review/verify) stays fully deny-first.
-  if (m === "write" && (p.edit !== "allow" || ap.edit !== "allow" || p.bash !== "allow" || ap.bash !== "allow" || p.webfetch !== "allow" || ap.webfetch !== "allow" || p.websearch !== "allow" || ap.websearch !== "allow")) process.exit(11);
-  if (m === "read" && (p.edit === "allow" || ap.edit === "allow" || p.bash !== "deny" || ap.bash !== "deny" || p.webfetch !== "deny" || ap.webfetch !== "deny" || p.websearch !== "deny" || ap.websearch !== "deny")) process.exit(12);
-} catch (_) { process.exit(13); }
-NODE
-  status=$?; set -e
-  case "$status" in 0) ;; 10) machine_error opencode_permission_not_deny_first 'permission.* must be deny';; 11) machine_error opencode_write_not_explicitly_allowed 'write requires permission.edit=allow, permission.bash=allow, permission.webfetch=allow, and permission.websearch=allow';; 12) machine_error opencode_read_allows_write_tools 'read requires edit, webfetch, and websearch denied, and bash denied';; 14) machine_error opencode_dangerous_permissions_not_denied 'external_directory must be deny';; 15) machine_error opencode_explicit_agent_required 'config must define deny-first primary agent-workflow';; *) machine_error opencode_permission_config_invalid 'permission config must be JSON';; esac
-}
 [ "$#" -ge 1 ] || { usage; exit 2; }; COMMAND="$1"; shift
 while [ "$#" -gt 0 ]; do case "$1" in --runtime) RUNTIME="$2"; shift 2;; --role) ROLE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --cwd) CWD="$2"; shift 2;; --prompt-file) PROMPT_FILE="$2"; shift 2;; --issue) ISSUE_N="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --effort) EFFORT="$2"; shift 2;; --opencode-permission-file) OPENCODE_PERMISSION_FILE="$2"; shift 2;; --produce-review) PRODUCE_REVIEW=1; shift;; *) usage; machine_error unknown_argument "$1";; esac; done
 [ -n "$RUNTIME" ] || machine_error runtime_required 'pass --runtime'
-case "$COMMAND" in capabilities) probe_runtime "$RUNTIME"; exit $?;; permission-file)
-    # Runtime-owned permission-file resolution (mode-to-permission mapping is
-    # the Runtime axis's concern; dispatch-core calls through this subcommand
-    # instead of branching on a runtime name). Runtimes without a permission
-    # file print nothing and exit 0.
+case "$COMMAND" in
+  capabilities)
+    probe_runtime "$RUNTIME"
+    exit $?
+    ;;
+  permission-file)
     [ -n "$ROLE" ] || machine_error role_required 'pass --role'
     [ -d "$CWD" ] || machine_error worktree_invalid 'worktree must exist'
-    case "$RUNTIME" in
-      opencode)
-        if [ -z "$OPENCODE_PERMISSION_FILE" ]; then
-          if [ "$ROLE" = "implementation" ]; then
-            OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-write.json"
-          else
-            OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/runtime-permissions/opencode-read.json"
-          fi
-        fi
-        case "$OPENCODE_PERMISSION_FILE" in
-          /*) ;;
-          *) OPENCODE_PERMISSION_FILE="$CWD/$OPENCODE_PERMISSION_FILE" ;;
-        esac
-        [ -r "$OPENCODE_PERMISSION_FILE" ] || { echo "ERROR: opencode_permission_config_missing: $OPENCODE_PERMISSION_FILE" >&2; exit 2; }
-        printf '%s\n' "$OPENCODE_PERMISSION_FILE";;
-    esac
-    exit 0;;
-run) ;; *) usage; machine_error unknown_command "$COMMAND";; esac
-case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) machine_error unsupported_role 'role must be explicit';; esac
-case "$MODE" in read|write) ;; *) machine_error unsupported_mode 'mode must be read or write';; esac
-[ -d "$CWD" ] || machine_error cwd_invalid 'cwd must exist'; [ -f "$PROMPT_FILE" ] || machine_error prompt_missing 'prompt file must exist'
-probe_runtime "$RUNTIME" >/dev/null || machine_error runtime_capability_unavailable 'probe runtime with capabilities for details'
-BIN="$(runtime_bin "$RUNTIME")"; PROMPT="$(cat "$PROMPT_FILE")"; [ -n "$PROMPT" ] || machine_error prompt_empty 'prompt file must not be empty'
-case "$RUNTIME" in
-  codex)
-    # Delegate write/review launches to the existing hardened wrapper. This
-    # preserves writable Git metadata, effort forwarding, abort stash, heartbeat,
-    # and atomic REVIEW publication rather than reimplementing the contract.
-    if [ "$MODE" = write ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then
-      [ -n "$ISSUE_N" ] || machine_error issue_required 'Codex write/review requires --issue for codex-safe invariants'
-      AGENT_WORKFLOW_CODEX_BIN="$BIN"
-      export AGENT_WORKFLOW_CODEX_BIN
-      set -- "$SCRIPT_DIR/codex-safe.sh" --issue "$ISSUE_N" --prompt-file "$PROMPT_FILE" --cwd "$CWD"
-      [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
-      [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
-      exec "$@"
-    fi
-    set -- "$BIN" exec --sandbox read-only --cd "$CWD"; [ -n "$MODEL" ] && set -- "$@" -m "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""; exec "$@" "$PROMPT";;
-  claude)
-    [ "$MODE" = write ] && permission=acceptEdits || permission=plan
-    set -- "$BIN" --print --permission-mode "$permission"
-    # The progress event stream is registry data (PROGRESS.claude.flags), not
-    # a hardcoded --output-format text argv — agent-watchdog.sh's progressed()
-    # and transcribe_review() key off this same table to read the stream back.
-    # Fail closed like every other registry read in this file: a missing
-    # entry must never silently launch with no --output-format at all.
-    progress_flags="$(node "$RUNTIME_REGISTRY" progress-flags "$RUNTIME")" || machine_error runtime_registry_unavailable 'progress-flags lookup failed'
-    while IFS= read -r flag; do [ -n "$flag" ] && set -- "$@" "$flag"; done <<PROGRESS_FLAGS
-$progress_flags
-PROGRESS_FLAGS
-    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"; cd "$CWD"; exec "$@" "$PROMPT";;
-  opencode)
-    validate_opencode_permissions "$OPENCODE_PERMISSION_FILE" "$MODE"
-    # Inline content has higher precedence than target/global config. Passing
-    # the named primary agent is required: an unknown/default agent may fall
-    # back to OpenCode's built-in build agent, which is not an isolation path.
-    OPENCODE_CONFIG_CONTENT="$(cat "$OPENCODE_PERMISSION_FILE")"; export OPENCODE_CONFIG_CONTENT
-    set -- "$BIN" run --dir "$CWD" --format json --agent agent-workflow
-    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --variant "$EFFORT"; exec "$@" "$PROMPT";;
+    ;;
+  probe)
+    [ -n "$MODEL" ] || machine_error model_required 'pass --model'
+    [ -n "$EFFORT" ] || machine_error effort_required 'pass --effort'
+    CWD="${AGENT_WORKFLOW_RUNTIME_PROBE_CWD:-$PWD}"
+    OPENCODE_PERMISSION_FILE="${AGENT_WORKFLOW_RUNTIME_PROBE_PERMISSION_FILE:-$OPENCODE_PERMISSION_FILE}"
+    [ -d "$CWD" ] || machine_error cwd_invalid 'probe cwd must exist'
+    BIN="$(runtime_bin "$RUNTIME")"
+    ;;
+  run)
+    case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) machine_error unsupported_role 'role must be explicit';; esac
+    case "$MODE" in read|write) ;; *) machine_error unsupported_mode 'mode must be read or write';; esac
+    [ -d "$CWD" ] || machine_error cwd_invalid 'cwd must exist'; [ -f "$PROMPT_FILE" ] || machine_error prompt_missing 'prompt file must exist'
+    probe_runtime "$RUNTIME" >/dev/null || machine_error runtime_capability_unavailable 'probe runtime with capabilities for details'
+    BIN="$(runtime_bin "$RUNTIME")"; PROMPT="$(cat "$PROMPT_FILE")"; [ -n "$PROMPT" ] || machine_error prompt_empty 'prompt file must not be empty'
+    ;;
+  *)
+    usage
+    machine_error unknown_command "$COMMAND"
+    ;;
 esac
+
+node "$RUNTIME_REGISTRY" is-registered "$RUNTIME" >/dev/null || machine_error unknown_runtime 'runtime must be codex, claude, or opencode'
+export RUNTIME ROLE MODE CWD PROMPT_FILE MODEL EFFORT OPENCODE_PERMISSION_FILE ISSUE_N PRODUCE_REVIEW BIN PROMPT
+exec "$SCRIPT_DIR/runtimes/$RUNTIME.sh" "$COMMAND"

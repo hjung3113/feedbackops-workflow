@@ -67,7 +67,7 @@ cat > "$BIN/probe" <<'EOF'
 exit 0
 EOF
 chmod +x "$BIN/codex" "$BIN/probe"
-cp "$SCRIPT_DIR/../runtime-permissions/opencode-read.json" "$TMP/read.json"
+cp "$SCRIPT_DIR/../runtimes/opencode-read.json" "$TMP/read.json"
 review="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":77},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"ok\",\"met\":true}]}"
 wrapped_review="$(printf 'reviewer summary\n\n```json\n%s\n```\n\n```json\nnot valid JSON\n```\n' "$review")"
 OPENCODE_STUB_OUTPUT="$wrapped_review" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 77 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
@@ -88,7 +88,7 @@ review_82="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":
 printf '%s\n' '{"conflicting":"snapshot"}' > "$WT/.review/ISSUE-82-REVIEW-$HEAD.json"
 OPENCODE_STUB_OUTPUT="$review_82" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 82 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -ne 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="refused"||o.refusal_reason!=="publication_failed")process.exit(1)' "$WT/.review/ISSUE-82-RUN.json" && grep -q '"number":82' "$WT/.review/ISSUE-82-review-attempt1-output.log"; then ok 'publication refusal preserves non-Codex output diagnostics'; else bad 'publication refusal diagnostics'; fi
-cp "$SCRIPT_DIR/../runtime-permissions/opencode-write.json" "$TMP/write.json"
+cp "$SCRIPT_DIR/../runtimes/opencode-write.json" "$TMP/write.json"
 BRANCH="$(git -C "$WT" rev-parse --abbrev-ref HEAD)"
 pr_draft() {
   issue="$1"; worktree="${2:-$WT}"; lifecycle="${3:-active}"; branch="${4:-$BRANCH}"

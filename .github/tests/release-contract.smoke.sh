@@ -111,6 +111,15 @@ assert_exists "product env example" "$PRODUCT_ROOT/.env.example"
 assert_exists "product scripts" "$PRODUCT_ROOT/scripts/ac-check.sh"
 assert_exists "transport-neutral public CLI" "$PRODUCT_ROOT/scripts/agent-workflow.sh"
 assert_exists "shared dispatch core" "$PRODUCT_ROOT/scripts/dispatch-core.sh"
+assert_exists "runtime boundary" "$PRODUCT_ROOT/scripts/agent-runtime.sh"
+assert_exists "Codex runtime member" "$PRODUCT_ROOT/scripts/runtimes/codex.sh"
+assert_exists "Claude runtime member" "$PRODUCT_ROOT/scripts/runtimes/claude.sh"
+assert_exists "OpenCode runtime member" "$PRODUCT_ROOT/scripts/runtimes/opencode.sh"
+assert_exists "Codex safe runtime wrapper" "$PRODUCT_ROOT/scripts/runtimes/codex-safe.sh"
+assert_exists "OpenCode read permission member" "$PRODUCT_ROOT/scripts/runtimes/opencode-read.json"
+assert_exists "OpenCode write permission member" "$PRODUCT_ROOT/scripts/runtimes/opencode-write.json"
+assert_absent "old runtime-permissions folder" "$PRODUCT_ROOT/scripts/runtime-permissions"
+assert_absent "old root Codex safe wrapper" "$PRODUCT_ROOT/scripts/codex-safe.sh"
 assert_exists "cmux transport adapter" "$PRODUCT_ROOT/scripts/adapters/cmux.sh"
 assert_exists "Orca transport adapter" "$PRODUCT_ROOT/scripts/adapters/orca.sh"
 assert_command "Herdr transport adapter is executable" test -x "$PRODUCT_ROOT/scripts/adapters/herdr.sh"
@@ -128,7 +137,7 @@ assert_exists "parallel planner" "$PRODUCT_ROOT/scripts/lib/parallel-plan.cjs"
 assert_exists "candidate integrator" "$PRODUCT_ROOT/scripts/candidate-integrate.sh"
 assert_exists "candidate closure gate" "$PRODUCT_ROOT/scripts/candidate-close.sh"
 assert_exists "shared RFC3339 parser" "$PRODUCT_ROOT/scripts/lib/rfc3339.cjs"
-assert_exists "shared cmux handle normalizer" "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+assert_exists "shared cmux handle normalizer" "$PRODUCT_ROOT/scripts/adapters/cmux-handles.cjs"
 assert_exists "shared adapter semver authority" "$PRODUCT_ROOT/scripts/lib/semver.cjs"
 assert_exists "shared adapter capability emitter" "$PRODUCT_ROOT/scripts/lib/adapter-json.cjs"
 assert_exists "shared adapter shell helpers" "$PRODUCT_ROOT/scripts/lib/adapter-helpers.sh"
@@ -213,7 +222,7 @@ assert_fails "transport parity gate rejects a schema enum missing a registered a
 # AC-111-12 create/inspect decoy rejection.
 cmux_create_normalizes_handle() {
   payload="$1"; expected="$2"
-  node "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs" create "$payload" 2>/dev/null \
+  node "$PRODUCT_ROOT/scripts/adapters/cmux-handles.cjs" create "$payload" 2>/dev/null \
     | grep -F -q "\"external_handle\":\"$expected\""
 }
 assert_command "cmux create recognizes the envelope id field" \
@@ -224,7 +233,7 @@ assert_command "cmux create recognizes the envelope workspaceId field" \
   cmux_create_normalizes_handle '{"workspaceId":"ws-release-3"}' 'ws-release-3'
 assert_command "cmux create never adopts a nested decoy id" \
   cmux_create_normalizes_handle '{"request":{"id":"decoy"},"workspaceId":"ws-release-4"}' 'ws-release-4'
-assert_contains "cmux create/inspect recognize the documented ref field" 'WORKSPACE_REF_KEYS = ["ref"]' "$PRODUCT_ROOT/scripts/lib/cmux-handles.cjs"
+assert_contains "cmux create/inspect recognize the documented ref field" 'WORKSPACE_REF_KEYS = ["ref"]' "$PRODUCT_ROOT/scripts/adapters/cmux-handles.cjs"
 assert_exists "product playbook" "$PRODUCT_ROOT/docs/agents/multi-agent-workflow.md"
 assert_exists "product conductor persona" "$PRODUCT_ROOT/docs/agents/conductor-persona.md"
 assert_exists "product visual reviewer persona" "$PRODUCT_ROOT/docs/agents/visual-reviewer-persona.md"

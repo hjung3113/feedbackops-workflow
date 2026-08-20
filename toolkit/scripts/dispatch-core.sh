@@ -67,7 +67,7 @@ RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
 ISSUE_N=""
 ADAPTER=""
-RUNTIME="codex"
+RUNTIME="$(node "$RUNTIME_REGISTRY" default-runtime)"
 ROLE="implementation"
 RUNTIME_PERMISSION_FILE=""
 WORKTREE=""
@@ -712,10 +712,7 @@ fi
 # probing, then forward that exact value to the runtime launch. This avoids a
 # preflight using a fallback tier while the runtime silently chooses its own.
 if [ -n "$MODEL" ] && [ -z "$EFFORT" ]; then
-  case "$RUNTIME" in
-    codex) EFFORT="low" ;;
-    claude|opencode) EFFORT="medium" ;;
-  esac
+  EFFORT="$(node "$RUNTIME_REGISTRY" effort-default "$RUNTIME")"
 fi
 
 if [ -z "$PROMPT_FILE" ]; then
@@ -772,14 +769,7 @@ model_compatibility_preflight() {
       echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
       return 2
     fi
-  elif ! case "$RUNTIME" in
-    codex) "$RUNTIME_BIN_PIN" exec --skip-git-repo-check -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
-    claude) "$RUNTIME_BIN_PIN" --print --permission-mode plan --output-format text --model "$MODEL" --effort "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
-    opencode) OPENCODE_CONFIG_CONTENT="$(cat "$RUNTIME_PERMISSION_FILE")" "$RUNTIME_BIN_PIN" run --dir "$ABS_WORKTREE" --format default --agent agent-workflow --model "$MODEL" --variant "$EFFORT" "reply exactly OK" </dev/null >/dev/null 2>&1 ;;
-    # A registered runtime with no argv branch here must fail closed, not
-    # fall through the case as a silent pass (Opus scoped review, #135).
-    *) false ;;
-  esac; then
+  elif ! AGENT_WORKFLOW_RUNTIME_PROBE_CWD="$ABS_WORKTREE" AGENT_WORKFLOW_RUNTIME_PROBE_PERMISSION_FILE="$RUNTIME_PERMISSION_FILE" bash "$RUNTIME_ADAPTER" probe --runtime "$RUNTIME" --model "$MODEL" --effort "$EFFORT" </dev/null >/dev/null 2>&1; then
     echo "ERROR: model_compatibility_unavailable: selected $RUNTIME model '$MODEL' failed the preflight; no admission or fallback attempted" >&2
     return 2
   fi
@@ -791,7 +781,7 @@ fi
 
 if [ -z "$WS_NAME" ]; then
   if [ "$(node "$RUNTIME_REGISTRY" ws-short-impl "$RUNTIME")" = "true" ] && [ "$ROLE" = "implementation" ]; then
-    WS_NAME="codex-${ISSUE_N}"
+    WS_NAME="${RUNTIME}-${ISSUE_N}"
   else
     WS_NAME="$RUNTIME-$ROLE-${ISSUE_N}"
   fi
