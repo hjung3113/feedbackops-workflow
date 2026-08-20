@@ -44,6 +44,7 @@ case "$COMMAND" in
     exit 0
     ;;
   probe)
+    [ -n "$OPENCODE_PERMISSION_FILE" ] || machine_error opencode_permission_config_required "OpenCode requires explicit deny-first permission config"
     OPENCODE_CONFIG_CONTENT="$(cat "$OPENCODE_PERMISSION_FILE")"; export OPENCODE_CONFIG_CONTENT
     set -- "$BIN" run --dir "$CWD" --format default --agent agent-workflow --model "$MODEL" --variant "$EFFORT" "reply exactly OK"
     exec "$@"

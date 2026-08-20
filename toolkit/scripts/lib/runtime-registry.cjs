@@ -128,6 +128,7 @@ if (require.main === module) {
     dotted.split(".").reduce((node, key) => (node && typeof node === "object" ? node[key] : undefined), value);
   switch (command) {
     case "lines": RUNTIMES.forEach(write); break;
+    case "default-runtime": write(RUNTIMES[0]); break;
     case "pipe": write(RUNTIMES.join("|")); break;
     case "is-registered": process.exit(registered(process.argv[3]) ? 0 : 1); break;
     case "bin": {
@@ -168,7 +169,7 @@ if (require.main === module) {
       break;
     }
     default:
-      process.stderr.write("usage: runtime-registry.cjs [lines|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-default <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
+      process.stderr.write("usage: runtime-registry.cjs [lines|default-runtime|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-default <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
       process.exit(2);
   }
 }

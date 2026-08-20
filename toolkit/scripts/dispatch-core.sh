@@ -67,7 +67,7 @@ RECEIPT_SCHEMA="$SCRIPT_DIR/../schemas/transport_receipt.schema.json"
 
 ISSUE_N=""
 ADAPTER=""
-RUNTIME="$(node "$RUNTIME_REGISTRY" lines | head -n 1)"
+RUNTIME="$(node "$RUNTIME_REGISTRY" default-runtime)"
 ROLE="implementation"
 RUNTIME_PERMISSION_FILE=""
 WORKTREE=""

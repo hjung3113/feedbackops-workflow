@@ -66,6 +66,8 @@ claude
 opencode" "$(node "$REGISTRY" lines)"
 assert_equals "AC-135-1 registry pipe output is the runtime enumeration" \
   "codex|claude|opencode" "$(node "$REGISTRY" pipe)"
+assert_equals "AC-135-1 registry default-runtime output is the documented default" \
+  "codex" "$(node "$REGISTRY" default-runtime)"
 assert_command "AC-135-1 registry exports RUNTIMES, stash_by table, and effort validity" \
   node - "$REGISTRY" <<'NODE'
 const { RUNTIMES, STASH_BY, EFFORT_ENUMS, effortValid } = require(process.argv[2]);
@@ -116,6 +118,8 @@ if [ "$aw_refusal_ec" -eq 2 ] && grep -F -q -- 'ERROR: unknown_runtime: bogus (e
 
 assert_contains "AC-135-3 dispatch-core.sh wires the runtime registry" "lib/runtime-registry.cjs" "$PRODUCT_ROOT/dispatch-core.sh"
 assert_contains "AC-135-3 dispatch-core.sh membership check names the registry helper" "is_registered_runtime" "$PRODUCT_ROOT/dispatch-core.sh"
+assert_contains "AC-135-3 dispatch-core.sh reads the registry default-runtime command" 'node "$RUNTIME_REGISTRY" default-runtime' "$PRODUCT_ROOT/dispatch-core.sh"
+assert_absent "AC-135-3 dispatch-core.sh does not truncate registry lines for its default" 'node "$RUNTIME_REGISTRY" lines | head -n 1' "$PRODUCT_ROOT/dispatch-core.sh"
 effort_delegations="$(grep -c -F -- 'effortValid(model, effort)' "$PRODUCT_ROOT/dispatch-core.sh")"
 if [ "$effort_delegations" -ge 1 ]; then ok "AC-135-3 allocator validation delegates effort enums to the registry"; else not_ok "AC-135-3 allocator validation delegates effort enums to the registry"; fi
 bash "$PRODUCT_ROOT/dispatch-core.sh" >"$TMP_DIR/dc-usage.out" 2>&1
