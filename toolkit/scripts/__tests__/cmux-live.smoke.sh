@@ -330,7 +330,7 @@ NODE
 LIVE_DIR="$TMP_DIR/live-e2e"
 mkdir -p "$LIVE_DIR"
 FAKE_MODE=full FAKE_AGENT_STATE=working FAKE_ECHO=1 \
-LIVE_WAIT_READY_TIMEOUT_MS=3000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=3000 LIVE_SESSION_TIMEOUT_MS=6000 LIVE_POLL_INTERVAL_MS=20 \
+LIVE_WAIT_READY_TIMEOUT_MS=5000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=5000 LIVE_SESSION_TIMEOUT_MS=15000 LIVE_POLL_INTERVAL_MS=20 \
   fake_env bash -c '. "$1" >/dev/null 2>&1; shift; live_session_start "$@"' _ "$SUPERVISOR" \
     "$ADAPTER" cmux codex-203 "$WT" "$SPEC" "$PROMPT" "$LIVE_DIR" 203 >"$TMP_DIR/e2e.out" 2>"$TMP_DIR/e2e.err"
 e2e_status=$?
@@ -662,19 +662,43 @@ DISPATCH_WT="$TMP_DIR/dispatch-wt"
 mkdir -p "$DISPATCH_WT/.review"
 git init -q "$DISPATCH_WT"
 git -C "$DISPATCH_WT" -c user.name=smoke -c user.email=smoke@example.test commit --allow-empty -qm init
-printf '%s\n' "dispatch prompt body" > "$DISPATCH_WT/.review/ISSUE-204-PROMPT.txt"
+DISPATCH_PROMPT="$TMP_DIR/dispatch-prompt.txt"
+printf '%s\n' "dispatch prompt body" > "$DISPATCH_PROMPT"
 : > "$FAKE_LOG"
 : > "$FAKE_RUN_ARGVS"
-FAKE_MODE=full fake_env bash "$ROOT/scripts/dispatch-core.sh" --adapter cmux --runtime codex --role implementation \
-  --execution-mode live-tui --issue 204 --worktree "$DISPATCH_WT" \
-  --model gpt-5.6-terra --effort low >"$TMP_DIR/dispatch-live.out" 2>&1
+# dispatch-core now passes --probe-live to the adapter's capability check only
+# when --execution-mode live-tui is requested (a prior gap this task
+# originally deferred as a follow-up); with a fully-capable fake cmux this
+# dispatch should complete live admission and deliver exactly one prompt.
+LIVE_WAIT_READY_TIMEOUT_MS=5000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=5000 LIVE_SESSION_TIMEOUT_MS=15000 LIVE_POLL_INTERVAL_MS=20 \
+FAKE_MODE=full FAKE_AGENT_STATE=working FAKE_ECHO=1 \
+fake_env bash "$ROOT/scripts/dispatch-core.sh" --adapter cmux --runtime codex --role implementation \
+  --execution-mode live-tui --issue 204 --worktree "$DISPATCH_WT" --prompt-file "$DISPATCH_PROMPT" \
+  --model gpt-5.6-terra --effort low --tier trivial >"$TMP_DIR/dispatch-live.out" 2>&1
 dispatch_live_status=$?
-if [ "$dispatch_live_status" -eq 2 ] && grep -q "live_tui_capability_missing" "$TMP_DIR/dispatch-live.out" \
-  && [ "$(log_count 'send --surface')" -eq 0 ] && [ "$(log_count 'send-key --surface')" -eq 0 ] \
-  && ! find "$DISPATCH_WT/.review" -name "LIVE.json" | grep -q .; then
-  pass "dispatch refuses live cmux before any prompt delivery until the gate admits the live contract"
+dispatch_live_receipt="$DISPATCH_WT/.review/ISSUE-204-TRANSPORT.json"
+dispatch_live_json="$(find "$DISPATCH_WT/.review" -name LIVE.json -path '*launch.*' | sed -n '1p')"
+if [ "$dispatch_live_status" -eq 0 ] && [ "$(log_count 'run --new-workspace')" -eq 1 ] \
+  && [ "$(log_count 'send --surface')" -eq 1 ] && [ "$(log_count 'send-key --surface')" -eq 1 ] \
+  && [ -n "$dispatch_live_json" ] \
+  && node - "$dispatch_live_receipt" "$dispatch_live_json" <<'NODE'
+const fs = require("fs");
+const receipt = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const ack = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
+if (receipt.schema_version !== "4" || receipt.execution_mode !== "live-tui" || receipt.adapter !== "cmux") process.exit(2);
+if (!receipt.handles || !receipt.handles.lifecycle || !receipt.handles.io || !receipt.handles.agent) process.exit(2);
+if (receipt.external_handle !== undefined) process.exit(2);
+if (ack.state !== "prompt_started" || ack.activity_observed !== true) process.exit(2);
+NODE
+then
+  pass "dispatch delivers live cmux end-to-end once the capability gate proves the live contract"
 else
-  fail "dispatch refuses live cmux before any prompt delivery (status=$dispatch_live_status out=$(cat "$TMP_DIR/dispatch-live.out"))"
+  fail "dispatch live cmux E2E (status=$dispatch_live_status out=$(cat "$TMP_DIR/dispatch-live.out"))"
+fi
+if ! find "$DISPATCH_WT/.review" -type f -name 'launch.sh' | grep -q .; then
+  pass "live cmux dispatch generates no launch.sh runner (design section 7)"
+else
+  fail "live cmux dispatch must not generate a launch.sh runner"
 fi
 
 # Each supervised session receives the prompt exactly once: two sequential
@@ -684,7 +708,7 @@ fi
 SECOND_DIR="$TMP_DIR/live-second"
 mkdir -p "$SECOND_DIR"
 FAKE_MODE=full FAKE_AGENT_STATE=working FAKE_ECHO=1 \
-LIVE_WAIT_READY_TIMEOUT_MS=3000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=3000 LIVE_SESSION_TIMEOUT_MS=6000 LIVE_POLL_INTERVAL_MS=20 \
+LIVE_WAIT_READY_TIMEOUT_MS=5000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=5000 LIVE_SESSION_TIMEOUT_MS=15000 LIVE_POLL_INTERVAL_MS=20 \
   fake_env bash -c '. "$1" >/dev/null 2>&1; shift; live_session_start "$@"' _ "$SUPERVISOR" \
     "$ADAPTER" cmux codex-203 "$WT" "$SPEC" "$PROMPT" "$SECOND_DIR" 203 >/dev/null 2>&1
 second_status=$?

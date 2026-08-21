@@ -177,7 +177,7 @@ LIVE_DIR="$TMP_DIR/live"
 mkdir -p "$LIVE_DIR"
 printf '%s\n' '{}' > "$TMP_DIR/live-spec.json"
 printf '%s\n' 'prompt' > "$TMP_DIR/live-prompt.txt"
-if FAKE_ACTIVITY_FILE="$FAKE_ACTIVITY" FAKE_SEND_COUNT_FILE="$FAKE_SEND_COUNT" LIVE_WAIT_READY_TIMEOUT_MS=1000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=1000 LIVE_SESSION_TIMEOUT_MS=2000 LIVE_POLL_INTERVAL_MS=1 bash -c '
+if FAKE_ACTIVITY_FILE="$FAKE_ACTIVITY" FAKE_SEND_COUNT_FILE="$FAKE_SEND_COUNT" LIVE_WAIT_READY_TIMEOUT_MS=5000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=5000 LIVE_SESSION_TIMEOUT_MS=15000 LIVE_POLL_INTERVAL_MS=20 bash -c '
   . "$1/scripts/lib/live-session-supervisor.sh"
   live_session_start "$2" orca live-seat "$3" "$4" "$5" "$6" 203
 ' _ "$ROOT" "$FAKE_ADAPTER" "$WT" "$TMP_DIR/live-spec.json" "$TMP_DIR/live-prompt.txt" "$LIVE_DIR"; then

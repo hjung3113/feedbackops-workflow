@@ -16,20 +16,25 @@ HEADLESS_CAPABILITIES='terminal.create.worktree_path,terminal.create.title,termi
 # same help surface they call. One missing token withholds only the semantic
 # session vocabulary: the headless claim above stays intact.
 live_help_all_tokens() {
-  live_read_help="$(orca terminal read --help 2>&1)"
+  live_read_help="$(orca terminal read --help 2>&1)" || return 1
   help_has "$live_read_help" '--terminal' || return 1
   help_has "$live_read_help" '--cursor' || return 1
-  live_send_help="$(orca terminal send --help 2>&1)"
+  help_has "$live_read_help" '--json' || return 1
+  live_send_help="$(orca terminal send --help 2>&1)" || return 1
   help_has "$live_send_help" '--terminal' || return 1
   help_has "$live_send_help" '--text' || return 1
   help_has "$live_send_help" '--enter' || return 1
-  live_wait_help="$(orca terminal wait --help 2>&1)"
+  help_has "$live_send_help" '--interrupt' || return 1
+  help_has "$live_send_help" '--json' || return 1
+  live_wait_help="$(orca terminal wait --help 2>&1)" || return 1
   help_has "$live_wait_help" '--terminal' || return 1
   help_has "$live_wait_help" '--for' || return 1
   help_has "$live_wait_help" 'tui-idle' || return 1
   help_has "$live_wait_help" '--timeout-ms' || return 1
-  live_close_help="$(orca terminal close --help 2>&1)"
+  help_has "$live_wait_help" '--json' || return 1
+  live_close_help="$(orca terminal close --help 2>&1)" || return 1
   help_has "$live_close_help" '--terminal' || return 1
+  help_has "$live_close_help" '--json' || return 1
   return 0
 }
 
@@ -217,6 +222,10 @@ orca_live_retry_stale() {
   retry_handle="$(orca_live_reacquire "$live_worktree" "$live_seat_name")" || return 1
   live_handle="$retry_handle"
   "$retry_fn" "$retry_out" "$retry_err"
+  # retry_fn always itself returns 0 (it stashes the real command status in
+  # ORCA_LIVE_STATUS); propagate that real status here so a second-attempt
+  # failure after stale-handle reacquisition is not reported as success.
+  [ "$ORCA_LIVE_STATUS" -eq 0 ]
 }
 
 wait_ready() {
@@ -579,7 +588,14 @@ live_inspect() {
 case "$command_name" in
   capabilities)
     [ "${1:-}" = "--worktree" ] || exit 2
-    [ $# -eq 2 ] || exit 2
+    if [ "$#" -eq 3 ] && [ "$3" = "--probe-live" ]; then
+      :
+    elif [ "$#" -ne 2 ]; then
+      exit 2
+    fi
+    # Orca's live probe has no side-effecting acceptance test (unlike Herdr's
+    # workspace-creating trust race), so --probe-live is accepted but does not
+    # change behavior here; it exists for adapter-signature parity.
     capability_json "$2"
     ;;
   launch)

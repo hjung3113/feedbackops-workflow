@@ -239,7 +239,7 @@ herdr_env() {
 
 capabilities_json() {
   HERDR_ENV=1 HERDR_SOCKET_PATH=fake-socket HERDR_FAKE_STATE="$FAKE_STATE" HERDR_FAKE_SCREEN="$HERDR_SCREEN" \
-    PATH="$BIN:$PATH" bash "$ADAPTER" capabilities --worktree "$TMP_ROOT" 2>/dev/null
+    PATH="$BIN:$PATH" bash "$ADAPTER" capabilities --worktree "$TMP_ROOT" "$@" 2>/dev/null
 }
 
 live_session_capability_count() {
@@ -273,9 +273,21 @@ NODE
 
 # --- Capabilities: live offered only when tokens + trust race pass ---------
 
+fake_state caps-headless-only
+caps_out="$TMP_ROOT/caps-headless-only.json"
+capabilities_json > "$caps_out"
+if [ "$(live_session_capability_count "$caps_out")" = 0 ] \
+  && grep -q '"available":true' "$caps_out" \
+  && [ ! -f "$FAKE_STATE/trust-pane-run.log" ] \
+  && [ ! -s "$FAKE_STATE/close.log" ]; then
+  pass 'plain capabilities (no --probe-live) never runs the trust-race probe and stays side-effect-free'
+else
+  fail "plain capabilities leaked a live probe side effect ($(cat "$caps_out"))"
+fi
+
 fake_state caps-pass
 caps_out="$TMP_ROOT/caps-pass.json"
-capabilities_json > "$caps_out"
+capabilities_json --probe-live > "$caps_out"
 if [ "$(live_session_capability_count "$caps_out")" = 8 ] \
   && grep -q 'agent.start' "$caps_out" && grep -q 'pane.run' "$caps_out" \
   && grep -q '"available":true' "$caps_out"; then
@@ -300,7 +312,7 @@ fi
 for trust_case in race unproven; do
   fake_state "caps-$trust_case"
   caps_out="$TMP_ROOT/caps-$trust_case.json"
-  HERDR_FAKE_TRUST="$trust_case" capabilities_json > "$caps_out"
+  HERDR_FAKE_TRUST="$trust_case" capabilities_json --probe-live > "$caps_out"
   if grep -q '"available":true' "$caps_out" \
     && [ "$(live_session_capability_count "$caps_out")" = 0 ] \
     && grep -q 'workspace.create.cwd' "$caps_out"; then
@@ -320,7 +332,7 @@ for token_case in missing-prompt-wait missing-get missing-kind missing-esc; do
     missing-esc) token_env_var="HERDR_FAKE_SENDKEYS_HELP"; token_env_val="missing_esc" ;;
   esac
   export "$token_env_var=$token_env_val"
-  capabilities_json > "$caps_out"
+  capabilities_json --probe-live > "$caps_out"
   unset "$token_env_var"
   if grep -q '"available":true' "$caps_out" \
     && [ "$(live_session_capability_count "$caps_out")" = 0 ] \

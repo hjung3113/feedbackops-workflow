@@ -172,6 +172,7 @@ SENTINEL
 }
 
 capabilities() {
+  cap_probe_live="${2:-false}"
   if ! binary="$(resolved_herdr_binary)"; then
     adapter_json binary_not_found unknown false
     return 0
@@ -263,8 +264,11 @@ NODE
   # semantic session capabilities are offered. A missing token or an
   # unproven race leaves this payload headless-only; callers refuse live
   # dispatch on the missing capabilities instead of silently falling back.
+  # The trust-race test itself creates and closes a real workspace, so it
+  # only runs under an explicit live-intent probe (--probe-live) — a plain
+  # headless capability check must stay side-effect-free.
   live_csv=""
-  if agent_facade_help_proven "$binary" && herdr_trust_race_proven "$binary"; then
+  if [ "$cap_probe_live" = "true" ] && agent_facade_help_proven "$binary" && herdr_trust_race_proven "$binary"; then
     live_csv="$(node "$ADAPTER_TRANSPORT_REGISTRY" live-capabilities | tr '\n' ',' | sed 's/,$//')"
     live_csv="$live_csv,$HERDR_LIVE_AGENT_CAPABILITIES"
   fi
@@ -554,18 +558,22 @@ launch_live() {
   root_cwd="${4:-}"
   [ "$root_workspace_id" = "$workspace_id" ] || {
     echo 'ERROR: Herdr root pane is not coherent with its created workspace' >&2
+    "$binary" workspace close "$workspace_id" >"$temp_dir/close.stdout" 2>"$temp_dir/close.stderr" || true
     exit 2
   }
   requested_realpath="$(cd "$live_worktree" 2>/dev/null && pwd -P)" || {
     echo 'ERROR: requested Herdr worktree is not readable' >&2
+    "$binary" workspace close "$workspace_id" >"$temp_dir/close.stdout" 2>"$temp_dir/close.stderr" || true
     exit 2
   }
   returned_realpath="$(cd "$root_cwd" 2>/dev/null && pwd -P)" || {
     echo 'ERROR: Herdr root pane cwd is not readable' >&2
+    "$binary" workspace close "$workspace_id" >"$temp_dir/close.stdout" 2>"$temp_dir/close.stderr" || true
     exit 2
   }
   [ "$returned_realpath" = "$requested_realpath" ] || {
     echo 'ERROR: Herdr root pane cwd does not match the requested worktree' >&2
+    "$binary" workspace close "$workspace_id" >"$temp_dir/close.stdout" 2>"$temp_dir/close.stderr" || true
     exit 2
   }
 
@@ -981,8 +989,15 @@ preview() {
 
 case "$command_name" in
   capabilities)
-    [ "${1:-}" = "--worktree" ] && [ $# -eq 2 ] || exit 2
-    capabilities "$2"
+    [ "${1:-}" = "--worktree" ] || exit 2
+    cap_worktree="$2"
+    cap_probe_live_flag=false
+    if [ "$#" -eq 3 ] && [ "$3" = "--probe-live" ]; then
+      cap_probe_live_flag=true
+    elif [ "$#" -ne 2 ]; then
+      exit 2
+    fi
+    capabilities "$cap_worktree" "$cap_probe_live_flag"
     ;;
   launch)
     launch "$@"

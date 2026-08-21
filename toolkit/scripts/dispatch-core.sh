@@ -830,7 +830,11 @@ ADAPTER_VERSION="dry-run"
 ADAPTER_CAPABILITIES_JSON="[]"
 ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="[]"
 if [ "$DRY_RUN" -eq 0 ]; then
-  CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" 2>/dev/null)"
+  if [ "$EXECUTION_MODE" = "live-tui" ]; then
+    CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" --probe-live 2>/dev/null)"
+  else
+    CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" 2>/dev/null)"
+  fi
   capability_status=$?
   if [ "$capability_status" -ne 0 ] || [ -z "$CAPABILITY_JSON" ]; then
     echo "ERROR: required_capability_missing: $ADAPTER capability probe failed" >&2
