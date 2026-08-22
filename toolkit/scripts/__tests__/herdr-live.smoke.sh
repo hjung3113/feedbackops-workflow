@@ -27,6 +27,10 @@ make_stub_capture_helper "$TMP_ROOT/stub-capture.sh"
 export STUB_CAPTURE_HELPER="$TMP_ROOT/stub-capture.sh"
 STUB_ARGS="$TMP_ROOT/herdr-argv.log"
 export STUB_ARGS_LOG="$STUB_ARGS"
+# All codex live launches run through the trust pre-seed (#215); keep codex
+# config writes inside the smoke sandbox, never the developer's ~/.codex.
+CODEX_HOME="$TMP_ROOT/codex-home"
+export CODEX_HOME
 
 # Stateful fake herdr. Behavior modes come from HERDR_FAKE_* env vars; every
 # invocation records its full "$*" line through the shared stub capture, and
@@ -396,6 +400,146 @@ then
   pass 'launch-live forwards workspace create + exact NUL-checked agent start argv and emits structured handles'
 else
   fail "launch-live argv/handles (ec=$launch_ec $(cat "$launch_out") $(cat "$TMP_ROOT/launch.err"))"
+fi
+
+# --- Codex trust pre-seed (#215) --------------------------------------------
+# A codex live launch against a not-yet-trusted directory must merge a
+# [projects."<cwd>"] trust_level="trusted" entry into $CODEX_HOME/config.toml
+# before agent start — preserving all other config — so codex's own
+# first-run trust screen never renders (#212: herdr cannot classify it).
+make_worktree trust
+# The adapter pre-seeds the pwd -P resolved path; assert against the same.
+TRUST_WT_REAL="$(cd "$TMP_ROOT/wt-trust" && pwd -P)"
+mkdir -p "$CODEX_HOME"
+TRUST_CONFIG="$CODEX_HOME/config.toml"
+TRUST_SPEC="$TMP_ROOT/spec-trust.json"
+node - "$TRUST_SPEC" "$TMP_ROOT/wt-trust" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--sandbox", "workspace-write", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+cat > "$TRUST_CONFIG" <<'EOF'
+model = "gpt-5.6-sol"
+
+[projects."/tmp/definitely-elsewhere"]
+trust_level = "trusted"
+
+[projects."TRUST_WT_PLACEHOLDER"]
+trust_level = "untrusted"
+EOF
+node - "$TRUST_CONFIG" "$TRUST_WT_REAL" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("TRUST_WT_PLACEHOLDER", wt));
+NODE
+fake_state launch-trust
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-trust" --launch-spec "$TRUST_SPEC" >/dev/null 2>"$TMP_ROOT/trust-launch.err"
+trust_ec=$?
+node - "$TRUST_CONFIG" "$TRUST_WT_REAL" > "$TMP_ROOT/trust-config-check.out" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const text = fs.readFileSync(file, "utf8");
+const lines = text.split("\n");
+const header = `[projects.${JSON.stringify(wt)}]`;
+const headers = lines.filter(line => line.trim().startsWith("[projects."));
+const tableLines = lines.slice(lines.findIndex(line => line.trim() === header) + 1);
+const body = tableLines.slice(0, tableLines.findIndex(line => line.trim().startsWith("[")));
+const problems = [];
+if (headers.filter(line => line.trim() === header).length !== 1) problems.push("worktree table not present exactly once");
+if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) problems.push("trust_level not trusted inside worktree table");
+if (!lines.includes("model = \"gpt-5.6-sol\"")) problems.push("top-level setting clobbered");
+if (!lines.includes("[projects.\"/tmp/definitely-elsewhere\"]")) problems.push("unrelated project table clobbered");
+if (problems.length) { process.stdout.write(problems.join("; ")); process.exit(2); }
+NODE
+if [ "$trust_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/trust-config-check.out" ]; then
+  pass 'launch-live codex pre-seeds exact-path trust entry, TOML-merged without clobbering'
+else
+  fail "codex trust pre-seed (ec=$trust_ec $(cat "$TMP_ROOT/trust-config-check.out") $(cat "$TMP_ROOT/trust-launch.err"))"
+fi
+
+# Idempotent: relaunching must not duplicate the table or the trust line.
+fake_state launch-trust2
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-trust" --launch-spec "$TRUST_SPEC" >/dev/null 2>&1
+node - "$TRUST_CONFIG" "$TRUST_WT_REAL" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const header = `[projects.${JSON.stringify(wt)}]`;
+if (lines.filter(line => line.trim() === header).length !== 1) process.exit(2);
+const start = lines.findIndex(line => line.trim() === header);
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+if (body.filter(line => line.trim() === "trust_level = \"trusted\"").length !== 1) process.exit(2);
+NODE
+if [ $? -eq 0 ]; then
+  pass 'codex trust pre-seed is idempotent across relaunches'
+else
+  fail 'codex trust pre-seed duplicated table or trust_level on relaunch'
+fi
+
+# Fake codex sentinel (#215): renders the first-run trust screen only when
+# its --cd cwd is not an exact trusted entry. After the pre-seed above the
+# sentinel must never render the trust line; an untrusted control dir must
+# (proving the sentinel itself works).
+cat > "$TMP_ROOT/codex-trust-sentinel" <<'EOF'
+#!/usr/bin/env bash
+cwd=""; prev=""
+for arg in "$@"; do
+  [ "$prev" = "--cd" ] && cwd="$arg"
+  prev="$arg"
+done
+if node - "${CODEX_HOME:?}/config.toml" "$cwd" <<'NODE'
+const fs = require("fs");
+const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+const header = `[projects.${JSON.stringify(process.argv[3])}]`;
+const start = lines.findIndex(line => line.trim() === header);
+if (start === -1) process.exit(1);
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+process.exit(body.some(line => line.trim() === "trust_level = \"trusted\"") ? 0 : 1);
+NODE
+then
+  printf 'codex session ready\n'
+else
+  printf 'Do you trust the contents of this directory?\n'
+  sleep 5
+fi
+EOF
+chmod +x "$TMP_ROOT/codex-trust-sentinel"
+sentinel_out="$("$TMP_ROOT/codex-trust-sentinel" --cd "$TRUST_WT_REAL")"
+control_dir="$TMP_ROOT/never-trusted-control"
+mkdir -p "$control_dir"
+control_out_file="$TMP_ROOT/sentinel-control.out"
+"$TMP_ROOT/codex-trust-sentinel" --cd "$control_dir" >"$control_out_file" 2>&1 &
+control_pid=$!
+sleep 1
+kill "$control_pid" 2>/dev/null
+wait "$control_pid" 2>/dev/null
+control_out="$(cat "$control_out_file")"
+if printf '%s' "$sentinel_out" | grep -qv 'Do you trust' \
+  && printf '%s' "$control_out" | grep -q 'Do you trust'; then
+  pass 'sentinel codex never hits the trust screen after pre-seed (control dir still would)'
+else
+  fail "trust sentinel (preseeded='$sentinel_out' control='$control_out')"
+fi
+
+# Non-codex runtimes never touch codex's trust config.
+make_worktree alien-trust
+node - "$TMP_ROOT/spec-alien-trust.json" "$TMP_ROOT/wt-alien-trust" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "zylophontest", cwd: wt, argv: ["/bin/zylo"], env: {}, prompt_delivery: "transport" }));
+NODE
+trust_config_before="$(cat "$TRUST_CONFIG")"
+fake_state launch-alien-trust
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-alien-trust" --launch-spec "$TMP_ROOT/spec-alien-trust.json" >/dev/null 2>&1
+if ! grep -q 'wt-alien-trust' "$TRUST_CONFIG" && [ "$(cat "$TRUST_CONFIG")" = "$trust_config_before" ]; then
+  pass 'non-codex runtime launch leaves codex trust config untouched'
+else
+  fail 'non-codex launch mutated codex trust config'
 fi
 
 # --kind is spec data forwarded verbatim, never a runtime-name branch.
