@@ -40,7 +40,7 @@ STATE="${HERDR_FAKE_STATE:?}"
 SCREEN="${HERDR_FAKE_SCREEN:?}"
 mkdir -p "$STATE"
 agent_json() {
-  printf '{"result":{"agent":{"name":"%s","pane_id":"%s","status":"%s"}}}\n' "$1" "$2" "$3"
+  printf '{"result":{"agent":{"name":"%s","pane_id":"%s","agent_status":"%s"}}}\n' "$1" "$2" "$3"
 }
 error_json() {
   printf '{"error":{"code":"%s","message":"%s"}}\n' "$1" "$2" >&2
@@ -182,13 +182,14 @@ NODE
           case "${HERDR_FAKE_READY:-idle}" in
             idle) agent_json "$wait_target" "w1:live" idle; exit 0 ;;
             blocked) agent_json "$wait_target" "w1:live" blocked; exit 0 ;;
-            timeout) error_json timeout 'not ready in time' ;;
+            legacy-status) printf '{"result":{"agent":{"name":"%s","pane_id":"%s","status":"%s"}}}\n' "$wait_target" "w1:live" idle; exit 0 ;;
           esac
           exit 9
         fi
         # wait-settled: --until idle --until done --until blocked.
         case "${HERDR_FAKE_SETTLED_MODE:-state}" in
           timeout) error_json timeout 'still settling' ;;
+          legacy-status) printf '{"result":{"agent":{"name":"%s","pane_id":"%s","status":"%s"}}}\n' "$wait_target" "w1:live" "${HERDR_FAKE_SETTLED:-idle}"; exit 0 ;;
           notrunning) error_json agent_not_running 'agent exited' ;;
           *) agent_json "$wait_target" "w1:live" "${HERDR_FAKE_SETTLED:-idle}"; exit 0 ;;
         esac
@@ -455,7 +456,7 @@ fi
 SESSION="$TMP_ROOT/session.json"
 make_session_json "$SESSION"
 
-for ready_case in idle blocked timeout; do
+for ready_case in idle blocked legacy-status timeout; do
   fake_state "ready-$ready_case"
   herdr_env
   HERDR_FAKE_READY="$ready_case" PATH="$BIN:$PATH" bash "$ADAPTER" wait-ready --session-json "$SESSION" --timeout-ms 4000 >"$TMP_ROOT/ready-$ready_case.out" 2>"$TMP_ROOT/ready-$ready_case.err"
@@ -463,6 +464,7 @@ for ready_case in idle blocked timeout; do
   case "$ready_case" in
     idle) ready_want=0; ready_code='' ;;
     blocked) ready_want=1; ready_code='herdr_agent_blocked_before_ready' ;;
+    legacy-status) ready_want=1; ready_code='herdr_agent_ready_state_invalid' ;;
     timeout) ready_want=1; ready_code='herdr_agent_not_ready:timeout' ;;
   esac
   ready_ok=0
@@ -589,6 +591,21 @@ settled_case done-direct 'HERDR_FAKE_SETTLED=done' settled
 settled_case blocked-direct 'HERDR_FAKE_SETTLED=blocked' blocked
 settled_case working-after-timeout 'HERDR_FAKE_SETTLED_MODE=timeout HERDR_FAKE_GET=ok HERDR_FAKE_GET_STATE=working' working
 settled_case unknown-is-stale 'HERDR_FAKE_SETTLED_MODE=timeout HERDR_FAKE_GET=ok HERDR_FAKE_GET_STATE=unknown' stale
+# Regression (#211): real herdr keys the lifecycle field as agent_status.
+# The idle/done/blocked cases above would fail against the old `status`-keyed
+# parser; a legacy `status`-shaped response must be refused, not misread.
+settled_case idle-agent-status 'HERDR_FAKE_SETTLED=idle' settled
+settled_case done-agent-status 'HERDR_FAKE_SETTLED=done' settled
+settled_case blocked-agent-status 'HERDR_FAKE_SETTLED=blocked' blocked
+if HERDR_FAKE_SETTLED_MODE=legacy-status PATH="$BIN:$PATH" \
+  bash "$ADAPTER" wait-settled --session-json "$SESSION" --timeout-ms 3000 \
+  >"$TMP_ROOT/settled-legacy.out" 2>"$TMP_ROOT/settled-legacy.err"; then
+  fail "wait-settled legacy shape (unexpected success got=$(cat "$TMP_ROOT/settled-legacy.out"))"
+elif grep -q 'herdr_settled_state_invalid' "$TMP_ROOT/settled-legacy.err"; then
+  pass 'wait-settled refuses legacy status-shape response (#211)'
+else
+  fail "wait-settled legacy shape (got $(cat "$TMP_ROOT/settled-legacy.out") $(cat "$TMP_ROOT/settled-legacy.err"))"
+fi
 settled_case agent-gone-is-terminal 'HERDR_FAKE_SETTLED_MODE=notrunning' terminal
 if grep -q -- '--until idle --until done --until blocked --timeout 3000' "$STUB_ARGS" \
   && ! grep -q -- 'wait codex-203 --until idle --until blocked --timeout 3000' "$STUB_ARGS"; then
