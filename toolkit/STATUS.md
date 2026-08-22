@@ -2,6 +2,12 @@
 
 _Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
 
+**cmux archived (2026-08-22):** only orca + herdr are actively worked. cmux (#208)
+stays registered in `transport-registry.cjs` and its adapter/tests are untouched
+(removing it would break ~170 cmux-premised test cases), but it is not next-priority
+work — its live capability is already runtime fail-closed against real cmux 0.64.x.
+Revisit once orca/herdr are confirmed stable against real binaries.
+
 ## In progress: v0.21 generic distribution and runtime symmetry
 
 - T1 adds an additive `execution_mode=headless|live-tui` seam, shell-free
