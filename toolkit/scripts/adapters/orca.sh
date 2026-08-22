@@ -166,6 +166,26 @@ try {
   const message = value && value.error && value.error.message;
   if (code === "terminal_handle_stale") process.exit(0);
   if (code === "runtime_error" && message === "tab_not_found") process.exit(0);
+  // ok:true + status:"exited" is real orca's closed-terminal read (issue
+  // #210): equally positive evidence the handle is gone.
+  const okTerminal = value.ok === true && value.result && value.result.terminal;
+  if (okTerminal && okTerminal.status === "exited") process.exit(0);
+} catch (error) {}
+process.exit(1);
+NODE
+}
+
+# Real orca reports a closed terminal as a *successful* read: exit 0,
+# ok:true, result.terminal.status:"exited" and an empty tail (issue #210).
+# That status is positive evidence the handle is gone, same trust level as
+# the error-code signals above — never an "alive, no new output" read.
+orca_live_stale_exited() {
+  node - "$1" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  const terminal = value && value.ok === true && value.result && value.result.terminal;
+  if (terminal && terminal.status === "exited") process.exit(0);
 } catch (error) {}
 process.exit(1);
 NODE
@@ -353,11 +373,23 @@ live_read() {
     return 0
   }
   read_run "$read_out" "$read_err"
+  # A zero-exit read can still be a closed terminal (ok:true, status:"exited",
+  # empty tail — issue #210). Mark it failed so the shared stale machinery
+  # below classifies and reacquires instead of returning a fake empty success.
+  if [ "$ORCA_LIVE_STATUS" -eq 0 ] && orca_live_stale_exited "$read_out"; then
+    ORCA_LIVE_STATUS=1
+  fi
   if [ "$ORCA_LIVE_STATUS" -ne 0 ]; then
     orca_live_retry_stale read_run "$read_out" "$read_err" || {
       echo 'ERROR: live_read_failed: terminal read failed' >&2
       exit 1
     }
+    # A reacquired handle that is itself already exited is still stale, not a
+    # successful (empty) read.
+    if orca_live_stale_exited "$read_out"; then
+      echo 'ERROR: live_read_failed: terminal read reported an exited terminal' >&2
+      exit 1
+    fi
   fi
   # Emit only stable fields (joined output + cursor). Volatile vendor fields
   # (request ids, timestamps, runtime metadata) are dropped so repeated reads

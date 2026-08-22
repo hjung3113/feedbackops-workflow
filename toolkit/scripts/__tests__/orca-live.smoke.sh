@@ -110,6 +110,7 @@ is_stale() { [ -n "${ORCA_STALE_HANDLE:-}" ] && [ "$1" = "$ORCA_STALE_HANDLE" ];
 # close, and a bare timeout with no dedicated code at all on wait.
 is_tab_not_found() { [ -n "${ORCA_TAB_NOT_FOUND_HANDLE:-}" ] && [ "$1" = "$ORCA_TAB_NOT_FOUND_HANDLE" ]; }
 is_wait_timeout() { [ -n "${ORCA_WAIT_TIMEOUT_HANDLE:-}" ] && [ "$1" = "$ORCA_WAIT_TIMEOUT_HANDLE" ]; }
+is_read_exited() { [ -n "${ORCA_READ_EXITED_HANDLE:-}" ] && case ",$ORCA_READ_EXITED_HANDLE," in *",$1,"*) return 0 ;; esac; return 1; }
 
 emit() {
   node - "$@" <<'NODE'
@@ -201,6 +202,12 @@ case "$sub" in
         *) shift ;;
       esac
     done
+    if is_read_exited "$read_handle"; then
+      # Real orca's closed-terminal read (issue #210): success shape, empty
+      # tail, status:"exited".
+      printf '{"id":"r-exited","ok":true,"result":{"terminal":{"handle":"%s","status":"exited","tail":[],"nextCursor":"0","latestCursor":"0"}}}\n' "$read_handle"
+      exit 0
+    fi
     if is_stale "$read_handle"; then
       printf '%s\n' '{"id":"fake-read","ok":false,"error":{"code":"terminal_handle_stale","message":"stale handle"}}'
       exit 1
@@ -736,6 +743,47 @@ if [ "$settled_ambiguous_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/wait.coun
   && ! grep -F '"state":"stale"' "$TMP_ROOT/settled-ambiguous.out" >/dev/null 2>&1; then
   pass 'wait-settled with an ambiguous reacquire match on timeout fails closed, never claims stale'
 else fail "wait-settled timeout-ambiguous fail-closed (ec=$settled_ambiguous_ec)"; fi
+
+# A zero-exit read on a closed terminal (ok:true, status:"exited", empty
+# tail — issue #210) is provable staleness, never a fake empty success. With
+# no surviving seat match, read fails closed without a retry.
+fresh_env read-exited-vanished
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-decoy","title":"other-seat"}]}}' > "$CASE_STATE/terminals.json"
+ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_READ_EXITED_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" read --session-json "$STALE_SESSION" > "$TMP_ROOT/read-exited-vanished.out" 2>"$TMP_ROOT/read-exited-vanished.err"
+read_exited_vanished_ec=$?
+if [ "$read_exited_vanished_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/read.count")" = "1" ] \
+  && grep -F 'live_read_failed' "$TMP_ROOT/read-exited-vanished.err" >/dev/null \
+  && ! grep -F '"output"' "$TMP_ROOT/read-exited-vanished.out" >/dev/null 2>&1; then
+  pass 'read on an exited terminal with no surviving seat fails closed, never emits an empty success'
+else fail "read exited-terminal vanished (ec=$read_exited_vanished_ec, $(cat "$TMP_ROOT/read-exited-vanished.err"))"; fi
+
+# Same exited read, but the seat was recreated under a new handle: the shared
+# stale machinery reacquires once and the retried read returns real output.
+fresh_env read-exited-rotated
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-new","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+if ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_READ_EXITED_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" read --session-json "$STALE_SESSION" > "$TMP_ROOT/read-exited-rotated.out" 2>"$TMP_ROOT/read-exited-rotated.err" \
+  && [ "$(invocations_of "$CASE_LOG/read.count")" = "2" ] \
+  && grep -F 'base screen' "$TMP_ROOT/read-exited-rotated.out" >/dev/null; then
+  pass 'read on an exited terminal reacquires the rotated seat and returns real output'
+else fail "read exited-terminal rotated ($(cat "$TMP_ROOT/read-exited-rotated.err"))"; fi
+
+# The post-reacquire safety net: the seat WAS recreated (single match,
+# term-new) but the reacquired handle is itself already exited — the retried
+# read is another ok:true/empty-tail/exited payload. Directly exercises the
+# distinct fail-closed branch; deleting it would let this succeed with a
+# fake empty read.
+fresh_env read-exited-rotated-still-exited
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-new","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_READ_EXITED_HANDLE="term-old,term-new" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" read --session-json "$STALE_SESSION" > "$TMP_ROOT/read-exited-rotated-again.out" 2>"$TMP_ROOT/read-exited-rotated-again.err"
+read_exited_again_ec=$?
+if [ "$read_exited_again_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/read.count")" = "2" ] \
+  && grep -F 'live_read_failed' "$TMP_ROOT/read-exited-rotated-again.err" >/dev/null \
+  && ! grep -F '"output"' "$TMP_ROOT/read-exited-rotated-again.out" >/dev/null 2>&1; then
+  pass 'read reacquired onto an already-exited handle still fails closed, never emits an empty success'
+else fail "read exited-terminal rotated-still-exited (ec=$read_exited_again_ec, $(cat "$TMP_ROOT/read-exited-rotated-again.err"))"; fi
 
 # --- 6. supervisor state machine ---------------------------------------------------
 
