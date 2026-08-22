@@ -65,6 +65,36 @@ const PROBE = {
   },
 };
 
+// Interactive launch admission is intentionally separate from the headless
+// PROBE contract. A missing live token makes only live-tui unavailable; the
+// existing headless capability remains usable and byte-for-byte compatible.
+const LIVE_PROBE = {
+  codex: {
+    help_tokens: ["--sandbox", "--cd", "--add-dir", "-m", "-c", "--ask-for-approval"],
+    subcommand: "",
+    subcommand_help_tokens: [],
+  },
+  claude: {
+    // Bare `claude` is the interactive REPL. These are the policy flags the
+    // launch-spec emits; --print and stream-json remain headless-only.
+    help_tokens: ["--permission-mode", "--model", "--effort"],
+    subcommand: "",
+    subcommand_help_tokens: [],
+  },
+  opencode: {
+    // The root TUI, rather than `opencode run`, owns the live path.
+    help_tokens: ["--agent", "--model", "--variant"],
+    subcommand: "",
+    subcommand_help_tokens: [],
+  },
+};
+
+const PROMPT_DELIVERY = {
+  codex: "transport",
+  claude: "transport",
+  opencode: "transport",
+};
+
 // Progress-event contract: flags switch the runtime into NDJSON event output
 // on the named stream; final.match (every [dotted-path, equals-value] pair
 // must hold) locates the terminal event and final.text_path extracts its
@@ -115,7 +145,10 @@ function effortValid(model, effort) {
   return effortPattern(family).test(effort);
 }
 
-module.exports = { RUNTIMES, STASH_BY, WS_SHORT_IMPL, EFFORT_DEFAULT, BIN, PROBE, PROGRESS, MODEL_FAMILY_REGEX, EFFORT_ENUMS, effortValid };
+module.exports = {
+  RUNTIMES, STASH_BY, WS_SHORT_IMPL, EFFORT_DEFAULT, BIN, PROBE, LIVE_PROBE,
+  PROMPT_DELIVERY, PROGRESS, MODEL_FAMILY_REGEX, EFFORT_ENUMS, effortValid,
+};
 
 if (require.main === module) {
   const command = process.argv[2] || "lines";
@@ -139,6 +172,10 @@ if (require.main === module) {
     case "probe-help-tokens": PROBE[registered(process.argv[3])].help_tokens.forEach(write); break;
     case "probe-subcommand": write(PROBE[registered(process.argv[3])].subcommand); break;
     case "probe-subcommand-help-tokens": PROBE[registered(process.argv[3])].subcommand_help_tokens.forEach(write); break;
+    case "live-probe-help-tokens": LIVE_PROBE[registered(process.argv[3])].help_tokens.forEach(write); break;
+    case "live-probe-subcommand": write(LIVE_PROBE[registered(process.argv[3])].subcommand); break;
+    case "live-probe-subcommand-help-tokens": LIVE_PROBE[registered(process.argv[3])].subcommand_help_tokens.forEach(write); break;
+    case "prompt-delivery": write(PROMPT_DELIVERY[registered(process.argv[3])]); break;
     case "stash-by": write(STASH_BY[registered(process.argv[3])]); break;
     case "ws-short-impl": write(WS_SHORT_IMPL[registered(process.argv[3])] ? "true" : "false"); break;
     case "effort-default": write(EFFORT_DEFAULT[registered(process.argv[3])]); break;
@@ -169,7 +206,7 @@ if (require.main === module) {
       break;
     }
     default:
-      process.stderr.write("usage: runtime-registry.cjs [lines|default-runtime|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-default <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
+      process.stderr.write("usage: runtime-registry.cjs [lines|default-runtime|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | live-probe-help-tokens <runtime> | live-probe-subcommand <runtime> | live-probe-subcommand-help-tokens <runtime> | prompt-delivery <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-default <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
       process.exit(2);
   }
 }

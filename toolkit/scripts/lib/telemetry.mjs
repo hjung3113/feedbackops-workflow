@@ -205,8 +205,8 @@ const telemetryRole = (receiptRole) => ({
 }[receiptRole] || null);
 const routedProvenance = ({ repo, round, roundSource, receiptSource, issue, salt }) => {
   const receipt = receiptSource.value;
-  if (receipt.schema_version !== "3" || !receipt.routing)
-    die("policy telemetry requires a v3 transport receipt");
+  if (!(receipt.schema_version === "3" || receipt.schema_version === "4") || !receipt.routing)
+    die("policy telemetry requires a v3 or v4 transport receipt");
   if (
     receipt.issue !== issue || !receipt.runtime || !receipt.role || !receipt.routing.selected ||
     !/^[a-f0-9]{64}$/.test(receipt.routing.route_digest || "") ||

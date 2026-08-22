@@ -30,6 +30,9 @@ const supported = new Set([
   "allOf",
   "oneOf",
   "not",
+  "if",
+  "then",
+  "else",
 ]);
 
 function valueType(value) {
@@ -70,6 +73,14 @@ function validate(schema, value, path = "$", root = schema) {
   }
   if (schema.not && validate(schema.not, value, path, root).length === 0) {
     errors.push(`${path}: must not match forbidden schema`);
+  }
+  if (schema.if) {
+    const conditionErrors = validate(schema.if, value, path, root);
+    if (conditionErrors.length === 0 && schema.then) {
+      errors.push(...validate(schema.then, value, path, root));
+    } else if (conditionErrors.length !== 0 && schema.else) {
+      errors.push(...validate(schema.else, value, path, root));
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(schema, "const") && !sameJson(value, schema.const)) {

@@ -1,0 +1,27 @@
+{
+  "schema_version": "4",
+  "artifact_type": "transport_receipt",
+  "authoritative": false,
+  "issue": 203,
+  "runtime": "codex",
+  "role": "implementation",
+  "runtime_version": "0.1.0",
+  "execution_mode": "headless",
+  "adapter": "cmux",
+  "adapter_version": "cmux 0.64.18",
+  "capabilities": ["workspace.create.cwd", "workspace.create.command"],
+  "handles": {
+    "lifecycle": "workspace-203",
+    "io": "workspace-203",
+    "agent": "workspace-203"
+  },
+  "launch_spec_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "worktree_path": "/tmp/example",
+  "runner": {
+    "path": "/tmp/example/.review/ISSUE-203-launch.abcd/launch.sh",
+    "relative_path": ".review/ISSUE-203-launch.abcd/launch.sh",
+    "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "launched_at": "2026-08-21T00:00:00Z",
+  "created_at": "2026-08-21T00:00:00Z"
+}

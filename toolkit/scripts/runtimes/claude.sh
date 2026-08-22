@@ -7,6 +7,16 @@ RUNTIME_REGISTRY="$SCRIPT_DIR/../lib/runtime-registry.cjs"
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
+  launch-spec)
+    [ "$MODE" = write ] && permission=acceptEdits || permission=plan
+    set -- "$BIN" --permission-mode "$permission"
+    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
+    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    # The bare command is Claude's interactive REPL. Headless --print and
+    # stream-json flags remain exclusively in the run branch below.
+    node "$SCRIPT_DIR/../lib/launch-spec.cjs" emit claude "$CWD" "$(node "$RUNTIME_REGISTRY" prompt-delivery claude)" '{}' "$@"
+    exit $?
+    ;;
   probe)
     set -- "$BIN" --print --permission-mode plan --output-format text --model "$MODEL" --effort "$EFFORT" "reply exactly OK"
     exec "$@"

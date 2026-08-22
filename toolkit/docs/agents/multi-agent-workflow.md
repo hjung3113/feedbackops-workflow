@@ -55,9 +55,83 @@ OpenCode requires an explicit deny-first permission JSON. Both top-level
 `edit` and `bash` in both scopes so implementation can build, test, and use Git,
 while read denies both. The adapter supplies that exact
 JSON through `OPENCODE_CONFIG_CONTENT` and invokes `opencode run --agent
-agent-workflow`; it never accepts OpenCode's default-agent fallback. A model
+agent-workflow` for headless work; its live launch-spec uses the root TUI with
+the same explicit agent and config. It never accepts OpenCode's default-agent fallback. A model
 choice cannot waive this gate. Codex, Claude Code, and OpenCode may each
 conduct or perform any role only after their own capability probe passes.
+
+### Execution mode and live-TUI sessions
+
+Permission `mode` (`read|write`) and `execution_mode` (`headless|live-tui`) are
+independent. `headless` is the default and retains the generated runner,
+watchdog, progress parsing, and existing receipt behavior. Phase 1 accepts
+`--execution-mode live-tui` only for `role=implementation` with write
+permission; the flag is CLI-only and is not a workflow-config or model-
+allocation setting. A live runtime emits a shell-free `launch-spec` with
+`argv[]`, `env`, and `prompt_delivery`, while the selected adapter owns
+`launch-live`, readiness, input, read, activity, settled-state, interrupt,
+close, and structured handles. Missing semantic capabilities refuse live
+admission without a headless fallback.
+
+Live dispatch publishes a non-authoritative v4 transport receipt and
+`.review/ISSUE-N-launch.*/LIVE.json` after ready plus post-send activity.
+Those files are launch/liveness evidence, not completion; canonical
+PR-DRAFT/BLOCKER/REVIEW/VERIFY artifacts remain the workflow authority. The
+live supervisor uses `LIVE_WAIT_READY_TIMEOUT_MS`,
+`LIVE_SEND_ACTIVITY_TIMEOUT_MS`, `LIVE_WAIT_SETTLED_TIMEOUT_MS`, and
+`LIVE_SESSION_TIMEOUT_MS`; adapter settled states are never accepted without
+the canonical artifact gate.
+
+The Orca live adapter proves the complete interactive token set (`--terminal`,
+`--cursor`, `--for`, `tui-idle`, `--timeout-ms`, `--text`, `--enter` across
+`orca terminal read/send/wait/close --help`) before claiming any `session.*`
+capability; one missing token keeps headless available and live refused. Its
+`launch-live` quotes every launch-spec env assignment and argv token with
+`printf %q` into Orca's single `--command` string (Orca documents no
+argv-array form, so naive concatenation would be a shell-injection surface)
+and refuses to create a second terminal titled for the same worktree + seat,
+so a same-issue re-dispatch can never double-prompt a live seat.
+`wait-ready` is `terminal wait --for tui-idle` used strictly as a readiness
+gate, never completion; `read` emits only stable output+cursor bytes
+(volatile vendor fields are dropped so repeated reads compare equal until
+real activity); `send` requires positive byte-delivery evidence;
+`wait-settled` maps a satisfied tui-idle to the `settled` hint, an
+unsatisfied wait to `working`, and a native `blockedReason` to `blocked` —
+always a hint, with completion owned by the canonical artifact gate. A stale
+terminal handle is reacquired once by exact worktree + seat-title identity;
+zero or several matches fail closed.
+
+#### cmux live sessions (direct argv, surface handles)
+
+The cmux live path uses only the generic direct-argv surface
+(`cmux run --new-workspace --cwd --name --json -- <argv...>` plus
+`send`/`send-key`/`read-screen`/`wait-for`/`close-workspace`), never the
+`claude-teams`/`codex-teams`/`omo` team wrappers, which change orchestration
+semantics. Every primitive is help-proven from the installed binary's own
+`--help` tokens, never from a version number; one missing token keeps
+headless available while live stays unadmitted. The run envelope yields
+three structured handles — lifecycle (workspace), io (PTY surface), agent
+(terminal id) — with no `external_handle` alias, so a workspace handle can
+never be substituted for the I/O surface. The prompt is delivered byte-exact
+as base64 `--bytes` plus a separate `send-key enter`; a failed send never
+receives the enter key and an uncertain send is never retried. `wait-for`
+is a screen-regex synchronization primitive only (readiness gate); agent
+lifecycle state comes exclusively from the `list-agents` state query
+(`working|blocked|idle|done|unknown`). When that query is not help-proven,
+cmux never reports `settled` at all and canonical artifacts remain the only
+completion authority; `unknown` is never success evidence and maps to
+`stale`. A launch-spec carrying `env` or non-transport `prompt_delivery` is
+refused because the documented run envelope cannot deliver either
+faithfully.
+
+Live token probing is deliberately not part of the plain capability probe
+that dispatch issues on every headless dispatch: it runs under
+`capabilities --worktree <path> --probe-live` (and per-subcommand at use
+time), so headless dispatches make zero additional vendor calls. Until
+dispatch-core passes a live-intent signal to its capability probe, a
+`--execution-mode live-tui` dispatch on cmux refuses with
+`live_tui_capability_missing` before any prompt delivery; admitting cmux
+live dispatch requires that intent signal first (follow-up to the T1 seam).
 
 The coordination model consumes one target-owned profile (`schemas/target-profile.schema.json`) for target facts. `target-verify.sh` is target-neutral and is the sole verifier; worktree setup commands come from the same profile. Read `.claude/skills/agent-workflow/references/adoption.md` before adoption.
 
@@ -197,7 +271,7 @@ The installed `.agent-workflow/model-alloc.json` is the project-owned allocation
 
 ### Local model/task telemetry
 
-Telemetry is local, offline, and opt-in. `scripts/telemetry.sh collect` validates canonical ROUND-STATE/RUN plus optional final REVIEW, VERIFY, and BLOCKER artifacts. A supplied parallel-candidate `ISSUE-N-CLOSURE.json` additionally requires the canonical target-local `ISSUE-N-INTEGRATION.json` and `ISSUE-N-CANDIDATE-EVIDENCE.json`; all three are realpath-, schema-, identity-, and semantic-validated. Closure dependency digests must equal the actual integration/evidence bytes, evidence generation cannot precede integration, and closure evaluation cannot precede integration, evidence, or the admitted RUN end. Collector, report, and candidate closure reuse one strict calendar-valid RFC3339 parser, so regex-shaped impossible dates such as February 30 are rejected; copied branches pin byte-identical schema/fixture provenance so integration leaves one contract per artifact. Stored closure samples bind closure source/hash/value to exactly one canonical candidate-closure, integration, and candidate-evidence artifact and their recorded digests. A green terminal requires `status:"closed"` whose source, digests, project membership, issue, round, manifest revision, and candidate HEAD match the sample; REVIEW or VERIFY pass alone is never green. A policy-routed v2 sample additionally requires canonical v3 `ISSUE-N-TRANSPORT.json`; the collector validates every receipt routing field against the current Git-common-dir host admission transaction (and paired integrated binding when applicable), then derives runtime/model/effort/transport and a local-salt HMAC route pseudonym from that host-bound tuple. Receipt roles `implementation`/`reviewer`/`verifier` map only to telemetry roles `implementation`/`review`/`verification`; every other receipt role is a typed collection refusal. Raw route digests and CLI-supplied routing tuples are refused. The target supplies a local salt used to pseudonymize project identity. Existing salt/store components and the created store are resolved physically: benign symlinks to in-project files/directories are allowed, while any symlink escaping the target is rejected. Collection allowlists enums, timestamps, SHAs, relative artifact paths and hashes, and token/cost provenance; it excludes prompt/output text, environment or file bodies, raw provider request IDs, usernames, emails, and absolute paths. `observed`, `estimated`, and `unavailable` are distinct: unavailable values stay null and are never interpreted as zero.
+Telemetry is local, offline, and opt-in. `scripts/telemetry.sh collect` validates canonical ROUND-STATE/RUN plus optional final REVIEW, VERIFY, and BLOCKER artifacts. A supplied parallel-candidate `ISSUE-N-CLOSURE.json` additionally requires the canonical target-local `ISSUE-N-INTEGRATION.json` and `ISSUE-N-CANDIDATE-EVIDENCE.json`; all three are realpath-, schema-, identity-, and semantic-validated. Closure dependency digests must equal the actual integration/evidence bytes, evidence generation cannot precede integration, and closure evaluation cannot precede integration, evidence, or the admitted RUN end. Collector, report, and candidate closure reuse one strict calendar-valid RFC3339 parser, so regex-shaped impossible dates such as February 30 are rejected; copied branches pin byte-identical schema/fixture provenance so integration leaves one contract per artifact. Stored closure samples bind closure source/hash/value to exactly one canonical candidate-closure, integration, and candidate-evidence artifact and their recorded digests. A green terminal requires `status:"closed"` whose source, digests, project membership, issue, round, manifest revision, and candidate HEAD match the sample; REVIEW or VERIFY pass alone is never green. A policy-routed v2 sample additionally requires canonical v3 or v4 `ISSUE-N-TRANSPORT.json`; the collector validates every receipt routing field against the current Git-common-dir host admission transaction (and paired integrated binding when applicable), then derives runtime/model/effort/transport and a local-salt HMAC route pseudonym from that host-bound tuple. Receipt roles `implementation`/`reviewer`/`verifier` map only to telemetry roles `implementation`/`review`/`verification`; every other receipt role is a typed collection refusal. Raw route digests and CLI-supplied routing tuples are refused. The target supplies a local salt used to pseudonymize project identity. Existing salt/store components and the created store are resolved physically: benign symlinks to in-project files/directories are allowed, while any symlink escaping the target is rejected. Collection allowlists enums, timestamps, SHAs, relative artifact paths and hashes, and token/cost provenance; it excludes prompt/output text, environment or file bodies, raw provider request IDs, usernames, emails, and absolute paths. `observed`, `estimated`, and `unavailable` are distinct: unavailable values stay null and are never interpreted as zero.
 
 `scripts/telemetry.sh report --worktree <target> --from <ISO> --to <ISO> --minimum-samples <N> --minimum-completeness <0..1>` revalidates each stored closure snapshot against its canonical source/digest record, then reconstructs retry chains by the immutable salted-project/issue/round/manifest-revision lineage. Complete chains start at admitted attempt 1, cover every contiguous attempt, use an edge to the immediately preceding sample, and end in canonical green closure; a cross-issue edge, missing attempt, or attempt 1→9 jump remains incomplete. Reports expose every attempt's role/task/tier/model/effort/usage allocation. Mixed-model chains remain visible and can be complete, but are suppressed from single-model cohorts as `mixed-model:<chain-id>` rather than attributed to the first model. Legacy v1 parsing remains unchanged. Routing cohorts use only homogeneous v2 policy chains and group selection basis, policy digest, runtime, role, task class, tier, model, and effort; the per-sample salted route pseudonym is not a cohort dimension. Their declared minimum is complete independent-chain count, emitted as `policy.minimum_complete_independent_chains` and currently set from `--minimum-samples`; admitted cohorts additionally expose complete-green rate, mean retries-to-green, and mean wall time. A v2 report says insufficient evidence when those cohorts or usage completeness are below threshold and includes a confounder warning. The report is advisory evidence only and never mutates model allocation or tier policy. The operator owns retention and export; the toolkit performs no upload or background collection. Exact-ID deletion additionally requires `--confirm DELETE`, and no bulk automatic deletion is provided. See `schemas/fixtures/telemetry_report.valid.json` and `telemetry_report.routing.valid.json` for the stable report shapes.
 
@@ -408,11 +482,13 @@ The public interface has three commands: `capabilities`, `dispatch`, and `inspec
 
 The typed `role` is an admission, access-mode, and provenance contract; it is not a runtime-specific hidden persona prompt. The canonical prompt/capsule supplied by the conductor remains the explicit source of role instructions and task scope. This keeps the same auditable prompt semantics across Codex, Claude Code, and OpenCode instead of silently injecting different vendor behavior.
 
-The cmux adapter creates one workspace with the exact `--cwd` and short runner command. Before admission it runs only side-effect-free version/help probes: cmux must be at least `0.64.0`, `workspace create` must exist, and its documented create flags must include `--cwd` and `--command`. A present binary whose probes exit non-zero is unavailable. The Orca adapter first proves `orca terminal create` supports every launch flag (`--worktree`, `--title`, `--command`, `--json`) and that read-only terminal listing supports `--worktree` and `--json`; it then creates one fresh bare-shell terminal with `--worktree path:<exact-worktree>` and the same short runner. It does not create or open a repository/worktree/UI, inject another agent, focus the GUI, reuse a supplied handle, or fall back. Missing proof returns `required_capability_missing` before admission and does not consume a marker. `cmux-dispatch.sh` remains an explicit-cmux compatibility facade over this same core.
+The cmux adapter creates one workspace with the exact `--cwd` and short runner command. Before admission it runs only side-effect-free version/help probes: cmux must be at least `0.64.0`, `workspace create` must exist, and its documented create flags must include `--cwd` and `--command`. A present binary whose probes exit non-zero is unavailable. The Orca adapter first proves `orca terminal create` supports every launch flag (`--worktree`, `--title`, `--command`, `--json`) and that read-only terminal listing supports `--worktree` and `--json`; it then creates one fresh bare-shell terminal with `--worktree path:<exact-worktree>` and the same short runner. It does not create or open a repository/worktree/UI, inject another agent, focus the GUI, reuse a supplied handle, or fall back. Missing proof returns `required_capability_missing` before admission and does not consume a marker. `cmux-dispatch.sh` remains an explicit-cmux compatibility facade over this same core. cmux additionally implements the live-tui session subcommands described under "Execution mode and live-TUI sessions" above; its live token proof lives in `cmux.sh`/`cmux-handles.cjs` and is probed only under `--probe-live` or at subcommand use time.
 
 All three transport adapters share one helper set instead of reimplementing the same concerns: `scripts/lib/semver.cjs` owns prerelease-aware version parsing and floor checks (Orca uses its strict whole-string mode for the runtime `appVersion`), `scripts/lib/adapter-json.cjs` emits capability payloads from the field set `scripts/lib/capability-result.cjs` owns as the acceptance gate, and `scripts/lib/adapter-helpers.sh` owns `help_has` help probing, the `.review/ISSUE-*-launch.*/launch.sh` runner-path guard, the graceful exit-0 `handle_unverifiable` fallback, and the `"<version>;binary-sha256:<digest>"` provenance format. Per-adapter CLI arg loops and case dispatch are deliberately not unified into a framework while only three adapters exist.
 
 Herdr is the third explicit transport and must be selected as `--orchestrator herdr` (or through the corresponding environment/config axis). Its capability, launch, and inspect operations require the inherited Herdr session context (`HERDR_ENV=1` and a non-empty `HERDR_SOCKET_PATH`); missing context fails closed with no transport fallback. Herdr's external handle is the returned `workspace_id`, never the requested label, request ID, or pane ID. A live Herdr workspace is transport liveness only, not workflow completion, and its receipt records launch intent/provenance rather than confirmed command delivery; only fresh HEAD-bound REVIEW and VERIFY evidence completes work.
+
+Herdr live sessions use the agent facade, never `pane run` (which stays the headless runner and generic-shell fallback). Before the eight semantic session capabilities are offered, the adapter proves the `herdr agent start/prompt/wait/read/send-keys/get` help-token contract and passes a fresh/untrusted-worktree trust-prompt race acceptance test: in a never-trusted temp workspace it runs a sentinel that renders a first-run trust-prompt screen and requires the installed herdr itself to classify that agent as `blocked` (the documented fix contract for herdrdev/herdr#2410, where 0.8.0-era `agent start` reported interactive-ready while the trust prompt still blocked). Idle, unknown, timeout, or error all leave live unavailable while headless stays intact; that probe runs on every capability call, so an installation that never classifies the sentinel pays its bounded wait (default 8s) per dispatch until herdr is fixed. `launch-live` creates the workspace, takes the root pane, and runs `agent start NAME --kind <launch-spec runtime> --pane <pane> --timeout 120000 [--env K=V ...] -- <spec argv...>`, forwarding `--kind` as spec data (never a runtime-name branch), preserving argv tokens byte-exactly through a NUL-delimited handoff, and requiring a proven `--env` token only when the spec carries a non-empty env. `wait-ready` never trusts `agent start` exit 0: it asks `agent wait --until idle --until blocked` and a `blocked` answer (trust prompt or approval UI) is the typed `herdr_agent_blocked_before_ready` refusal, never a send target. `send` is `agent prompt --wait` with a 15s window: herdr's native `agent_prompt_stalled` becomes a typed failure, a wait timeout is disambiguated through `agent get` (working/blocked/idle/done/unknown defer to the supervisor's activity gate), and the prompt body is never re-sent. `read` wraps `agent read --source recent-unwrapped --lines 200` in a deterministic JSON envelope with no volatile fields so the supervisor's byte-diff only sees real screen change. `wait-settled` maps herdr's native states onto the shared enum (`idle`/`done`→settled, `blocked`→blocked, `working`→working, `unknown`→stale and never success evidence, `agent_not_running`→terminal), `interrupt` sends `agent send-keys esc`, `close` closes the workspace, and `inspect --session-json` resolves workspace liveness from the structured handles (`lifecycle`=workspace, `io`=pane, `agent`=agent name). Offline coverage lives in `scripts/__tests__/herdr-live.smoke.sh`, including the trust-race gate itself, the settled-without-fresh-artifact contract failure, and same-issue redispatch duplicate-prompt prevention.
 
 Before admission, the shared core resolves the selected runtime from its runtime-specific host seam (`AGENT_WORKFLOW_CODEX_BIN`, `AGENT_WORKFLOW_CLAUDE_BIN`, or `AGENT_WORKFLOW_OPENCODE_BIN`) or caller `PATH` to one canonical absolute executable. It exports only the generic absolute `AGENT_WORKFLOW_RUNTIME_BIN` pin into the retained runner, shared watchdog probes, and runtime adapter. Relative, missing, non-executable, mismatched, or unavailable pins fail before admission; target workflow config cannot set one. This prevents a transport terminal with a different inherited PATH from changing runtime identity. cmux handle creation/inspection remains identity-strict as documented below.
 

@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_REGISTRY="$SCRIPT_DIR/lib/runtime-registry.cjs"
 RUNTIME=""; ROLE=""; MODE=""; CWD=""; PROMPT_FILE=""; MODEL=""; EFFORT=""; OPENCODE_PERMISSION_FILE=""; ISSUE_N=""; PRODUCE_REVIEW=0; BIN=""; PROMPT=""
 registry_runtime_pipe() { node "$RUNTIME_REGISTRY" pipe; }
-usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; echo "       agent-runtime.sh probe --runtime R --model M --effort E" >&2; }
+usage() { echo "usage: agent-runtime.sh capabilities --runtime $(registry_runtime_pipe)" >&2; echo "       agent-runtime.sh run --runtime R --role conductor|architect|implementation|reviewer|verifier|visual|release --mode read|write --cwd DIR --prompt-file FILE [--issue N] [--model M] [--effort E] [--opencode-permission-file FILE] [--produce-review]" >&2; echo "       agent-runtime.sh launch-spec --runtime R --role ROLE --mode read|write --cwd DIR [--model M] [--effort E] [--opencode-permission-file FILE]" >&2; echo "       agent-runtime.sh probe --runtime R --model M --effort E" >&2; }
 machine_error() { printf '{"ok":false,"code":"%s","detail":"%s"}\n' "$1" "$2" >&2; exit 3; }
 runtime_bin() {
   # dispatch-core may pin one absolute, capability-proved executable. Never
@@ -24,6 +24,38 @@ runtime_path() { command -v "$1" 2>/dev/null || return 1; }
 runtime_version() { "$1" --version 2>/dev/null | head -n 1 | tr '\n' ' '; }
 has_help_token() { "$1" --help 2>&1 | grep -F -- "$2" >/dev/null 2>&1; }
 subcommand_has_help_token() { bin="$1"; subcommand="$2"; token="$3"; "$bin" "$subcommand" --help 2>&1 | grep -F -- "$token" >/dev/null 2>&1; }
+probe_live_runtime() {
+  runtime="$1"; bin="$2"
+  live_contract=1
+  live_tokens="$(node "$RUNTIME_REGISTRY" live-probe-help-tokens "$runtime")" || {
+    printf '{"runtime":"%s","available":false,"code":"runtime_registry_unavailable"}\n' "$runtime"
+    return 1
+  }
+  for token in $live_tokens; do
+    has_help_token "$bin" "$token" || { live_contract=0; break; }
+  done
+  if [ "$live_contract" -eq 1 ]; then
+    live_subcommand="$(node "$RUNTIME_REGISTRY" live-probe-subcommand "$runtime")" || {
+      printf '{"runtime":"%s","available":false,"code":"runtime_registry_unavailable"}\n' "$runtime"
+      return 1
+    }
+    if [ -n "$live_subcommand" ]; then
+      live_subcommand_tokens="$(node "$RUNTIME_REGISTRY" live-probe-subcommand-help-tokens "$runtime")" || {
+        printf '{"runtime":"%s","available":false,"code":"runtime_registry_unavailable"}\n' "$runtime"
+        return 1
+      }
+      for token in $live_subcommand_tokens; do
+        subcommand_has_help_token "$bin" "$live_subcommand" "$token" || { live_contract=0; break; }
+      done
+    fi
+  fi
+  if [ "$live_contract" -eq 1 ]; then
+    printf '{"runtime":"%s","available":true,"prompt_delivery":"%s"}\n' "$runtime" "$(node "$RUNTIME_REGISTRY" prompt-delivery "$runtime")"
+  else
+    printf '{"runtime":"%s","available":false,"code":"capability_missing_interactive_contract"}\n' "$runtime"
+    return 1
+  fi
+}
 probe_runtime() {
   runtime="$1"; bin="$(runtime_bin "$runtime")"
   if ! command -v "$bin" >/dev/null 2>&1; then printf '{"runtime":"%s","available":false,"code":"runtime_unavailable"}\n' "$runtime"; return 1; fi
@@ -83,6 +115,21 @@ case "$COMMAND" in
     [ -d "$CWD" ] || machine_error cwd_invalid 'cwd must exist'; [ -f "$PROMPT_FILE" ] || machine_error prompt_missing 'prompt file must exist'
     probe_runtime "$RUNTIME" >/dev/null || machine_error runtime_capability_unavailable 'probe runtime with capabilities for details'
     BIN="$(runtime_bin "$RUNTIME")"; PROMPT="$(cat "$PROMPT_FILE")"; [ -n "$PROMPT" ] || machine_error prompt_empty 'prompt file must not be empty'
+    ;;
+  launch-spec)
+    case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) machine_error unsupported_role 'role must be explicit';; esac
+    case "$MODE" in read|write) ;; *) machine_error unsupported_mode 'mode must be read or write';; esac
+    [ -d "$CWD" ] || machine_error cwd_invalid 'cwd must exist'
+    # Keep the existing headless admission intact, then add a separate live
+    # contract probe. A runtime may be headless-capable while its installed
+    # binary is not live-capable; that distinction must never select a
+    # fallback invocation.
+    probe_runtime "$RUNTIME" >/dev/null || machine_error runtime_capability_unavailable 'probe runtime with capabilities for details'
+    BIN="$(runtime_bin "$RUNTIME")"
+    if ! probe_live_runtime "$RUNTIME" "$BIN" >/dev/null; then
+      machine_error runtime_live_capability_unavailable 'interactive runtime capability contract is unavailable'
+    fi
+    BIN="$(runtime_path "$BIN")" || machine_error runtime_unavailable 'runtime executable disappeared after capability probe'
     ;;
   *)
     usage

@@ -20,6 +20,8 @@ HEARTBEAT_INTERVAL="${CODEX_SAFE_HEARTBEAT_INTERVAL:-20}"
 PRODUCE_REVIEW=0
 REVIEW_OUTPUT_FILE=""
 CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-codex}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/../lib/codex-policy.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,10 +46,7 @@ done
 # (docs/agents/multi-agent-workflow.md "Model Allocation").
 # If effort is omitted for 5.6, pin the dispatched config to its documented
 # medium default so user/global config cannot silently change it.
-case "$MODEL" in
-  *5.6*|*5-6*)
-    [[ -z "$EFFORT" ]] && EFFORT="medium" ;;
-esac
+EFFORT="$(codex_pin_effort "$MODEL" "$EFFORT")"
 
 [[ -z "$ISSUE_N" ]] && { echo "missing --issue" >&2; exit 2; }
 [[ -z "$PROMPT" && -z "$PROMPT_FILE" ]] && { echo "missing --prompt or --prompt-file" >&2; exit 2; }
@@ -61,7 +60,6 @@ fi
 # Stop the heartbeat ticker before any failure-path stash. The explicit
 # post-wait stop below is the normal path; this trap covers signals and shell
 # failures so a read-only dispatch never leaves a ticker behind.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 stop_heartbeat() {
   if [[ -n "$HEARTBEAT_PID" ]]; then
     # The ticker shell may be between `sleep &` and recording that child's
@@ -80,7 +78,7 @@ cleanup() {
     rm -f "$REVIEW_OUTPUT_FILE"
   fi
   if [[ $s -ne 0 && "$PRODUCE_REVIEW" -eq 0 ]]; then
-    "$SCRIPT_DIR/../workflow-stash.sh" "$ISSUE_N" "$CWD" || true
+    codex_stash_partial_work "$SCRIPT_DIR/../workflow-stash.sh" "$ISSUE_N" "$CWD" || true
   fi
   trap - EXIT
   exit "$s"
@@ -123,10 +121,7 @@ EXTRA=()
 # instruction. No prompt wording can fix a sandbox denial. Grant only the
 # resolved git common dir explicitly: a plain checkout needs its in-tree .git
 # too, because workspace-write still denies Git metadata writes by default.
-GIT_COMMON_DIR="$(git -C "$CWD" rev-parse --git-common-dir 2>/dev/null || true)"
-if [[ -n "$GIT_COMMON_DIR" ]]; then
-  GIT_COMMON_DIR="$(cd "$CWD" && cd "$GIT_COMMON_DIR" 2>/dev/null && pwd || true)"
-fi
+GIT_COMMON_DIR="$(codex_git_common_dir "$CWD" || true)"
 if [[ "$PRODUCE_REVIEW" -eq 0 && -n "$GIT_COMMON_DIR" ]]; then
   EXTRA+=( -c "sandbox_workspace_write.writable_roots=[\"$GIT_COMMON_DIR\"]" )
 fi

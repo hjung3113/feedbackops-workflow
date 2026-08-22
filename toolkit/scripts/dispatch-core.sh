@@ -93,13 +93,14 @@ REREVIEW=0
 REVIEW_CAPSULE=""
 EXECUTION_PLAN=""
 PLAN_SEAT=""
+EXECUTION_MODE="headless"
 POLL_TIMEOUT=300
 DRY_RUN=0
 POLL_INTERVAL="${AGENT_WORKFLOW_POLL_INTERVAL:-5}"
 PRE_MARKER_DELAY="${AGENT_WORKFLOW_PRE_MARKER_DELAY:-0}"
 
 usage() {
-  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--first-progress-timeout SECS] [--stall-timeout SECS] [--max-retries N] [--max-wallclock SECS] [--poll-timeout SECS] [--dry-run]" >&2
+  echo "usage: dispatch-core.sh --adapter $(node "$TRANSPORT_REGISTRY" pipe) --runtime $(node "$RUNTIME_REGISTRY" pipe) --role ROLE --issue N --worktree PATH [--prompt-file P] [--name SEATNAME] [--model M] [--effort E] [--allocate --allocator-role implementation] [--tier trivial|standard|full_cluster] [--read-only|--produce-review|--conductor-control [--re-review --review-capsule PATH]] [--round-state JSON --manifest-revision N] [--execution-plan JSON --seat ID] [--execution-mode headless|live-tui] [--first-progress-timeout SECS] [--stall-timeout SECS] [--max-retries N] [--max-wallclock SECS] [--poll-timeout SECS] [--dry-run]" >&2
 }
 
 # is_registered_adapter <name> — membership in the transport registry, which is
@@ -402,6 +403,7 @@ while [ $# -gt 0 ]; do
     --review-capsule) REVIEW_CAPSULE="$2"; shift 2 ;;
     --execution-plan) EXECUTION_PLAN="$2"; shift 2 ;;
     --seat) PLAN_SEAT="$2"; shift 2 ;;
+    --execution-mode) EXECUTION_MODE="$2"; shift 2 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -411,7 +413,15 @@ done
 [ -n "$ADAPTER" ] || { echo "missing --adapter" >&2; usage; exit 2; }
 is_registered_adapter "$ADAPTER" || { echo "unknown adapter: $ADAPTER" >&2; exit 2; }
 is_registered_runtime "$RUNTIME" || { echo "unknown runtime: $RUNTIME" >&2; exit 2; }
+case "$EXECUTION_MODE" in
+  headless|live-tui) ;;
+  *) echo "ERROR: unsupported_execution_mode: $EXECUTION_MODE" >&2; exit 2 ;;
+esac
 case "$ROLE" in conductor|architect|implementation|reviewer|verifier|visual|release) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
+if [ "$EXECUTION_MODE" = "live-tui" ] && { [ "$ROLE" != "implementation" ] || [ "$READ_ONLY" -eq 1 ] || [ "$PRODUCE_REVIEW" -eq 1 ] || [ "$CONDUCTOR_CONTROL" -eq 1 ]; }; then
+  echo "ERROR: live_tui_requires_implementation_write: phase-1 live dispatch admits only role=implementation mode=write" >&2
+  exit 2
+fi
 [ -n "$ISSUE_N" ] || { echo "missing --issue" >&2; usage; exit 2; }
 [ -n "$WORKTREE" ] || { echo "missing --worktree" >&2; usage; exit 2; }
 if [ "$ALLOCATE" -eq 1 ] && { [ -n "$MODEL" ] || [ -n "$EFFORT" ]; }; then
@@ -779,6 +789,30 @@ if [ "$ROUTE_POLICY_ACTIVE" -eq 0 ]; then
   model_compatibility_preflight || exit $?
 fi
 
+# Live runtime admission is a separate, side-effect-free probe. It runs after
+# the selected model/effort and permission file are fixed but before any write
+# marker or transport launch. Headless capability remains the only probe on
+# the default path.
+if [ "$EXECUTION_MODE" = "live-tui" ] && [ "$DRY_RUN" -eq 0 ]; then
+  LIVE_PREFLIGHT_SPEC_FILE="$(mktemp "${TMPDIR:-/tmp}/agent-workflow-live-spec.XXXXXX")" || {
+    echo "ERROR: runtime_live_capability_unavailable: cannot allocate launch-spec preflight file" >&2
+    exit 2
+  }
+  LIVE_PREFLIGHT_ERR_FILE="${LIVE_PREFLIGHT_SPEC_FILE}.err"
+  if [ -n "$RUNTIME_PERMISSION_FILE" ]; then
+    AGENT_WORKFLOW_RUNTIME_BIN="$RUNTIME_BIN_PIN" bash "$RUNTIME_ADAPTER" launch-spec --runtime "$RUNTIME" --role "$ROLE" --mode "$RUNTIME_MODE" --cwd "$ABS_WORKTREE" --model "$MODEL" --effort "$EFFORT" --opencode-permission-file "$RUNTIME_PERMISSION_FILE" >"$LIVE_PREFLIGHT_SPEC_FILE" 2>"$LIVE_PREFLIGHT_ERR_FILE"
+  else
+    AGENT_WORKFLOW_RUNTIME_BIN="$RUNTIME_BIN_PIN" bash "$RUNTIME_ADAPTER" launch-spec --runtime "$RUNTIME" --role "$ROLE" --mode "$RUNTIME_MODE" --cwd "$ABS_WORKTREE" --model "$MODEL" --effort "$EFFORT" >"$LIVE_PREFLIGHT_SPEC_FILE" 2>"$LIVE_PREFLIGHT_ERR_FILE"
+  fi
+  live_preflight_status=$?
+  if [ "$live_preflight_status" -ne 0 ] || ! node "$SCRIPT_DIR/lib/launch-spec.cjs" validate "$LIVE_PREFLIGHT_SPEC_FILE" "$RUNTIME" >/dev/null 2>&1; then
+    rm -f "$LIVE_PREFLIGHT_SPEC_FILE" "$LIVE_PREFLIGHT_ERR_FILE"
+    echo "ERROR: runtime_live_capability_unavailable: selected runtime cannot emit a valid interactive launch-spec" >&2
+    exit 2
+  fi
+  rm -f "$LIVE_PREFLIGHT_SPEC_FILE" "$LIVE_PREFLIGHT_ERR_FILE"
+fi
+
 if [ -z "$WS_NAME" ]; then
   if [ "$(node "$RUNTIME_REGISTRY" ws-short-impl "$RUNTIME")" = "true" ] && [ "$ROLE" = "implementation" ]; then
     WS_NAME="${RUNTIME}-${ISSUE_N}"
@@ -796,7 +830,11 @@ ADAPTER_VERSION="dry-run"
 ADAPTER_CAPABILITIES_JSON="[]"
 ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="[]"
 if [ "$DRY_RUN" -eq 0 ]; then
-  CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" 2>/dev/null)"
+  if [ "$EXECUTION_MODE" = "live-tui" ]; then
+    CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" --probe-live 2>/dev/null)"
+  else
+    CAPABILITY_JSON="$(bash "$ADAPTER_SCRIPT" capabilities --worktree "$ABS_WORKTREE" 2>/dev/null)"
+  fi
   capability_status=$?
   if [ "$capability_status" -ne 0 ] || [ -z "$CAPABILITY_JSON" ]; then
     echo "ERROR: required_capability_missing: $ADAPTER capability probe failed" >&2
@@ -812,6 +850,19 @@ if [ "$DRY_RUN" -eq 0 ]; then
   CAPABILITY_FIELDS_REST="${CAPABILITY_FIELDS#*	}"
   ADAPTER_CAPABILITIES_JSON="${CAPABILITY_FIELDS_REST%%	*}"
   ADAPTER_AMBIGUOUS_LIFECYCLES_JSON="${CAPABILITY_FIELDS_REST#*	}"
+fi
+if [ "$EXECUTION_MODE" = "live-tui" ] && [ "$DRY_RUN" -eq 0 ]; then
+  node - "$ADAPTER_CAPABILITIES_JSON" "$TRANSPORT_REGISTRY" <<'NODE'
+const [raw, registry] = process.argv.slice(2);
+try {
+  const actual = JSON.parse(raw), required = require(registry).LIVE_CAPABILITIES;
+  if (!Array.isArray(actual) || !required.every(value => actual.indexOf(value) !== -1)) process.exit(2);
+} catch (_) { process.exit(2); }
+NODE
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: live_tui_capability_missing: adapter=$ADAPTER lacks the complete semantic live session contract; no headless fallback attempted" >&2
+    exit 2
+  fi
 fi
 
 # Preserve the legacy no-policy error ordering: mode classification is early,
@@ -1267,6 +1318,105 @@ if [ "$DRY_RUN" -eq 0 ]; then
       exit 1
     fi
   fi
+fi
+
+if [ "$EXECUTION_MODE" = "live-tui" ]; then
+  # Live sessions do not receive a generated watchdog runner. The runtime
+  # emits a shell-free spec, the adapter owns the session, and this branch
+  # stops after ready -> prompt-start activity has been evidenced.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "dispatch-core: execution-mode=live-tui dry-run; live launch requires a proven adapter session contract"
+    exit 0
+  fi
+  LIVE_LAUNCH_DIR="$(mktemp -d "$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-launch.XXXXXX")" || {
+    echo "ERROR: cannot allocate live launch evidence directory under $ABS_WORKTREE/.review" >&2
+    exit 2
+  }
+  LIVE_LAUNCH_SPEC="$LIVE_LAUNCH_DIR/launch-spec.json"
+  LIVE_LAUNCH_SPEC_ERR="$LIVE_LAUNCH_DIR/launch-spec.err"
+  if [ -n "$RUNTIME_PERMISSION_FILE" ]; then
+    AGENT_WORKFLOW_RUNTIME_BIN="$RUNTIME_BIN_PIN" bash "$RUNTIME_ADAPTER" launch-spec --runtime "$RUNTIME" --role "$ROLE" --mode "$RUNTIME_MODE" --cwd "$ABS_WORKTREE" --model "$MODEL" --effort "$EFFORT" --opencode-permission-file "$RUNTIME_PERMISSION_FILE" >"$LIVE_LAUNCH_SPEC" 2>"$LIVE_LAUNCH_SPEC_ERR"
+  else
+    AGENT_WORKFLOW_RUNTIME_BIN="$RUNTIME_BIN_PIN" bash "$RUNTIME_ADAPTER" launch-spec --runtime "$RUNTIME" --role "$ROLE" --mode "$RUNTIME_MODE" --cwd "$ABS_WORKTREE" --model "$MODEL" --effort "$EFFORT" >"$LIVE_LAUNCH_SPEC" 2>"$LIVE_LAUNCH_SPEC_ERR"
+  fi
+  live_spec_status=$?
+  if [ "$live_spec_status" -ne 0 ] || ! node "$SCRIPT_DIR/lib/launch-spec.cjs" validate "$LIVE_LAUNCH_SPEC" "$RUNTIME" >/dev/null 2>&1; then
+    rm -rf "$LIVE_LAUNCH_DIR"
+    echo "ERROR: runtime_live_launch_spec_invalid: selected runtime did not emit a valid live launch-spec" >&2
+    exit 2
+  fi
+  LIVE_LAUNCH_SPEC_SHA256="$(node - "$LIVE_LAUNCH_SPEC" <<'NODE'
+const fs=require("fs"), crypto=require("crypto");
+try { process.stdout.write(crypto.createHash("sha256").update(fs.readFileSync(process.argv[2])).digest("hex")); }
+catch (_) { process.exit(2); }
+NODE
+  )" || {
+    rm -rf "$LIVE_LAUNCH_DIR"
+    echo "ERROR: runtime_live_launch_spec_unhashable" >&2
+    exit 2
+  }
+  LIVE_LAUNCHED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  LIVE_SESSION_SUPERVISOR="$SCRIPT_DIR/lib/live-session-supervisor.sh"
+  [ -r "$LIVE_SESSION_SUPERVISOR" ] || {
+    echo "ERROR: live_session_supervisor_missing: $LIVE_SESSION_SUPERVISOR" >&2
+    exit 2
+  }
+  . "$LIVE_SESSION_SUPERVISOR"
+  if ! live_session_start "$ADAPTER_SCRIPT" "$ADAPTER" "$WS_NAME" "$ABS_WORKTREE" "$LIVE_LAUNCH_SPEC" "$ABS_PROMPT_FILE" "$LIVE_LAUNCH_DIR" "$ISSUE_N"; then
+    if live_session_should_stash "$LIVE_FAILURE_CODE"; then
+      bash "$SCRIPT_DIR/workflow-stash.sh" "$ISSUE_N" "$ABS_WORKTREE" >/dev/null 2>&1 || true
+    fi
+    echo "ERROR: live_session_failed: code=${LIVE_FAILURE_CODE:-unknown} detail=${LIVE_FAILURE_DETAIL:-none}" >&2
+    exit 1
+  fi
+  RECEIPT_FILE="$ABS_WORKTREE/.review/ISSUE-${ISSUE_N}-TRANSPORT.json"
+  LIVE_CREATED_AT="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  node - "$RECEIPT_FILE" "$RECEIPT_SCHEMA" "$SCHEMA_VALIDATOR" "$ISSUE_N" "$ADAPTER" "$ADAPTER_VERSION" "$ADAPTER_CAPABILITIES_JSON" "$ABS_WORKTREE" "$RUNTIME" "$ROLE" "$RUNTIME_CAPABILITY_JSON" "$LIVE_HANDLES_JSON" "$LIVE_EXTERNAL_HANDLE" "$LIVE_LAUNCH_SPEC_SHA256" "$LIVE_LAUNCHED_AT" "$LIVE_CREATED_AT" "$ROUTE_DIGEST" "$ROUTE_POLICY_DIGEST" "$MODEL" "$EFFORT" "${ADMISSION_MODE:-}" "${ADMISSION_DIR:-}" "${INTEGRATED_DIR:-}" <<'NODE'
+const fs = require("fs");
+const [file, schemaFile, validatorFile, issue, adapter, version, capabilitiesJson, worktree, runtime, role, runtimeCapabilitiesJson, handlesJson, externalHandle, launchSpecSha, launchedAt, createdAt, routeDigest, policyDigest, model, effort, admissionMode, admissionDir, integratedDir] = process.argv.slice(2);
+try {
+  const runtimeCapabilities = JSON.parse(runtimeCapabilitiesJson);
+  const value = {
+    schema_version: "4", artifact_type: "transport_receipt", authoritative: false,
+    issue: Number(issue), adapter, adapter_version: version,
+    runtime, role, runtime_version: runtimeCapabilities.version,
+    execution_mode: "live-tui", capabilities: JSON.parse(capabilitiesJson),
+    handles: JSON.parse(handlesJson), launch_spec_sha256: launchSpecSha,
+    worktree_path: worktree, launched_at: launchedAt, created_at: createdAt
+  };
+  if (externalHandle) value.external_handle = externalHandle;
+  if (routeDigest) {
+    if (!/^[a-f0-9]{64}$/.test(routeDigest) || !/^[a-f0-9]{64}$/.test(policyDigest || "")) process.exit(2);
+    const readBinding = directory => JSON.parse(fs.readFileSync(`${directory}/.admission-transaction.json`, "utf8"));
+    let ordinal;
+    try { ordinal = readBinding(admissionDir); } catch (_) { process.exit(2); }
+    if (ordinal.route_digest !== routeDigest) process.exit(2);
+    if (admissionMode === "integrated_fix") {
+      let singleton;
+      try { singleton = readBinding(integratedDir); } catch (_) { process.exit(2); }
+      if (singleton.route_digest !== routeDigest) process.exit(2);
+    }
+    value.routing = {
+      route_digest: routeDigest, policy_digest: policyDigest,
+      selection_basis: "ordered_policy", decision_reason_codes: ["model_alloc", "ordered_policy"],
+      selected: { model, effort }
+    };
+  }
+  const schema = JSON.parse(fs.readFileSync(schemaFile, "utf8"));
+  const { validate } = require(validatorFile);
+  const errors = validate(schema, value);
+  if (errors.length) { console.error(errors.join("\n")); process.exit(2); }
+  const temp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(temp, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+  fs.renameSync(temp, file);
+} catch (error) { process.exit(2); }
+NODE
+  if [ "$?" -ne 0 ]; then
+    echo "ERROR: could not publish schema-valid live transport receipt" >&2
+    exit 2
+  fi
+  echo "dispatch-core: adapter=$ADAPTER issue=$ISSUE_N worktree=$ABS_WORKTREE name=$WS_NAME execution-mode=live-tui live=$LIVE_LAUNCH_DIR/LIVE.json receipt=$RECEIPT_FILE"
+  exit 0
 fi
 
 RUNNER_RELATIVE=""

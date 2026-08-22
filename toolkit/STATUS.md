@@ -1,8 +1,55 @@
 # Status
 
-_Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
+_Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
 
 ## In progress: v0.21 generic distribution and runtime symmetry
+
+- T1 adds an additive `execution_mode=headless|live-tui` seam, shell-free
+  runtime launch specs, structured live handles, semantic session capability
+  vocabulary, and transport receipt schema v4. Headless remains the default
+  and existing runner/watchdog behavior is preserved. Live phase 1 is
+  implementation/write-only and fails closed until a transport proves the
+  complete live contract; Orca, Herdr, and cmux adapter implementations land
+  in the dependent follow-up tasks. `LIVE.json` is launch/liveness evidence,
+  not completion authority.
+
+- T2 makes Orca the first live-capable transport: its capability probe now
+  help-proves every interactive primitive (`--terminal`, `--cursor`, `--for`,
+  `tui-idle`, `--timeout-ms`, `--text`, `--enter` across `orca terminal
+  read/send/wait/close --help`) before emitting the `session.*` vocabulary,
+  keeping headless/live availability split when a token is missing.
+  `launch-live` builds Orca's single `--command` string by `printf %q`-quoting
+  each launch-spec env assignment and argv token, refuses a second terminal
+  for one worktree + seat (duplicate-prompt prevention), and returns
+  structured terminal handles. `wait-ready` gates on tui-idle only, `read`
+  emits stable output+cursor bytes, `wait-settled` maps tui-idle→settled /
+  unsatisfied→working / native blockedReason→blocked as hints, and stale
+  handles are reacquired only on an exact single worktree + seat-title match.
+  Covered by `scripts/__tests__/orca-live.smoke.sh` (fake orca CLI asserting
+  received argv per ADR 0004).
+
+- T3 lands the Herdr live adapter path: the agent facade
+  (`start/prompt --wait/wait/read/send-keys`) behind the T1 session seam,
+  `--kind` forwarded as launch-spec data, NUL-exact argv forwarding, and a
+  per-capability-call fresh/untrusted-worktree trust-prompt race acceptance
+  test (herdrdev/herdr#2410) that keeps live unavailable — headless intact —
+  unless the installed herdr classifies the trust-prompt sentinel as
+  `blocked`. Covered offline by `herdr-live.smoke.sh`, including native
+  `agent_prompt_stalled`, settled-without-fresh-artifact refusal, and
+  same-issue duplicate-prompt prevention through the full live dispatch E2E.
+
+- T4 lands the cmux live adapter: direct-argv `run` launch with structured
+  `{workspace, surface, terminal}` handles (no `external_handle` alias),
+  byte-exact `--bytes` prompt delivery plus a separate `send-key enter`,
+  readiness via `wait-for` as a sync-only gate, and `wait-settled` admitted
+  only through the help-proven `list-agents` state query (otherwise cmux
+  never reports `settled`; canonical artifacts stay the only completion
+  authority). Live token proof runs under `capabilities --worktree <path>
+  --probe-live` and at subcommand use time so headless dispatches make zero
+  extra vendor calls; live dispatch admission for cmux additionally waits on
+  a dispatch-core live-intent signal (T1 seam follow-up). Installed cmux
+  0.64.x lacks the direct-argv surface, so its live capability correctly
+  fails closed today. Covered by `scripts/__tests__/cmux-live.smoke.sh`.
 
 - CONDUCTOR no longer hand-copies a prior issue's ROUND-STATE (#159):
   `scripts/round-state-init.sh <issue-number> --worktree <path>` scaffolds a
@@ -113,7 +160,7 @@ _Current as of 2026-08-17. `git log -1` and the schemas/scripts win any disagree
 - Planned dispatch admission binds issue, round/revision, base HEAD, real worktree, seat, and exact ROUND-STATE allowlist before atomically consuming a same-seat plan hash. Existing initial/redispatch/integrated-fix protections remain layered underneath.
 - Ordered candidate integration records every source/resulting HEAD and blocks stale/unrebased sources, unexpected paths, conflicts, dirt, and duplicate/missing/reordered integration steps. Candidate closure requires each underlying artifact to carry the same direct attempt binding, accepts only final REVIEW plus active PR-DRAFT lifecycle, rejects wrapper-only same-HEAD relabels and invalid RFC3339 instants, and becomes stale after any later commit.
 
-- Added opt-in local append-only model/task telemetry with salted project pseudonyms, canonical artifact digests, truthful observed/estimated/unavailable usage, concurrency-safe idempotence, and explicit single-sample deletion. Green consumes the parallel-safety producer's canonical closure plus its canonical integration/evidence sources through byte-identical shared #14 schemas, actual byte digests, strict semantic RFC3339 dates, and generation/RUN freshness ordering; salt/store realpaths must remain target-local. Policy-routed telemetry v2 validates a v3 transport receipt against the current host admission binding and derives runtime/model/effort/transport only from the matching host tuple; raw digest and CLI tuple injection are refused. Route probing caches static pinned executable/configuration identity for at most 1800 seconds by default (3600 maximum), without asserting remote model availability. Retry reports enforce immutable project/issue/round/revision lineage, contiguous admitted attempts and valid edges, expose per-attempt allocation, and suppress mixed-model chains from single-model cohorts. v2 routing cohorts use homogeneous policy samples, complete independent-chain thresholds, complete-green rate, mean retries-to-green, mean wall time, and a confounder warning. Reports are advisory and cannot mutate allocation or tier policy.
+- Added opt-in local append-only model/task telemetry with salted project pseudonyms, canonical artifact digests, truthful observed/estimated/unavailable usage, concurrency-safe idempotence, and explicit single-sample deletion. Green consumes the parallel-safety producer's canonical closure plus its canonical integration/evidence sources through byte-identical shared #14 schemas, actual byte digests, strict semantic RFC3339 dates, and generation/RUN freshness ordering; salt/store realpaths must remain target-local. Policy-routed telemetry v2 validates a v3 or v4 transport receipt against the current host admission binding and derives runtime/model/effort/transport only from the matching host tuple; raw digest and CLI tuple injection are refused. Route probing caches static pinned executable/configuration identity for at most 1800 seconds by default (3600 maximum), without asserting remote model availability. Retry reports enforce immutable project/issue/round/revision lineage, contiguous admitted attempts and valid edges, expose per-attempt allocation, and suppress mixed-model chains from single-model cohorts. v2 routing cohorts use homogeneous policy samples, complete independent-chain thresholds, complete-green rate, mean retries-to-green, mean wall time, and a confounder warning. Reports are advisory and cannot mutate allocation or tier policy.
 - Candidate closure and telemetry now consume one strict calendar-valid RFC3339 parser. Telemetry sample semantics bind closure source/hash/value to unique canonical closure, integration, and candidate-evidence artifact paths and digests, with dedicated schema-valid semantic pass/fail fixtures.
 - cmux create-result normalization and workspace-list inspection now consume one handle module with a single ID/ref allowlist, preventing launch and inspection identity rules from drifting.
 

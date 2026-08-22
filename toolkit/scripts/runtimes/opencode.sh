@@ -25,23 +25,44 @@ NODE
   case "$status" in 0) ;; 10) machine_error opencode_permission_not_deny_first 'permission.* must be deny';; 11) machine_error opencode_write_not_explicitly_allowed 'write requires permission.edit=allow, permission.bash=allow, permission.webfetch=allow, and permission.websearch=allow';; 12) machine_error opencode_read_allows_write_tools 'read requires edit, webfetch, and websearch denied, and bash denied';; 14) machine_error opencode_dangerous_permissions_not_denied 'external_directory must be deny';; 15) machine_error opencode_explicit_agent_required 'config must define deny-first primary agent-workflow';; *) machine_error opencode_permission_config_invalid 'permission config must be JSON';; esac
 }
 
+resolve_opencode_permission_file() {
+  if [ -z "$OPENCODE_PERMISSION_FILE" ]; then
+    if [ "$ROLE" = "implementation" ]; then
+      OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/opencode-write.json"
+    else
+      OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/opencode-read.json"
+    fi
+  fi
+  case "$OPENCODE_PERMISSION_FILE" in
+    /*) ;;
+    *) OPENCODE_PERMISSION_FILE="$CWD/$OPENCODE_PERMISSION_FILE" ;;
+  esac
+}
+
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file)
-    if [ -z "$OPENCODE_PERMISSION_FILE" ]; then
-      if [ "$ROLE" = "implementation" ]; then
-        OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/opencode-write.json"
-      else
-        OPENCODE_PERMISSION_FILE="$SCRIPT_DIR/opencode-read.json"
-      fi
-    fi
-    case "$OPENCODE_PERMISSION_FILE" in
-      /*) ;;
-      *) OPENCODE_PERMISSION_FILE="$CWD/$OPENCODE_PERMISSION_FILE" ;;
-    esac
+    resolve_opencode_permission_file
     [ -r "$OPENCODE_PERMISSION_FILE" ] || { echo "ERROR: opencode_permission_config_missing: $OPENCODE_PERMISSION_FILE" >&2; exit 2; }
     printf '%s\n' "$OPENCODE_PERMISSION_FILE"
     exit 0
+    ;;
+  launch-spec)
+    resolve_opencode_permission_file
+    validate_opencode_permissions "$OPENCODE_PERMISSION_FILE" "$MODE"
+    opencode_env_json="$(node - "$OPENCODE_PERMISSION_FILE" <<'NODE'
+const fs = require("fs");
+const value = fs.readFileSync(process.argv[2], "utf8");
+process.stdout.write(JSON.stringify({ OPENCODE_CONFIG_CONTENT: value }));
+NODE
+)"
+    set -- "$BIN" "$CWD" --agent agent-workflow
+    [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
+    [ -n "$EFFORT" ] && set -- "$@" --variant "$EFFORT"
+    # Root `opencode` is the interactive TUI. The headless `run --format
+    # json` envelope is intentionally absent from this launch spec.
+    node "$SCRIPT_DIR/../lib/launch-spec.cjs" emit opencode "$CWD" "$(node "$SCRIPT_DIR/../lib/runtime-registry.cjs" prompt-delivery opencode)" "$opencode_env_json" "$@"
+    exit $?
     ;;
   probe)
     [ -n "$OPENCODE_PERMISSION_FILE" ] || machine_error opencode_permission_config_required "OpenCode requires explicit deny-first permission config"
