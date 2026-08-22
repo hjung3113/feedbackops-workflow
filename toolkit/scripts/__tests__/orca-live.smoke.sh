@@ -110,7 +110,7 @@ is_stale() { [ -n "${ORCA_STALE_HANDLE:-}" ] && [ "$1" = "$ORCA_STALE_HANDLE" ];
 # close, and a bare timeout with no dedicated code at all on wait.
 is_tab_not_found() { [ -n "${ORCA_TAB_NOT_FOUND_HANDLE:-}" ] && [ "$1" = "$ORCA_TAB_NOT_FOUND_HANDLE" ]; }
 is_wait_timeout() { [ -n "${ORCA_WAIT_TIMEOUT_HANDLE:-}" ] && [ "$1" = "$ORCA_WAIT_TIMEOUT_HANDLE" ]; }
-is_read_exited() { [ -n "${ORCA_READ_EXITED_HANDLE:-}" ] && [ "$1" = "$ORCA_READ_EXITED_HANDLE" ]; }
+is_read_exited() { [ -n "${ORCA_READ_EXITED_HANDLE:-}" ] && case ",$ORCA_READ_EXITED_HANDLE," in *",$1,"*) return 0 ;; esac; return 1; }
 
 emit() {
   node - "$@" <<'NODE'
@@ -768,6 +768,22 @@ if ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_READ_EXI
   && grep -F 'base screen' "$TMP_ROOT/read-exited-rotated.out" >/dev/null; then
   pass 'read on an exited terminal reacquires the rotated seat and returns real output'
 else fail "read exited-terminal rotated ($(cat "$TMP_ROOT/read-exited-rotated.err"))"; fi
+
+# The post-reacquire safety net: the seat WAS recreated (single match,
+# term-new) but the reacquired handle is itself already exited — the retried
+# read is another ok:true/empty-tail/exited payload. Directly exercises the
+# distinct fail-closed branch; deleting it would let this succeed with a
+# fake empty read.
+fresh_env read-exited-rotated-still-exited
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-new","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_READ_EXITED_HANDLE="term-old,term-new" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" read --session-json "$STALE_SESSION" > "$TMP_ROOT/read-exited-rotated-again.out" 2>"$TMP_ROOT/read-exited-rotated-again.err"
+read_exited_again_ec=$?
+if [ "$read_exited_again_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/read.count")" = "2" ] \
+  && grep -F 'live_read_failed' "$TMP_ROOT/read-exited-rotated-again.err" >/dev/null \
+  && ! grep -F '"output"' "$TMP_ROOT/read-exited-rotated-again.out" >/dev/null 2>&1; then
+  pass 'read reacquired onto an already-exited handle still fails closed, never emits an empty success'
+else fail "read exited-terminal rotated-still-exited (ec=$read_exited_again_ec, $(cat "$TMP_ROOT/read-exited-rotated-again.err"))"; fi
 
 # --- 6. supervisor state machine ---------------------------------------------------
 
