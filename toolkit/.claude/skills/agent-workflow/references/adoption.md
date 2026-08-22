@@ -19,9 +19,9 @@ Every target must explicitly tier its initial write. Standard/Full Cluster work 
 
 Choose transport, runtime, and role before the first run. `install-into.sh <target>` installs the target-neutral product; the removed `--profile feedbackops` compatibility distribution is refused with guidance. The installed checkout's absolute `.agent-workflow` directory is PRODUCT_HOME: copy `$PRODUCT_HOME/docs/agents/workflow-config.example.json` to `$PRODUCT_HOME/workflow-config.json`, set `AGENT_WORKFLOW_ORCHESTRATOR`, `AGENT_WORKFLOW_RUNTIME`, `AGENT_WORKFLOW_ROLE`, or pass `--orchestrator cmux|orca|herdr --runtime codex|claude|opencode --role <role>`; CLI overrides environment, which overrides PRODUCT_HOME config independently for each axis. Missing/unknown transport or runtime capability fails closed and never falls back. PRODUCT_HOME config contains only `orchestrator`, `runtime`, and `role`; it cannot inject an executable or command.
 
-Herdr selection requires an inherited Herdr session (`HERDR_ENV=1` and a
-non-empty `HERDR_SOCKET_PATH`); missing session context fails closed without
-falling back to another transport. Herdr's receipt `external_handle` is the
+Herdr selection requires an inherited Herdr session (`HERDR_ENV=1` and
+non-empty `HERDR_WORKSPACE_ID`/`HERDR_TAB_ID`/`HERDR_PANE_ID`); missing
+session context fails closed without falling back to another transport. Herdr's receipt `external_handle` is the
 returned workspace ID, not a requested label or pane ID. Workspace liveness is
 transport liveness, not workflow completion, and a receipt records launch
 intent/provenance rather than confirmed command delivery.
