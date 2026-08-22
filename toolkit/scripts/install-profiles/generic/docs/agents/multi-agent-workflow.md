@@ -19,7 +19,7 @@ The adapter injects the validated JSON through `OPENCODE_CONFIG_CONTENT` and
 invokes `--agent agent-workflow`, never a default agent.
 
 Herdr must be explicitly selected and invoked from an inherited Herdr session
-(`HERDR_ENV=1` and a non-empty `HERDR_SOCKET_PATH`); missing session context
+(`HERDR_ENV=1` and non-empty `HERDR_WORKSPACE_ID`/`HERDR_TAB_ID`/`HERDR_PANE_ID`); missing session context
 fails closed and never falls back to another transport. Its receipt handle is the
 returned workspace ID, not a requested label or pane ID. Workspace liveness is
 transport liveness, not workflow completion, and a receipt records launch

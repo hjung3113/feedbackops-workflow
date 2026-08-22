@@ -154,15 +154,10 @@ orca_live_positive_int() {
   esac
 }
 
-# Classify a captured output/error file as a stale-handle trigger. The fake
-# test binary reports "terminal_handle_stale"; the real orca binary reports a
-# gone terminal as runtime_error/"tab_not_found" (close) or a bare "timeout"
-# (wait) with no dedicated stale code at all. Treat all three as reacquire
-# candidates — orca_live_reacquire's own list-membership match (exactly one
-# title match) is the actual fail-closed gate, so a spurious trigger on an
-# ordinary busy timeout only costs a harmless extra list+retry, never a false
-# success.
-orca_live_stale_trigger() {
+# Positive evidence a handle is gone: the fake test binary's
+# "terminal_handle_stale", or real orca's runtime_error/"tab_not_found"
+# (observed on close). Safe to trust on any primitive.
+orca_live_stale_definite() {
   node - "$1" <<'NODE'
 const fs = require("fs");
 try {
@@ -171,7 +166,22 @@ try {
   const message = value && value.error && value.error.message;
   if (code === "terminal_handle_stale") process.exit(0);
   if (code === "runtime_error" && message === "tab_not_found") process.exit(0);
-  if (code === "timeout") process.exit(0);
+} catch (error) {}
+process.exit(1);
+NODE
+}
+
+# A bare "timeout" is real orca's only signal on `terminal wait` for a
+# vanished terminal, but an ordinary busy (not-yet-idle) wait times out the
+# same way — the code alone cannot tell them apart. Only wait-based callers
+# (wait_ready, wait_settled) may treat this as a stale candidate at all; even
+# then it is resolved by list-membership, never trusted on its own.
+orca_live_stale_timeout() {
+  node - "$1" <<'NODE'
+const fs = require("fs");
+try {
+  const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  if (value && value.error && value.error.code === "timeout") process.exit(0);
 } catch (error) {}
 process.exit(1);
 NODE
@@ -179,8 +189,11 @@ NODE
 
 # Stale-handle reacquisition: Orca terminal handles are runtime-scoped, so a
 # restarted runtime invalidates them. Reacquire strictly by exact worktree +
-# seat (terminal title) identity and only when exactly one terminal matches;
-# zero or several matches fail closed.
+# seat (terminal title) identity. Exit codes distinguish match count so
+# callers can tell "genuinely vanished" (0) from "ambiguous" (2+), not just
+# fail-closed alike: 0 = exactly one match (handle on stdout), 3 = zero
+# matches, 4 = two-or-more matches, 2 = list result malformed/unreadable,
+# 1 = the `orca terminal list` call itself failed.
 orca_live_reacquire() {
   reacquire_worktree="$1"
   reacquire_name="$2"
@@ -194,7 +207,8 @@ try {
   const matches = terminals.filter((terminal) => terminal && typeof terminal === "object"
     && terminal.title === process.argv[3]
     && typeof terminal.handle === "string" && terminal.handle);
-  if (matches.length !== 1) process.exit(2);
+  if (matches.length === 0) process.exit(3);
+  if (matches.length > 1) process.exit(4);
   process.stdout.write(matches[0].handle + "\n");
 } catch (error) { process.exit(2); }
 NODE
@@ -215,20 +229,62 @@ orca_live_load_session() {
 }
 
 # If the captured failure is a stale handle, reacquire once and retry through
-# the caller-provided runner function. orca_live_retry_stale <run-fn> <out> <err>
+# the caller-provided runner function.
+# orca_live_retry_stale <run-fn> <out> <err> [allow-timeout: yes|no, default no]
+#
+# On definite evidence (terminal_handle_stale / runtime_error+tab_not_found),
+# any successful (exactly-one-match) reacquire is retried through retry_fn —
+# the handle is proven gone, so a retry is always warranted.
+#
+# On a bare wait timeout (only when allow-timeout=yes), the code alone cannot
+# prove the handle is gone, so list-membership decides what happens instead
+# of blindly re-running (and thereby doubling the caller's timeout budget):
+#   - exactly one match, same handle as before -> ordinary busy timeout, not
+#     stale; return 1 without retrying (no doubled wait).
+#   - exactly one match, a different handle -> the seat was genuinely
+#     recreated; retry once against the new handle.
+#   - zero matches -> the terminal is genuinely gone. Sets
+#     orca_live_stale_vanished=1 so a caller-side classifier (e.g.
+#     wait_settled's settled_classify) can report a provable "stale" state
+#     instead of an opaque query failure, then returns 1 without retrying
+#     (there is nothing left to retry against).
+#   - ambiguous (2+ matches) or the list call itself failed -> fail closed,
+#     same as before.
+orca_live_stale_vanished=""
 orca_live_retry_stale() {
   retry_fn="$1"
   retry_out="$2"
   retry_err="$3"
+  retry_allow_timeout="${4:-no}"
+  orca_live_stale_vanished=""
   [ "$ORCA_LIVE_STATUS" -ne 0 ] || return 1
-  orca_live_stale_trigger "$retry_out" || orca_live_stale_trigger "$retry_err" || return 1
-  retry_handle="$(orca_live_reacquire "$live_worktree" "$live_seat_name")" || return 1
-  live_handle="$retry_handle"
-  "$retry_fn" "$retry_out" "$retry_err"
-  # retry_fn always itself returns 0 (it stashes the real command status in
-  # ORCA_LIVE_STATUS); propagate that real status here so a second-attempt
-  # failure after stale-handle reacquisition is not reported as success.
-  [ "$ORCA_LIVE_STATUS" -eq 0 ]
+
+  if orca_live_stale_definite "$retry_out" || orca_live_stale_definite "$retry_err"; then
+    retry_handle="$(orca_live_reacquire "$live_worktree" "$live_seat_name")" || return 1
+    live_handle="$retry_handle"
+    "$retry_fn" "$retry_out" "$retry_err"
+    # retry_fn always itself returns 0 (it stashes the real command status in
+    # ORCA_LIVE_STATUS); propagate that real status here so a second-attempt
+    # failure after stale-handle reacquisition is not reported as success.
+    [ "$ORCA_LIVE_STATUS" -eq 0 ]
+    return $?
+  fi
+
+  [ "$retry_allow_timeout" = "yes" ] || return 1
+  orca_live_stale_timeout "$retry_out" || orca_live_stale_timeout "$retry_err" || return 1
+
+  retry_handle="$(orca_live_reacquire "$live_worktree" "$live_seat_name")"
+  case $? in
+    0)
+      [ "$retry_handle" != "$live_handle" ] || return 1
+      live_handle="$retry_handle"
+      "$retry_fn" "$retry_out" "$retry_err"
+      [ "$ORCA_LIVE_STATUS" -eq 0 ]
+      return $?
+      ;;
+    3) orca_live_stale_vanished=1; return 1 ;;
+    *) return 1 ;;
+  esac
 }
 
 wait_ready() {
@@ -253,7 +309,7 @@ wait_ready() {
   }
   wait_run "$wait_out" "$wait_err"
   if [ "$ORCA_LIVE_STATUS" -ne 0 ]; then
-    orca_live_retry_stale wait_run "$wait_out" "$wait_err" || {
+    orca_live_retry_stale wait_run "$wait_out" "$wait_err" yes || {
       echo 'ERROR: live_wait_not_ready: terminal did not reach tui-idle before the timeout' >&2
       exit 1
     }
@@ -378,13 +434,21 @@ wait_settled() {
     return 0
   }
   settled_classify() {
-    node - "$settled_out" <<'NODE'
+    node - "$settled_out" "${orca_live_stale_vanished:-}" <<'NODE'
 const fs = require("fs");
 try {
   const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
   const errorCode = value && value.error && value.error.code;
   const errorMessage = value && value.error && value.error.message;
   if (errorCode === "terminal_handle_stale" || (errorCode === "runtime_error" && errorMessage === "tab_not_found")) {
+    process.stdout.write(JSON.stringify({ state: "stale" }) + "\n");
+    process.exit(0);
+  }
+  // A bare timeout only counts as proof of a vanished handle when the
+  // reacquire list-membership check already confirmed zero matches
+  // (orca_live_stale_vanished, passed as argv[3]); an ordinary busy timeout
+  // must never be reported as stale.
+  if (errorCode === "timeout" && process.argv[3] === "1") {
     process.stdout.write(JSON.stringify({ state: "stale" }) + "\n");
     process.exit(0);
   }
@@ -402,7 +466,7 @@ NODE
   }
   settled_run "$settled_out" "$settled_err"
   if [ "$ORCA_LIVE_STATUS" -ne 0 ]; then
-    if ! orca_live_retry_stale settled_run "$settled_out" "$settled_err"; then
+    if ! orca_live_retry_stale settled_run "$settled_out" "$settled_err" yes; then
       # Not a stale handle (or reacquisition itself failed closed): classify
       # a provable stale handle, otherwise fail the query typed.
       if settled_classify; then

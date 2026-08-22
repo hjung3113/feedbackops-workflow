@@ -105,6 +105,11 @@ NODE
 }
 
 is_stale() { [ -n "${ORCA_STALE_HANDLE:-}" ] && [ "$1" = "$ORCA_STALE_HANDLE" ]; }
+# Real orca's observed gone-terminal signals (issue #206), distinct from the
+# fake terminal_handle_stale code above: runtime_error/tab_not_found on
+# close, and a bare timeout with no dedicated code at all on wait.
+is_tab_not_found() { [ -n "${ORCA_TAB_NOT_FOUND_HANDLE:-}" ] && [ "$1" = "$ORCA_TAB_NOT_FOUND_HANDLE" ]; }
+is_wait_timeout() { [ -n "${ORCA_WAIT_TIMEOUT_HANDLE:-}" ] && [ "$1" = "$ORCA_WAIT_TIMEOUT_HANDLE" ]; }
 
 emit() {
   node - "$@" <<'NODE'
@@ -246,6 +251,10 @@ case "$sub" in
       printf '%s\n' '{"id":"fake-wait","ok":false,"error":{"code":"terminal_handle_stale","message":"stale handle"}}'
       exit 1
     fi
+    if is_wait_timeout "$wait_handle"; then
+      printf '%s\n' '{"id":"fake-wait-timeout","ok":false,"error":{"code":"timeout"}}'
+      exit 1
+    fi
     case "${ORCA_WAIT_MODE:-idle}" in
       idle)
         printf '{"id":"w-idle","ok":true,"result":{"wait":{"handle":"%s","condition":"%s","satisfied":true,"status":"idle","exitCode":null}}}\n' "$wait_handle" "$wait_for"
@@ -273,6 +282,10 @@ case "$sub" in
     done
     if is_stale "$close_handle"; then
       printf '%s\n' '{"id":"fake-close","ok":false,"error":{"code":"terminal_handle_stale","message":"stale handle"}}'
+      exit 1
+    fi
+    if is_tab_not_found "$close_handle"; then
+      printf '%s\n' '{"id":"fake-close-gone","ok":false,"error":{"code":"runtime_error","message":"tab_not_found"}}'
       exit 1
     fi
     printf '{"id":"c-ok","ok":true,"result":{"close":{"handle":"%s","closeMode":"pane","ptyKilled":true}}}\n' "$close_handle"
@@ -663,6 +676,66 @@ reacquire_two_ec=$?
 if [ "$reacquire_two_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/read.count")" = "1" ]; then
   pass 'reacquisition with ambiguous identity matches fails closed'
 else fail "reacquisition two-match fail-closed (ec=$reacquire_two_ec)"; fi
+
+# --- 5b. real-orca stale signals (issue #206): runtime_error/tab_not_found on
+# close, and operation-aware bare-timeout handling on wait --------------------
+
+fresh_env real-close-tab-not-found
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-decoy","title":"other-seat"},{"handle":"term-new","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+if ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_TAB_NOT_FOUND_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" close --session-json "$STALE_SESSION" > "$TMP_ROOT/close-gone.out" 2>"$TMP_ROOT/close-gone.err" \
+  && argv_assert "$CASE_LOG/close.1.argv" pair --terminal term-old \
+  && argv_assert "$CASE_LOG/close.2.argv" pair --terminal term-new; then
+  pass 'close reacquires on real runtime_error/tab_not_found, not just the fake stale code'
+else fail "close tab_not_found reacquisition ($(cat "$TMP_ROOT/close-gone.err"))"; fi
+
+# A bare wait timeout where the seat's own handle is still the sole match
+# (genuinely still busy, not gone) must not be treated as stale: no retry, no
+# doubled wait budget, no reacquire-list call at all beyond the one lookup.
+fresh_env wait-timeout-still-present
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-old","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_WAIT_TIMEOUT_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" wait-ready --session-json "$STALE_SESSION" --timeout-ms 500 > "$TMP_ROOT/wait-busy.out" 2>"$TMP_ROOT/wait-busy.err"
+wait_busy_ec=$?
+if [ "$wait_busy_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/wait.count")" = "1" ] \
+  && grep -F 'live_wait_not_ready' "$TMP_ROOT/wait-busy.err" >/dev/null; then
+  pass 'wait timeout with the same handle still present is an ordinary timeout, never retried'
+else fail "wait timeout same-handle no-retry (ec=$wait_busy_ec, $(cat "$TMP_ROOT/wait-busy.err"))"; fi
+
+# A bare wait timeout where the seat was recreated under the same title (a
+# genuinely different handle) is a real stale-handle case and is retried once.
+fresh_env wait-timeout-rotated
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-new","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+if ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_WAIT_TIMEOUT_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" wait-ready --session-json "$STALE_SESSION" --timeout-ms 500 > "$TMP_ROOT/wait-rotated.out" 2>/dev/null \
+  && argv_assert "$CASE_LOG/wait.1.argv" pair --terminal term-old \
+  && argv_assert "$CASE_LOG/wait.2.argv" pair --terminal term-new; then
+  pass 'wait timeout with a rotated (different) handle is retried once against the new handle'
+else fail 'wait timeout rotated-handle retry'; fi
+
+# A bare wait timeout where the seat has vanished entirely (zero list matches)
+# is provable staleness; wait-settled must report it as the typed stale
+# state, not an opaque query failure.
+fresh_env wait-settled-timeout-vanished
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-decoy","title":"other-seat"}]}}' > "$CASE_STATE/terminals.json"
+if ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_WAIT_TIMEOUT_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" wait-settled --session-json "$STALE_SESSION" --timeout-ms 500 > "$TMP_ROOT/settled-vanished.out" 2>"$TMP_ROOT/settled-vanished.err" \
+  && grep -F '"state":"stale"' "$TMP_ROOT/settled-vanished.out" >/dev/null \
+  && [ "$(invocations_of "$CASE_LOG/wait.count")" = "1" ]; then
+  pass 'wait-settled classifies a vanished handle behind a bare timeout as stale'
+else fail "wait-settled timeout-vanished stale classification ($(cat "$TMP_ROOT/settled-vanished.err"))"; fi
+
+# A bare wait timeout with an ambiguous (2+) reacquire match must still fail
+# closed, same as the fake-stale-code path.
+fresh_env wait-settled-timeout-ambiguous
+printf '%s\n' '{"result":{"terminals":[{"handle":"term-a","title":"codex-203"},{"handle":"term-b","title":"codex-203"}]}}' > "$CASE_STATE/terminals.json"
+ORCA_LIVE_LOG_DIR="$CASE_LOG" ORCA_LIVE_STATE_DIR="$CASE_STATE" ORCA_WAIT_TIMEOUT_HANDLE="term-old" PATH="$BIN:$PATH" \
+  bash "$ORCA_ADAPTER" wait-settled --session-json "$STALE_SESSION" --timeout-ms 500 > "$TMP_ROOT/settled-ambiguous.out" 2>"$TMP_ROOT/settled-ambiguous.err"
+settled_ambiguous_ec=$?
+if [ "$settled_ambiguous_ec" -ne 0 ] && [ "$(invocations_of "$CASE_LOG/wait.count")" = "1" ] \
+  && ! grep -F '"state":"stale"' "$TMP_ROOT/settled-ambiguous.out" >/dev/null 2>&1; then
+  pass 'wait-settled with an ambiguous reacquire match on timeout fails closed, never claims stale'
+else fail "wait-settled timeout-ambiguous fail-closed (ec=$settled_ambiguous_ec)"; fi
 
 # --- 6. supervisor state machine ---------------------------------------------------
 
