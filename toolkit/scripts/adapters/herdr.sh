@@ -62,7 +62,8 @@ resolved_herdr_binary() {
   printf '%s\n' "$resolved"
 }
 
-# Extract .result.agent.status from a successful agent JSON response.
+# Extract .result.agent.agent_status from a successful agent JSON response
+# (herdr's `agent get` / `agent wait` put the lifecycle state there).
 parse_agent_state() {
   agent_file="$1"
   node - "$agent_file" <<'NODE'
@@ -70,8 +71,8 @@ const fs = require("fs");
 try {
   const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
   const agent = value && value.result && value.result.agent;
-  if (!agent || typeof agent !== "object" || typeof agent.status !== "string" || !agent.status) process.exit(2);
-  process.stdout.write(agent.status);
+  if (!agent || typeof agent !== "object" || typeof agent.agent_status !== "string" || !agent.agent_status) process.exit(2);
+  process.stdout.write(agent.agent_status);
 } catch (error) { process.exit(2); }
 NODE
 }
