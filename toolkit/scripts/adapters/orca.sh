@@ -154,17 +154,24 @@ orca_live_positive_int() {
   esac
 }
 
-# Extract orca's typed error code from a captured output/error file.
-orca_live_error_code() {
+# Classify a captured output/error file as a stale-handle trigger. The fake
+# test binary reports "terminal_handle_stale"; the real orca binary reports a
+# gone terminal as runtime_error/"tab_not_found" (close) or a bare "timeout"
+# (wait) with no dedicated stale code at all. Treat all three as reacquire
+# candidates — orca_live_reacquire's own list-membership match (exactly one
+# title match) is the actual fail-closed gate, so a spurious trigger on an
+# ordinary busy timeout only costs a harmless extra list+retry, never a false
+# success.
+orca_live_stale_trigger() {
   node - "$1" <<'NODE'
 const fs = require("fs");
 try {
   const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
   const code = value && value.error && value.error.code;
-  if (typeof code === "string" && code) {
-    process.stdout.write(code);
-    process.exit(0);
-  }
+  const message = value && value.error && value.error.message;
+  if (code === "terminal_handle_stale") process.exit(0);
+  if (code === "runtime_error" && message === "tab_not_found") process.exit(0);
+  if (code === "timeout") process.exit(0);
 } catch (error) {}
 process.exit(1);
 NODE
@@ -214,11 +221,7 @@ orca_live_retry_stale() {
   retry_out="$2"
   retry_err="$3"
   [ "$ORCA_LIVE_STATUS" -ne 0 ] || return 1
-  retry_code="$(orca_live_error_code "$retry_out" 2>/dev/null)"
-  if [ "$?" -ne 0 ] || [ "$retry_code" != "terminal_handle_stale" ]; then
-    retry_code="$(orca_live_error_code "$retry_err" 2>/dev/null)" || retry_code=""
-  fi
-  [ "$retry_code" = "terminal_handle_stale" ] || return 1
+  orca_live_stale_trigger "$retry_out" || orca_live_stale_trigger "$retry_err" || return 1
   retry_handle="$(orca_live_reacquire "$live_worktree" "$live_seat_name")" || return 1
   live_handle="$retry_handle"
   "$retry_fn" "$retry_out" "$retry_err"
@@ -379,7 +382,9 @@ wait_settled() {
 const fs = require("fs");
 try {
   const value = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-  if (value && value.error && value.error.code === "terminal_handle_stale") {
+  const errorCode = value && value.error && value.error.code;
+  const errorMessage = value && value.error && value.error.message;
+  if (errorCode === "terminal_handle_stale" || (errorCode === "runtime_error" && errorMessage === "tab_not_found")) {
     process.stdout.write(JSON.stringify({ state: "stale" }) + "\n");
     process.exit(0);
   }
