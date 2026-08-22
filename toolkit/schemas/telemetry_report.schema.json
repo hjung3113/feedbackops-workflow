@@ -195,7 +195,7 @@
         "key": { "type": "string", "minLength": 1 },
         "selection_basis": { "const": "ordered_policy" },
         "policy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-        "runtime": { "enum": ["codex", "claude", "opencode"] },
+        "runtime": { "enum": ["codex", "claude", "opencode", "omp"] },
         "role": { "enum": ["implementation", "review", "verification", "contract_gate"] },
         "task_class": { "enum": ["feature", "bugfix", "refactor", "docs", "test", "workflow"] },
         "tier": { "enum": ["trivial", "standard", "full_cluster"] },

@@ -15,7 +15,7 @@
     "status": { "enum": ["running", "exited", "killed_stall", "refused", "exhausted"] },
     "exit_code": { "type": "integer" },
     "refusal_reason": { "enum": ["runtime_exit_nonzero", "unparseable_output", "schema_invalid", "issue_mismatch", "head_mismatch", "publication_failed"], "description": "Typed reason for a terminal REVIEW refusal." },
-    "runtime": { "enum": ["codex", "claude", "opencode"], "description": "Selected runtime for an agent_run marker." },
+    "runtime": { "enum": ["codex", "claude", "opencode", "omp"], "description": "Selected runtime for an agent_run marker." },
     "role": { "enum": ["conductor", "architect", "implementation", "reviewer", "verifier", "visual", "release"], "description": "Workflow role performed by the runtime." },
     "runtime_version": { "type": "string", "minLength": 1, "description": "Observed runtime CLI version at admission." }
   },

@@ -203,7 +203,7 @@ case "$COMMAND" in
       RUNTIME_SOURCE="legacy_compatibility"
     fi
     if ! is_registered_runtime "$RUNTIME"; then
-      echo "ERROR: unknown_runtime: $RUNTIME (expected codex, claude, or opencode)" >&2; exit 2
+      echo "ERROR: unknown_runtime: $RUNTIME (expected a registry-admitted runtime name)" >&2; exit 2
     fi
     ROLE="$CLI_ROLE"
     ROLE_SOURCE="cli"

@@ -9,7 +9,7 @@
     "artifact_type": { "const": "touch" },
     "lifecycle": { "enum": ["active", "superseded", "final"] },
     "producer_role": { "enum": ["CODEX", "WORKER", "CONDUCTOR", "REVIEWER", "VERIFIER", "RELEASE"], "description": "Workflow role on the artifact-authorship axis (who wrote this artifact), not the --role dispatch axis. WORKER is the current value for the Implementation seat; CODEX is accepted only as a legacy producer identity." },
-    "producer_runtime": { "enum": ["codex", "claude", "opencode"], "description": "Runtime that produced this artifact; required for runtime-neutral artifacts." },
+    "producer_runtime": { "enum": ["codex", "claude", "opencode", "omp"], "description": "Runtime that produced this artifact; required for runtime-neutral artifacts." },
     "producer_version": { "type": "string", "minLength": 1, "description": "Observed runtime CLI version; required for runtime-neutral artifacts." },
     "issue": {
       "type": "object",
