@@ -17,7 +17,7 @@ runtime_bin() {
   fi
   # The runtime set and each runtime's pinned-binary env/default are registry
   # data; this boundary never re-hardcodes the runtime names.
-  bin="$(node "$RUNTIME_REGISTRY" bin "$1")" || machine_error unknown_runtime "runtime must be codex, claude, or opencode"
+  bin="$(node "$RUNTIME_REGISTRY" bin "$1")" || machine_error unknown_runtime "runtime must be a registry-admitted runtime name"
   printf '%s\n' "$bin"
 }
 runtime_path() { command -v "$1" 2>/dev/null || return 1; }
@@ -87,6 +87,7 @@ probe_runtime() {
     # configured, named primary agent explicit rather than accepting the CLI's
     # default-agent fallback behavior.
     opencode) if [ "$contract" -eq 1 ]; then printf '{"runtime":"opencode","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"inline_deny_first_config_plus_explicit_agent","config_application":"OPENCODE_CONFIG_CONTENT","fallback":false,"requires":["opencode_permission_file","opencode_config_content","opencode_run_agent"]}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"opencode","available":false,"code":"capability_missing_run_contract"}'; return 1; fi;;
+    omp) if [ "$contract" -eq 1 ]; then printf '{"runtime":"omp","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"runtime_approval_mode","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"omp","available":false,"code":"capability_missing_print_model_thinking_or_mode"}'; return 1; fi;;
   esac
 }
 [ "$#" -ge 1 ] || { usage; exit 2; }; COMMAND="$1"; shift
@@ -137,6 +138,6 @@ case "$COMMAND" in
     ;;
 esac
 
-node "$RUNTIME_REGISTRY" is-registered "$RUNTIME" >/dev/null || machine_error unknown_runtime 'runtime must be codex, claude, or opencode'
+node "$RUNTIME_REGISTRY" is-registered "$RUNTIME" >/dev/null || machine_error unknown_runtime 'runtime must be a registry-admitted runtime name'
 export RUNTIME ROLE MODE CWD PROMPT_FILE MODEL EFFORT OPENCODE_PERMISSION_FILE ISSUE_N PRODUCE_REVIEW BIN PROMPT
 exec "$SCRIPT_DIR/runtimes/$RUNTIME.sh" "$COMMAND"

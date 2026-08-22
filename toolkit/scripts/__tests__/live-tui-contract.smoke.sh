@@ -58,6 +58,14 @@ if [ "${1:-}" = 'run' ] && [ "${2:-}" = '--help' ]; then printf '%s\n' '--dir --
 printf '%s\n' "$@" > "${RUNTIME_ARGV:-/dev/null}"
 EOF
 chmod +x "$BIN/opencode"
+cat > "$BIN/omp" <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = '--version' ]; then echo 'omp-test 1.0'; exit 0; fi
+if [ "${1:-}" = '--help' ]; then printf '%s\n' '--print --model --thinking --mode --cwd --approval-mode'; exit 0; fi
+printf '%s\n' "$@" > "${RUNTIME_ARGV:-/dev/null}"
+EOF
+chmod +x "$BIN/omp"
+
 
 MODEL="$(printf '%s\n%s' 'model with spaces "quotes"' 'semi; $()')"
 EFFORT='high'
@@ -105,6 +113,18 @@ if (s.env.OPENCODE_CONFIG_CONTENT!==expected) process.exit(2);
 if (["run","--format","json","--print","exec"].some(x=>a.indexOf(x)>=0)) process.exit(2);
 NODE
 then pass 'OpenCode live launch-spec carries deny-first config in env and drops run envelope'; else fail 'OpenCode live launch-spec carries deny-first config in env and drops run envelope'; fi
+
+OMP_SPEC="$TMP_DIR/omp-spec.json"
+PATH="$BIN:$PATH" bash "$RUNTIME" launch-spec --runtime omp --role implementation --mode write --cwd "$WT" --model "$MODEL" --effort "$EFFORT" > "$OMP_SPEC" 2>"$TMP_DIR/omp.err"
+if [ "$?" -eq 0 ] && node - "$OMP_SPEC" "$WT" "$MODEL" "$EFFORT" "$BIN/omp" <<'NODE'
+const fs=require("fs");
+const [file,cwd,model,effort,bin]=process.argv.slice(2), s=JSON.parse(fs.readFileSync(file,"utf8")), a=s.argv;
+const at=x=>a.indexOf(x);
+if (s.runtime!=="omp" || s.cwd!==cwd || s.prompt_delivery!=="transport" || Object.keys(s.env).length) process.exit(2);
+if (a[0]!==bin || a[at("--approval-mode")+1]!=="write" || a[at("--cwd")+1]!==cwd || a[at("--model")+1]!==model || a[at("--thinking")+1]!==effort) process.exit(2);
+if (["-p","--print","--mode","json","exec","run"].some(x=>a.indexOf(x)>=0)) process.exit(2);
+NODE
+then pass 'omp live launch-spec carries write approval lift and drops headless envelope'; else fail 'omp live launch-spec carries write approval lift and drops headless envelope'; fi
 
 cat > "$BIN/codex-headless" <<'EOF'
 #!/usr/bin/env bash
