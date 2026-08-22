@@ -178,12 +178,18 @@ NODE
           exit 9
         fi
         if [ "$wait_until_count" -eq 2 ]; then
-          # wait-ready: --until idle --until blocked.
+          # wait-ready: --until idle --until blocked. The dispatch log is
+          # removed on fall-through, so a dropped branch (empty stderr,
+          # adapter ${wait_code:-timeout} default) fails the test loop
+          # instead of false-positive passing (#214).
+          printf '%s\n' "${HERDR_FAKE_READY:-idle}" > "$STATE/ready-mode.log"
           case "${HERDR_FAKE_READY:-idle}" in
             idle) agent_json "$wait_target" "w1:live" idle; exit 0 ;;
             blocked) agent_json "$wait_target" "w1:live" blocked; exit 0 ;;
             legacy-status) printf '{"result":{"agent":{"name":"%s","pane_id":"%s","status":"%s"}}}\n' "$wait_target" "w1:live" idle; exit 0 ;;
+            timeout) error_json timeout 'not ready in time'; exit 9 ;;
           esac
+          rm -f "$STATE/ready-mode.log"
           exit 9
         fi
         # wait-settled: --until idle --until done --until blocked.
@@ -470,6 +476,10 @@ for ready_case in idle blocked legacy-status timeout; do
   ready_ok=0
   [ "$ready_ec" -eq "$ready_want" ] && ready_ok=1
   [ -n "$ready_code" ] && { grep -q "$ready_code" "$TMP_ROOT/ready-$ready_case.err" || ready_ok=0; }
+  # Real-parse guard (#214): the fake must dispatch on the requested mode;
+  # fall-through exit 9 (empty stderr) must not ride the adapter's
+  # ${wait_code:-timeout} default to a false-positive pass.
+  [ "$(cat "$FAKE_STATE/ready-mode.log" 2>/dev/null)" = "$ready_case" ] || ready_ok=0
   if grep -q -- '--until idle --until blocked --timeout 4000' "$STUB_ARGS"; then :; else ready_ok=0; fi
   if [ "$ready_ok" -eq 1 ]; then
     pass "wait-ready $ready_case is classified with the native lifecycle wait"
