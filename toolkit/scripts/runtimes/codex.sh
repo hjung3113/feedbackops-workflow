@@ -9,6 +9,20 @@ COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
   launch-spec)
+    # Pre-seed codex's own per-directory trust store for the launch cwd
+    # (#215): its first-run trust prompt can never be classified by
+    # screen-scraping transports (#212). Runtime-owned per the axis rule —
+    # every live transport benefits, transport files never branch on a
+    # runtime name. Only ENOENT counts as absent config; anything else
+    # (unreadable, transient I/O) fails closed.
+    codex_preseed_cwd="$(cd "$CWD" 2>/dev/null && pwd -P)" || {
+      printf '%s\n' '{"ok":false,"code":"codex_trust_preseed_failed","detail":"Codex live launch requires a readable --cwd"}' >&2
+      exit 3
+    }
+    codex_trust_preseed "$codex_preseed_cwd" || {
+      printf '%s\n' '{"ok":false,"code":"codex_trust_preseed_failed","detail":"Codex live launch could not pre-seed the per-directory trust entry in ${CODEX_HOME:-$HOME/.codex}/config.toml"}' >&2
+      exit 3
+    }
     EFFORT="$(codex_pin_effort "$MODEL" "$EFFORT")"
     if [ "$MODE" = write ]; then
       sandbox="workspace-write"

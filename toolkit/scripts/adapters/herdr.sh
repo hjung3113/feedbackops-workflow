@@ -115,10 +115,11 @@ agent_facade_help_proven() {
 # screen in a never-trusted temp worktree and requires herdr itself to
 # classify it as blocked; anything else (idle, unknown, timeout, error)
 # means the race is unhandled or unprovable, so live stays unavailable.
-# Note (#215): for codex launches the trust prompt is now prevented
-# upstream — launch_live pre-seeds codex's own per-directory trust store so
-# the screen never renders — so live codex capability no longer depends on
-# this probe for the trust case. The probe still guards the general
+# Note (#215): for codex launches the trust prompt is prevented upstream by
+# the codex runtime member itself, which pre-seeds codex's own
+# per-directory trust store while emitting the launch spec (see
+# lib/codex-policy.sh), so live codex capability does not depend on this
+# probe for the trust case. The probe still guards the general
 # blocked-classification contract herdr must honor for any other blocking
 # UI (approval prompts, other vendors' dialogs).
 herdr_trust_race_proven() {
@@ -484,102 +485,12 @@ process.stdout.write(JSON.stringify(value));
 NODE
 }
 
-# Codex's own first-run per-directory trust store pre-seed (#215). Codex
-# prompts "Do you trust the contents of this directory?" for a cwd that is
-# not an exact-path entry in $CODEX_HOME/config.toml (default ~/.codex),
-# and herdr's screen-scraping detection cannot classify that prompt (#212),
-# so a live launch against a fresh worktree would hang. The launch path
-# therefore pre-seeds the trust entry before `agent start` ever runs. Like
-# HERDR_TRUST_PROBE_KIND above, this is codex vendor vocabulary for the
-# documented trust store, not a dispatch branch on a workflow runtime name;
-# every other runtime is untouched.
-codex_trust_preseed() {
-  preseed_cwd="$1"
-  preseed_config_dir="${CODEX_HOME:-$HOME/.codex}"
-  mkdir -p "$preseed_config_dir" || return 1
-  # Concurrent codex live launches can share CODEX_HOME; serialize the whole
-  # read-modify-rename through a mkdir lock (atomic, no flock dependency)
-  # and write through a unique temp file so parallel launches never fight
-  # over one temp path or clobber each other's entries (#218 review).
-  preseed_config="$preseed_config_dir/config.toml"
-  preseed_lock="$preseed_config_dir/.config.toml.preseed.lock"
-  preseed_acquired=""
-  preseed_tries=0
-  while [ "$preseed_tries" -lt 50 ]; do
-    if mkdir "$preseed_lock" 2>/dev/null; then
-      preseed_acquired=1
-      break
-    fi
-    preseed_tries=$((preseed_tries + 1))
-    sleep 0.1
-  done
-  [ -n "$preseed_acquired" ] || return 1
-  preseed_tmp="$preseed_config_dir/.config.toml.preseed.$$.$RANDOM"
-  node - "$preseed_config" "$preseed_cwd" "$preseed_tmp" <<'NODE'
-const fs = require("fs");
-const [configFile, cwd, tmpFile] = process.argv.slice(2);
-const tomlString = value => "\"" + value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\"";
-const tableHeader = `[projects.${tomlString(cwd)}]`;
-let text = "";
-let existingMode = null;
-try {
-  const stats = fs.statSync(configFile);
-  text = fs.readFileSync(configFile, "utf8");
-  existingMode = stats.mode & 0o777;
-} catch (error) {
-  // Only a genuinely absent config starts fresh. An unreadable-but-present
-  // config (EACCES, transient I/O) must fail closed, never be clobbered
-  // by a fresh rewrite (#218 review).
-  if (error.code !== "ENOENT") process.exit(3);
-}
-// Locate an existing [projects."<cwd>"] table by exact header match and
-// update only its trust_level line in place; a missing trust_level is
-// inserted before leaving the matched table so TOML never associates it
-// with a later table. Absent table: append a fresh one. All other config
-// content is preserved verbatim.
-const lines = text.split("\n");
-let inTable = false;
-let tableFound = false;
-let trustSeen = false;
-const rewritten = [];
-for (const line of lines) {
-  const isHeader = /^\s*\[/.test(line);
-  if (isHeader && inTable && !trustSeen) {
-    rewritten.push("trust_level = \"trusted\"");
-    trustSeen = true;
-  }
-  if (isHeader) {
-    inTable = line.trim() === tableHeader;
-    if (inTable) tableFound = true;
-  }
-  if (inTable && /^\s*trust_level\s*=/.test(line)) {
-    rewritten.push("trust_level = \"trusted\"");
-    trustSeen = true;
-    continue;
-  }
-  rewritten.push(line);
-}
-let out = rewritten.join("\n");
-if (text !== "" && !out.endsWith("\n")) out += "\n";
-if (!tableFound) out += tableHeader + "\n";
-if (!trustSeen) out += "trust_level = \"trusted\"\n";
-// Restrictive 0600 for a fresh config; an existing config's mode is
-// transferred to the replacement so 0600 never widens to the umask
-// default (#218 review).
-fs.writeFileSync(tmpFile, out, { mode: 0o600 });
-if (existingMode !== null) fs.chmodSync(tmpFile, existingMode);
-fs.renameSync(tmpFile, configFile);
-NODE
-  preseed_status=$?
-  rm -f "$preseed_tmp" 2>/dev/null || true
-  rmdir "$preseed_lock" 2>/dev/null || true
-  return "$preseed_status"
-}
 
 # launch-live: workspace create -> root pane -> agent start. The --kind value
-# is the launch-spec runtime field forwarded as data; the single codex
-# exception is the vendor trust-store pre-seed above (#215), which is codex
-# config vocabulary, not a dispatch policy branch.
+# is the launch-spec runtime field forwarded as data; this file never
+# branches on a runtime name. Runtime-owned launch preparation (such as
+# codex's trust-store pre-seed, #215) happens in the runtime member while
+# emitting the launch spec, before any transport is invoked.
 launch_live() {
   live_name=""; live_worktree=""; live_spec_file=""
   while [ $# -gt 0 ]; do
@@ -632,17 +543,6 @@ launch_live() {
     echo 'ERROR: herdr_launch_spec_worktree_mismatch' >&2
     exit 2
   }
-
-  # Codex trust pre-seed (#215): before `agent start` can invoke codex in a
-  # fresh worktree, mark the exact path trusted in codex's own config so its
-  # first-run trust prompt never renders (#212: herdr cannot classify it).
-  # Other runtimes are forwarded as data, untouched.
-  if [ "$spec_runtime" = "codex" ]; then
-    codex_trust_preseed "$spec_cwd_real" || {
-      echo 'ERROR: codex_trust_preseed_failed' >&2
-      exit 2
-    }
-  fi
   if [ -s "$temp_dir/spec.env" ]; then
     env_start_help="$("$binary" agent start --help 2>&1)" \
       && help_has "$env_start_help" '--env' || {

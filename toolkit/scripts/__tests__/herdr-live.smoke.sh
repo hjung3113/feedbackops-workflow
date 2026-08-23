@@ -403,21 +403,24 @@ else
 fi
 
 # --- Codex trust pre-seed (#215) --------------------------------------------
-# A codex live launch against a not-yet-trusted directory must merge a
-# [projects."<cwd>"] trust_level="trusted" entry into $CODEX_HOME/config.toml
-# before agent start — preserving all other config — so codex's own
-# first-run trust screen never renders (#212: herdr cannot classify it).
-make_worktree trust
-# The adapter pre-seeds the pwd -P resolved path; assert against the same.
-TRUST_WT_REAL="$(cd "$TMP_ROOT/wt-trust" && pwd -P)"
+# The pre-seed is runtime-owned: codex.sh's launch-spec emission calls
+# codex_trust_preseed (lib/codex-policy.sh) so every live transport gets it
+# and transport files never branch on a runtime name (#218 review). These
+# cases drive the helper directly; the full dispatch e2e below proves the
+# launch-spec path itself pre-seeds.
+CODEX_POLICY="$ROOT/scripts/lib/codex-policy.sh"
+run_preseed() {
+  bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$1"
+}
 mkdir -p "$CODEX_HOME"
 TRUST_CONFIG="$CODEX_HOME/config.toml"
-TRUST_SPEC="$TMP_ROOT/spec-trust.json"
-node - "$TRUST_SPEC" "$TMP_ROOT/wt-trust" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--sandbox", "workspace-write", "--cd", wt], env: {}, prompt_delivery: "transport" }));
-NODE
+
+# A pre-seed against a not-yet-trusted directory must merge a
+# [projects."<cwd>"] trust_level="trusted" entry into config.toml —
+# preserving all other config — so codex's own first-run trust screen never
+# renders (#212).
+make_worktree trust
+TRUST_WT_REAL="$(cd "$TMP_ROOT/wt-trust" && pwd -P)"
 cat > "$TRUST_CONFIG" <<'EOF'
 model = "gpt-5.6-sol"
 
@@ -432,43 +435,40 @@ const fs = require("fs");
 const [file, wt] = process.argv.slice(2);
 fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("TRUST_WT_PLACEHOLDER", wt));
 NODE
-fake_state launch-trust
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-trust" --launch-spec "$TRUST_SPEC" >/dev/null 2>"$TMP_ROOT/trust-launch.err"
+run_preseed "$TRUST_WT_REAL"
 trust_ec=$?
 node - "$TRUST_CONFIG" "$TRUST_WT_REAL" > "$TMP_ROOT/trust-config-check.out" <<'NODE'
 const fs = require("fs");
 const [file, wt] = process.argv.slice(2);
-const text = fs.readFileSync(file, "utf8");
-const lines = text.split("\n");
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
 const header = `[projects.${JSON.stringify(wt)}]`;
-const headers = lines.filter(line => line.trim().startsWith("[projects."));
-const tableLines = lines.slice(lines.findIndex(line => line.trim() === header) + 1);
-const body = tableLines.slice(0, tableLines.findIndex(line => line.trim().startsWith("[")));
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
 const problems = [];
-if (headers.filter(line => line.trim() === header).length !== 1) problems.push("worktree table not present exactly once");
-if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) problems.push("trust_level not trusted inside worktree table");
+if (lines.filter(line => /^\s*\[/.test(line) && norm(line) === norm(header)).length !== 1) problems.push("worktree table not present exactly once");
+if (start === -1 || !body.some(line => line.trim() === "trust_level = \"trusted\"")) problems.push("trust_level not trusted inside worktree table");
 if (!lines.includes("model = \"gpt-5.6-sol\"")) problems.push("top-level setting clobbered");
 if (!lines.includes("[projects.\"/tmp/definitely-elsewhere\"]")) problems.push("unrelated project table clobbered");
 if (problems.length) { process.stdout.write(problems.join("; ")); process.exit(2); }
 NODE
 if [ "$trust_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/trust-config-check.out" ]; then
-  pass 'launch-live codex pre-seeds exact-path trust entry, TOML-merged without clobbering'
+  pass 'pre-seed merges exact-path trust entry into codex config without clobbering'
 else
-  fail "codex trust pre-seed (ec=$trust_ec $(cat "$TMP_ROOT/trust-config-check.out") $(cat "$TMP_ROOT/trust-launch.err"))"
+  fail "codex trust pre-seed (ec=$trust_ec $(cat "$TMP_ROOT/trust-config-check.out"))"
 fi
 
-# Idempotent: relaunching must not duplicate the table or the trust line.
-fake_state launch-trust2
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-trust" --launch-spec "$TRUST_SPEC" >/dev/null 2>&1
+# Idempotent: re-running must not duplicate the table or the trust line.
+run_preseed "$TRUST_WT_REAL"
 node - "$TRUST_CONFIG" "$TRUST_WT_REAL" <<'NODE'
 const fs = require("fs");
 const [file, wt] = process.argv.slice(2);
 const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
 const header = `[projects.${JSON.stringify(wt)}]`;
-if (lines.filter(line => line.trim() === header).length !== 1) process.exit(2);
-const start = lines.findIndex(line => line.trim() === header);
+if (lines.filter(line => /^\s*\[/.test(line) && norm(line) === norm(header)).length !== 1) process.exit(2);
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
 const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
 const body = lines.slice(start + 1, end === -1 ? lines.length : end);
 if (body.filter(line => line.trim() === "trust_level = \"trusted\"").length !== 1) process.exit(2);
@@ -477,6 +477,36 @@ if [ $? -eq 0 ]; then
   pass 'codex trust pre-seed is idempotent across relaunches'
 else
   fail 'codex trust pre-seed duplicated table or trust_level on relaunch'
+fi
+
+# Whitespace-normalized matching: an equivalent valid spelling of the same
+# header (e.g. `[ projects . "x" ]`) must match instead of appending a
+# duplicate table TOML would reject (#218 review).
+make_worktree normhdr
+NORM_REAL="$(cd "$TMP_ROOT/wt-normhdr" && pwd -P)"
+printf '[projects."/tmp/norm-other"]\ntrust_level = "trusted"\n\n[ projects . "%s" ]\nmodel = "gpt-5"\n' "$NORM_REAL" > "$TRUST_CONFIG"
+run_preseed "$NORM_REAL"
+norm_ec=$?
+node - "$TRUST_CONFIG" "$NORM_REAL" > "$TMP_ROOT/norm-check.out" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(wt)}]`;
+const matches = lines.filter(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+const problems = [];
+if (matches.length !== 1) problems.push("normalized header not matched exactly once");
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) problems.push("trust_level not inside normalized table");
+if (!body.some(line => line.trim() === "model = \"gpt-5\"")) problems.push("normalized table keys clobbered");
+if (problems.length) { process.stdout.write(problems.join("; ")); process.exit(2); }
+NODE
+if [ "$norm_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/norm-check.out" ]; then
+  pass 'pre-seed matches whitespace-variant TOML headers without duplicating tables'
+else
+  fail "header normalization (ec=$norm_ec $(cat "$TMP_ROOT/norm-check.out"))"
 fi
 
 # Fake codex sentinel (#215): renders the first-run trust screen only when
@@ -493,8 +523,9 @@ done
 if node - "${CODEX_HOME:?}/config.toml" "$cwd" <<'NODE'
 const fs = require("fs");
 const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
 const header = `[projects.${JSON.stringify(process.argv[3])}]`;
-const start = lines.findIndex(line => line.trim() === header);
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
 if (start === -1) process.exit(1);
 const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
 const body = lines.slice(start + 1, end === -1 ? lines.length : end);
@@ -508,7 +539,7 @@ else
 fi
 EOF
 chmod +x "$TMP_ROOT/codex-trust-sentinel"
-sentinel_out="$("$TMP_ROOT/codex-trust-sentinel" --cd "$TRUST_WT_REAL")"
+sentinel_out="$("$TMP_ROOT/codex-trust-sentinel" --cd "$NORM_REAL")"
 control_dir="$TMP_ROOT/never-trusted-control"
 mkdir -p "$control_dir"
 control_out_file="$TMP_ROOT/sentinel-control.out"
@@ -525,49 +556,22 @@ else
   fail "trust sentinel (preseeded='$sentinel_out' control='$control_out')"
 fi
 
-# Non-codex runtimes never touch codex's trust config.
-make_worktree alien-trust
-node - "$TMP_ROOT/spec-alien-trust.json" "$TMP_ROOT/wt-alien-trust" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "zylophontest", cwd: wt, argv: ["/bin/zylo"], env: {}, prompt_delivery: "transport" }));
-NODE
-trust_config_before="$(cat "$TRUST_CONFIG")"
-fake_state launch-alien-trust
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-alien-trust" --launch-spec "$TMP_ROOT/spec-alien-trust.json" >/dev/null 2>&1
-if ! grep -q 'wt-alien-trust' "$TRUST_CONFIG" && [ "$(cat "$TRUST_CONFIG")" = "$trust_config_before" ]; then
-  pass 'non-codex runtime launch leaves codex trust config untouched'
-else
-  fail 'non-codex launch mutated codex trust config'
-fi
+# --- #218 review findings -----------------------------------------------------
 
-# --- #218 review findings: lock/race, mid-table insert, mode, fail-closed --
-
-# (1) Concurrent codex launches sharing CODEX_HOME: unique temp + mkdir lock
-# serialize the read-modify-rename, so both entries survive and no lock or
-# temp file is left behind. Also proves an externally held lock blocks the
-# pre-seed until released.
+# (1) Concurrency: unique temp + mkdir lock serialize the
+# read-modify-rename, so both entries survive and no lock or temp file is
+# left behind. An externally held lock blocks the pre-seed until released.
 make_worktree race-a
 make_worktree race-b
 RACE_A_REAL="$(cd "$TMP_ROOT/wt-race-a" && pwd -P)"
 RACE_B_REAL="$(cd "$TMP_ROOT/wt-race-b" && pwd -P)"
-node - "$TMP_ROOT/spec-race-a.json" "$TMP_ROOT/wt-race-a" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
-NODE
-node - "$TMP_ROOT/spec-race-b.json" "$TMP_ROOT/wt-race-b" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
-NODE
 rm -f "$TRUST_CONFIG"
-# Hold the lock externally: the pre-seed must wait, not write.
 mkdir "$CODEX_HOME/.config.toml.preseed.lock"
-fake_state race-held
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-race --worktree "$TMP_ROOT/wt-race-a" --launch-spec "$TMP_ROOT/spec-race-a.json" >"$TMP_ROOT/race-held.out" 2>&1 &
+# Background pre-seeds go through an external bash, never a backgrounded
+# shell function: a function run with & is a subshell that would inherit
+# this suite's `trap 'rm -rf "$TMP_ROOT"' EXIT` and destroy the fixtures
+# when the subshell exits.
+bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$RACE_A_REAL" >"$TMP_ROOT/race-held.out" 2>&1 &
 race_held_pid=$!
 sleep 1
 held_wrote=no
@@ -575,13 +579,9 @@ held_wrote=no
 rmdir "$CODEX_HOME/.config.toml.preseed.lock"
 wait "$race_held_pid"
 race_held_ec=$?
-# Now two genuinely concurrent launches.
-fake_state race-a
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-race --worktree "$TMP_ROOT/wt-race-a" --launch-spec "$TMP_ROOT/spec-race-a.json" >/dev/null 2>&1 &
+bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$RACE_A_REAL" >/dev/null 2>&1 &
 race_a_pid=$!
-fake_state race-b
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-race --worktree "$TMP_ROOT/wt-race-b" --launch-spec "$TMP_ROOT/spec-race-b.json" >/dev/null 2>&1 &
+bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$RACE_B_REAL" >/dev/null 2>&1 &
 race_b_pid=$!
 wait "$race_a_pid"; race_a_ec=$?
 wait "$race_b_pid"; race_b_ec=$?
@@ -591,8 +591,9 @@ const fs = require("fs");
 const [file, a, b] = process.argv.slice(2);
 const lines = fs.readFileSync(file, "utf8").split("\n");
 for (const wt of [a, b]) {
+  const norm = line => line.replace(/\s+/g, "");
   const header = `[projects.${JSON.stringify(wt)}]`;
-  const start = lines.findIndex(line => line.trim() === header);
+  const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
   if (start === -1) { process.stdout.write("missing " + wt); process.exit(2); }
   const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
   const body = lines.slice(start + 1, end === -1 ? lines.length : end);
@@ -601,37 +602,64 @@ for (const wt of [a, b]) {
 NODE
 if [ "$held_wrote" = no ] && [ "$race_held_ec" -eq 0 ] && [ "$race_a_ec" -eq 0 ] && [ "$race_b_ec" -eq 0 ] \
   && [ "$race_leftovers" = 0 ] && [ ! -s "$TMP_ROOT/race-check.out" ]; then
-  pass 'concurrent codex launches serialize via lock, both trust entries survive, no lock/temp residue'
+  pass 'concurrent pre-seeds serialize via lock, both trust entries survive, no lock/temp residue'
 else
   fail "trust pre-seed race (held_wrote=$held_wrote held_ec=$race_held_ec a=$race_a_ec b=$race_b_ec leftovers=$race_leftovers $(cat "$TMP_ROOT/race-check.out"))"
 fi
 
-# (2) A matched table without trust_level followed by another table: the
+# (2) Stale-lock reclaim: a lock whose recorded owner PID is dead (killed
+# process, reboot) is abandoned and must be reclaimed instead of hanging
+# every future launch until manual cleanup (#218 review). A live owner is
+# still respected (the held-lock wait above proves that).
+# A dead PID fixture must be an external process: killing a background
+# subshell of this shell would fire the suite's inherited
+# `trap 'rm -rf "$TMP_ROOT"' EXIT` and destroy every fixture.
+bash -c 'exit 0' &
+dead_owner_pid=$!
+wait "$dead_owner_pid"
+mkdir "$CODEX_HOME/.config.toml.preseed.lock"
+printf '%s\n' "$dead_owner_pid" > "$CODEX_HOME/.config.toml.preseed.lock/owner.pid"
+make_worktree reclaim
+RECLAIM_REAL="$(cd "$TMP_ROOT/wt-reclaim" && pwd -P)"
+run_preseed "$RECLAIM_REAL" >/dev/null 2>&1
+reclaim_ec=$?
+node - "$TRUST_CONFIG" "$RECLAIM_REAL" >/dev/null 2>&1 <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(wt)}]`;
+if (!lines.some(line => /^\s*\[/.test(line) && norm(line) === norm(header))) process.exit(2);
+NODE
+reclaim_entry_ec=$?
+if [ "$reclaim_ec" -eq 0 ] && [ "$reclaim_entry_ec" -eq 0 ] \
+  && [ ! -d "$CODEX_HOME/.config.toml.preseed.lock" ]; then
+  pass 'abandoned lock from a dead owner PID is reclaimed, not hung on'
+else
+  fail "stale-lock reclaim (ec=$reclaim_ec entry=$reclaim_entry_ec)"
+fi
+
+# (3) A matched table without trust_level followed by another table: the
 # key must be inserted inside the matched table, never appended at EOF
 # where TOML would hand it to the later table.
 make_worktree midfile
 MID_REAL="$(cd "$TMP_ROOT/wt-midfile" && pwd -P)"
-node - "$TMP_ROOT/spec-midfile.json" "$TMP_ROOT/wt-midfile" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
-NODE
 printf '[projects."/tmp/mid-earlier"]\ntrust_level = "trusted"\n\n[projects."MID_PLACEHOLDER"]\nmodel = "gpt-5"\n\n[projects."/tmp/mid-later"]\ntrust_level = "untrusted"\n' > "$TRUST_CONFIG"
 node - "$TRUST_CONFIG" "$MID_REAL" <<'NODE'
 const fs = require("fs");
 const [file, wt] = process.argv.slice(2);
 fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("MID_PLACEHOLDER", wt));
 NODE
-fake_state midfile
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-mid --worktree "$TMP_ROOT/wt-midfile" --launch-spec "$TMP_ROOT/spec-midfile.json" >/dev/null 2>"$TMP_ROOT/midfile.err"
+run_preseed "$MID_REAL"
 mid_ec=$?
 node - "$TRUST_CONFIG" "$MID_REAL" > "$TMP_ROOT/mid-check.out" <<'NODE'
 const fs = require("fs");
 const [file, wt] = process.argv.slice(2);
 const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(wt)}]`;
 const problems = [];
-const mid = lines.findIndex(line => line.trim() === `[projects.${JSON.stringify(wt)}]`);
+const mid = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
 if (mid === -1) problems.push("worktree table missing");
 else {
   const end = lines.findIndex((line, index) => index > mid && line.trim().startsWith("["));
@@ -648,33 +676,19 @@ NODE
 if [ "$mid_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/mid-check.out" ]; then
   pass 'missing trust_level is inserted inside the matched table, later tables untouched'
 else
-  fail "mid-table insertion (ec=$mid_ec $(cat "$TMP_ROOT/mid-check.out") $(cat "$TMP_ROOT/midfile.err"))"
+  fail "mid-table insertion (ec=$mid_ec $(cat "$TMP_ROOT/mid-check.out"))"
 fi
 
-# (3) Permission preservation: an existing 0600 config stays 0600 after the
+# (4) Permission preservation: an existing 0600 config stays 0600 after the
 # rename, and a fresh config is created 0600 (never the umask default).
 chmod 600 "$TRUST_CONFIG"
 make_worktree perm
-node - "$TMP_ROOT/spec-perm.json" "$TMP_ROOT/wt-perm" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
-NODE
-fake_state perm
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-perm --worktree "$TMP_ROOT/wt-perm" --launch-spec "$TMP_ROOT/spec-perm.json" >/dev/null 2>&1
+run_preseed "$(cd "$TMP_ROOT/wt-perm" && pwd -P)"
 perm_ec=$?
 perm_mode="$(node -e 'process.stdout.write(((require("fs").statSync(process.argv[1]).mode & 0o777) >>> 0).toString(8))' "$TRUST_CONFIG")"
 rm -f "$TRUST_CONFIG"
 make_worktree perm-fresh
-node - "$TMP_ROOT/spec-perm-fresh.json" "$TMP_ROOT/wt-perm-fresh" <<'NODE'
-const fs = require("fs");
-const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
-NODE
-fake_state perm-fresh
-herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-perm --worktree "$TMP_ROOT/wt-perm-fresh" --launch-spec "$TMP_ROOT/spec-perm-fresh.json" >/dev/null 2>&1
+run_preseed "$(cd "$TMP_ROOT/wt-perm-fresh" && pwd -P)"
 perm_fresh_ec=$?
 perm_fresh_mode="$(node -e 'process.stdout.write(((require("fs").statSync(process.argv[1]).mode & 0o777) >>> 0).toString(8))' "$TRUST_CONFIG")"
 if [ "$perm_ec" -eq 0 ] && [ "$perm_mode" = 600 ] && [ "$perm_fresh_ec" -eq 0 ] && [ "$perm_fresh_mode" = 600 ]; then
@@ -683,28 +697,42 @@ else
   fail "pre-seed permissions (existing=$perm_mode fresh=$perm_fresh_mode ec=$perm_ec/$perm_fresh_ec)"
 fi
 
-# (4) Fail closed on an unreadable-but-present config: EACCES must refuse,
-# never rewrite the file.
+# (5) Fail closed on an unreadable-but-present config, permission-
+# independently: config.toml being a directory makes readFileSync fail with
+# EISDIR for any UID (chmod 000 is invisible to root, #218 review). The
+# pre-seed must refuse and leave the path untouched.
+rm -f "$TRUST_CONFIG"
+mkdir "$CODEX_HOME/config.toml"
 make_worktree unreadable
-node - "$TMP_ROOT/spec-unreadable.json" "$TMP_ROOT/wt-unreadable" <<'NODE'
+run_preseed "$(cd "$TMP_ROOT/wt-unreadable" && pwd -P)" >"$TMP_ROOT/unreadable.out" 2>&1
+unread_ec=$?
+if [ "$unread_ec" -ne 0 ] && [ -d "$CODEX_HOME/config.toml" ] \
+  && [ ! -f "$CODEX_HOME/config.toml" ] \
+  && [ ! -d "$CODEX_HOME/.config.toml.preseed.lock" ]; then
+  pass 'unreadable-but-present config (EISDIR) fails closed and is never clobbered'
+else
+  fail "unreadable config fail-closed (ec=$unread_ec)"
+fi
+rm -rf "$CODEX_HOME/config.toml"
+
+# (6) Transport guard: the herdr adapter itself never touches codex config
+# (the pre-seed is runtime-owned); a non-codex launch-live must leave it
+# byte-identical.
+make_worktree alien-trust
+printf '[projects."/tmp/alien-guard"]\ntrust_level = "trusted"\n' > "$TRUST_CONFIG"
+node - "$TMP_ROOT/spec-alien-trust.json" "$TMP_ROOT/wt-alien-trust" <<'NODE'
 const fs = require("fs");
 const [file, wt] = process.argv.slice(2);
-fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+fs.writeFileSync(file, JSON.stringify({ runtime: "zylophontest", cwd: wt, argv: ["/bin/zylo"], env: {}, prompt_delivery: "transport" }));
 NODE
-printf '[projects."/tmp/should-survive"]\ntrust_level = "trusted"\n' > "$TRUST_CONFIG"
-cp "$TRUST_CONFIG" "$TMP_ROOT/unreadable-config.orig"
-chmod 000 "$TRUST_CONFIG"
-fake_state unreadable
+trust_config_before="$(cat "$TRUST_CONFIG")"
+fake_state launch-alien-trust
 herdr_env
-PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-unread --worktree "$TMP_ROOT/wt-unreadable" --launch-spec "$TMP_ROOT/spec-unreadable.json" >"$TMP_ROOT/unreadable.out" 2>"$TMP_ROOT/unreadable.err"
-unread_ec=$?
-chmod 600 "$TRUST_CONFIG"
-if [ "$unread_ec" -ne 0 ] && grep -q 'codex_trust_preseed_failed' "$TMP_ROOT/unreadable.err" \
-  && cmp -s "$TRUST_CONFIG" "$TMP_ROOT/unreadable-config.orig" \
-  && [ ! -d "$CODEX_HOME/.config.toml.preseed.lock" ]; then
-  pass 'unreadable-but-present config fails closed and is never clobbered'
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-215 --worktree "$TMP_ROOT/wt-alien-trust" --launch-spec "$TMP_ROOT/spec-alien-trust.json" >/dev/null 2>&1
+if grep -q -- 'agent start codex-215 --kind zylophontest' "$STUB_ARGS" && [ "$(cat "$TRUST_CONFIG")" = "$trust_config_before" ]; then
+  pass 'transport launch-live leaves codex trust config untouched (runtime-owned pre-seed)'
 else
-  fail "unreadable config fail-closed (ec=$unread_ec err=$(cat "$TMP_ROOT/unreadable.err"))"
+  fail 'transport launch mutated codex trust config'
 fi
 
 # --kind is spec data forwarded verbatim, never a runtime-name branch.
@@ -1071,6 +1099,10 @@ E2E_PROMPT="$TMP_ROOT/wt-e2e/.review-prompt.txt"
 mkdir -p "$(dirname "$E2E_PROMPT")"
 printf 'run the live implementation turn\nsecond "quoted" line\n' > "$E2E_PROMPT"
 fake_state e2e
+# The dispatch e2e doubles as the launch-spec pre-seed proof (#215): with a
+# pristine codex config, the runtime's launch-spec emission must pre-seed
+# the resolved worktree before any transport launch.
+rm -f "$TRUST_CONFIG"
 herdr_env
 E2E_OUT="$TMP_ROOT/e2e-dispatch.out"
 LIVE_POLL_INTERVAL_MS=20 LIVE_WAIT_READY_TIMEOUT_MS=5000 LIVE_SEND_ACTIVITY_TIMEOUT_MS=5000 LIVE_SESSION_TIMEOUT_MS=15000 \
@@ -1101,6 +1133,24 @@ then
   pass 'full live herdr dispatch publishes a v4 receipt and LIVE.json after exactly one prompt'
 else
   fail "live dispatch E2E (ec=$e2e_ec prompts=$e2e_prompts body=$e2e_body_ok $(cat "$E2E_OUT"))"
+fi
+
+E2E_WT_REAL="$(cd "$TMP_ROOT/wt-e2e" && pwd -P)"
+node - "$TRUST_CONFIG" "$E2E_WT_REAL" >/dev/null 2>&1 <<'NODE'
+const fs = require("fs");
+const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(process.argv[3])}]`;
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+if (start === -1) process.exit(2);
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) process.exit(2);
+NODE
+if [ $? -eq 0 ]; then
+  pass 'live dispatch pre-seeds the worktree trust entry through the codex launch-spec path'
+else
+  fail 'live dispatch did not pre-seed codex trust config via launch-spec'
 fi
 if find "$TMP_ROOT/wt-e2e/.review" -type f -name 'launch.sh' | grep -q .; then
   fail 'live dispatch must not generate a launch.sh runner'
