@@ -542,6 +542,171 @@ else
   fail 'non-codex launch mutated codex trust config'
 fi
 
+# --- #218 review findings: lock/race, mid-table insert, mode, fail-closed --
+
+# (1) Concurrent codex launches sharing CODEX_HOME: unique temp + mkdir lock
+# serialize the read-modify-rename, so both entries survive and no lock or
+# temp file is left behind. Also proves an externally held lock blocks the
+# pre-seed until released.
+make_worktree race-a
+make_worktree race-b
+RACE_A_REAL="$(cd "$TMP_ROOT/wt-race-a" && pwd -P)"
+RACE_B_REAL="$(cd "$TMP_ROOT/wt-race-b" && pwd -P)"
+node - "$TMP_ROOT/spec-race-a.json" "$TMP_ROOT/wt-race-a" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+node - "$TMP_ROOT/spec-race-b.json" "$TMP_ROOT/wt-race-b" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+rm -f "$TRUST_CONFIG"
+# Hold the lock externally: the pre-seed must wait, not write.
+mkdir "$CODEX_HOME/.config.toml.preseed.lock"
+fake_state race-held
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-race --worktree "$TMP_ROOT/wt-race-a" --launch-spec "$TMP_ROOT/spec-race-a.json" >"$TMP_ROOT/race-held.out" 2>&1 &
+race_held_pid=$!
+sleep 1
+held_wrote=no
+[ -f "$TRUST_CONFIG" ] && held_wrote=yes
+rmdir "$CODEX_HOME/.config.toml.preseed.lock"
+wait "$race_held_pid"
+race_held_ec=$?
+# Now two genuinely concurrent launches.
+fake_state race-a
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-race --worktree "$TMP_ROOT/wt-race-a" --launch-spec "$TMP_ROOT/spec-race-a.json" >/dev/null 2>&1 &
+race_a_pid=$!
+fake_state race-b
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-race --worktree "$TMP_ROOT/wt-race-b" --launch-spec "$TMP_ROOT/spec-race-b.json" >/dev/null 2>&1 &
+race_b_pid=$!
+wait "$race_a_pid"; race_a_ec=$?
+wait "$race_b_pid"; race_b_ec=$?
+race_leftovers="$(find "$CODEX_HOME" -name '.config.toml.preseed*' | wc -l | tr -d ' ')"
+node - "$TRUST_CONFIG" "$RACE_A_REAL" "$RACE_B_REAL" > "$TMP_ROOT/race-check.out" <<'NODE'
+const fs = require("fs");
+const [file, a, b] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+for (const wt of [a, b]) {
+  const header = `[projects.${JSON.stringify(wt)}]`;
+  const start = lines.findIndex(line => line.trim() === header);
+  if (start === -1) { process.stdout.write("missing " + wt); process.exit(2); }
+  const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+  const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+  if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) { process.stdout.write("untrusted " + wt); process.exit(2); }
+}
+NODE
+if [ "$held_wrote" = no ] && [ "$race_held_ec" -eq 0 ] && [ "$race_a_ec" -eq 0 ] && [ "$race_b_ec" -eq 0 ] \
+  && [ "$race_leftovers" = 0 ] && [ ! -s "$TMP_ROOT/race-check.out" ]; then
+  pass 'concurrent codex launches serialize via lock, both trust entries survive, no lock/temp residue'
+else
+  fail "trust pre-seed race (held_wrote=$held_wrote held_ec=$race_held_ec a=$race_a_ec b=$race_b_ec leftovers=$race_leftovers $(cat "$TMP_ROOT/race-check.out"))"
+fi
+
+# (2) A matched table without trust_level followed by another table: the
+# key must be inserted inside the matched table, never appended at EOF
+# where TOML would hand it to the later table.
+make_worktree midfile
+MID_REAL="$(cd "$TMP_ROOT/wt-midfile" && pwd -P)"
+node - "$TMP_ROOT/spec-midfile.json" "$TMP_ROOT/wt-midfile" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+printf '[projects."/tmp/mid-earlier"]\ntrust_level = "trusted"\n\n[projects."MID_PLACEHOLDER"]\nmodel = "gpt-5"\n\n[projects."/tmp/mid-later"]\ntrust_level = "untrusted"\n' > "$TRUST_CONFIG"
+node - "$TRUST_CONFIG" "$MID_REAL" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("MID_PLACEHOLDER", wt));
+NODE
+fake_state midfile
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-mid --worktree "$TMP_ROOT/wt-midfile" --launch-spec "$TMP_ROOT/spec-midfile.json" >/dev/null 2>"$TMP_ROOT/midfile.err"
+mid_ec=$?
+node - "$TRUST_CONFIG" "$MID_REAL" > "$TMP_ROOT/mid-check.out" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const problems = [];
+const mid = lines.findIndex(line => line.trim() === `[projects.${JSON.stringify(wt)}]`);
+if (mid === -1) problems.push("worktree table missing");
+else {
+  const end = lines.findIndex((line, index) => index > mid && line.trim().startsWith("["));
+  const body = lines.slice(mid + 1, end === -1 ? lines.length : end);
+  if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) problems.push("trust_level not inside worktree table");
+  if (!body.some(line => line.trim() === "model = \"gpt-5\"")) problems.push("worktree table other keys clobbered");
+}
+const later = lines.findIndex(line => line.trim() === "[projects.\"/tmp/mid-later\"]");
+const laterEnd = lines.findIndex((line, index) => index > later && line.trim().startsWith("["));
+const laterBody = lines.slice(later + 1, laterEnd === -1 ? lines.length : laterEnd);
+if (!laterBody.some(line => line.trim() === "trust_level = \"untrusted\"")) problems.push("later table trust_level mutated");
+if (problems.length) { process.stdout.write(problems.join("; ")); process.exit(2); }
+NODE
+if [ "$mid_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/mid-check.out" ]; then
+  pass 'missing trust_level is inserted inside the matched table, later tables untouched'
+else
+  fail "mid-table insertion (ec=$mid_ec $(cat "$TMP_ROOT/mid-check.out") $(cat "$TMP_ROOT/midfile.err"))"
+fi
+
+# (3) Permission preservation: an existing 0600 config stays 0600 after the
+# rename, and a fresh config is created 0600 (never the umask default).
+chmod 600 "$TRUST_CONFIG"
+make_worktree perm
+node - "$TMP_ROOT/spec-perm.json" "$TMP_ROOT/wt-perm" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+fake_state perm
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-perm --worktree "$TMP_ROOT/wt-perm" --launch-spec "$TMP_ROOT/spec-perm.json" >/dev/null 2>&1
+perm_ec=$?
+perm_mode="$(node -e 'process.stdout.write(((require("fs").statSync(process.argv[1]).mode & 0o777) >>> 0).toString(8))' "$TRUST_CONFIG")"
+rm -f "$TRUST_CONFIG"
+make_worktree perm-fresh
+node - "$TMP_ROOT/spec-perm-fresh.json" "$TMP_ROOT/wt-perm-fresh" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+fake_state perm-fresh
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-perm --worktree "$TMP_ROOT/wt-perm-fresh" --launch-spec "$TMP_ROOT/spec-perm-fresh.json" >/dev/null 2>&1
+perm_fresh_ec=$?
+perm_fresh_mode="$(node -e 'process.stdout.write(((require("fs").statSync(process.argv[1]).mode & 0o777) >>> 0).toString(8))' "$TRUST_CONFIG")"
+if [ "$perm_ec" -eq 0 ] && [ "$perm_mode" = 600 ] && [ "$perm_fresh_ec" -eq 0 ] && [ "$perm_fresh_mode" = 600 ]; then
+  pass 'pre-seed preserves 0600 on existing config and creates fresh config 0600'
+else
+  fail "pre-seed permissions (existing=$perm_mode fresh=$perm_fresh_mode ec=$perm_ec/$perm_fresh_ec)"
+fi
+
+# (4) Fail closed on an unreadable-but-present config: EACCES must refuse,
+# never rewrite the file.
+make_worktree unreadable
+node - "$TMP_ROOT/spec-unreadable.json" "$TMP_ROOT/wt-unreadable" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+printf '[projects."/tmp/should-survive"]\ntrust_level = "trusted"\n' > "$TRUST_CONFIG"
+cp "$TRUST_CONFIG" "$TMP_ROOT/unreadable-config.orig"
+chmod 000 "$TRUST_CONFIG"
+fake_state unreadable
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-unread --worktree "$TMP_ROOT/wt-unreadable" --launch-spec "$TMP_ROOT/spec-unreadable.json" >"$TMP_ROOT/unreadable.out" 2>"$TMP_ROOT/unreadable.err"
+unread_ec=$?
+chmod 600 "$TRUST_CONFIG"
+if [ "$unread_ec" -ne 0 ] && grep -q 'codex_trust_preseed_failed' "$TMP_ROOT/unreadable.err" \
+  && cmp -s "$TRUST_CONFIG" "$TMP_ROOT/unreadable-config.orig" \
+  && [ ! -d "$CODEX_HOME/.config.toml.preseed.lock" ]; then
+  pass 'unreadable-but-present config fails closed and is never clobbered'
+else
+  fail "unreadable config fail-closed (ec=$unread_ec err=$(cat "$TMP_ROOT/unreadable.err"))"
+fi
+
 # --kind is spec data forwarded verbatim, never a runtime-name branch.
 node - "$TMP_ROOT/spec-alien.json" "$TMP_ROOT/wt-launch" <<'NODE'
 const fs = require("fs");
