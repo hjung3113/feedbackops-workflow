@@ -56,6 +56,14 @@ printf '%s\n' "$@" > "$RUNTIME_ARGV"
 EOF
 chmod +x "$BIN/omp"
 for runtime in codex claude opencode omp; do out="$TMP_DIR/$runtime.json"; PATH="$BIN:$PATH" bash "$RUNTIME" capabilities --runtime "$runtime" > "$out" 2>/dev/null; if [ $? -eq 0 ] && grep -F '"fallback":false' "$out" >/dev/null && grep -F '"conductor"' "$out" >/dev/null && grep -F '"implementation"' "$out" >/dev/null && grep -F '"executable":' "$out" >/dev/null && grep -F '"version":' "$out" >/dev/null; then ok "$runtime declares complete roles, pin, and no fallback"; else bad "$runtime capability contract"; fi; done
+# Negative capability contract: an omp whose --help lacks --tools must be
+# refused at the capability-probe stage, not later at dispatch. Pin the
+# binary through its registry env seam and use a PATH that cannot reach a
+# real host omp, so the probe can only see this stub.
+sed 's/ --tools//' "$BIN/omp" > "$BIN/omp-no-tools"; chmod +x "$BIN/omp-no-tools"
+AGENT_WORKFLOW_OMP_BIN="$BIN/omp-no-tools" PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" bash "$RUNTIME" capabilities --runtime omp >"$TMP_DIR/omp-no-tools.json" 2>/dev/null
+omp_no_tools_ec=$?
+if [ "$omp_no_tools_ec" -ne 0 ] && grep -F -q '"code":"capability_missing_print_model_thinking_or_mode"' "$TMP_DIR/omp-no-tools.json"; then ok 'omp without --tools in --help fails the capability probe before admission'; else bad 'omp --tools capability probe gate'; fi
 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/codex" PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" bash "$RUNTIME" capabilities --runtime codex > "$TMP_DIR/pinned.json" 2>/dev/null; if [ $? -eq 0 ] && grep -F "\"executable\":\"$BIN/codex\"" "$TMP_DIR/pinned.json" >/dev/null; then ok 'generic absolute runtime pin is honored'; else bad 'generic runtime pin'; fi
 PATH="$BIN:$PATH" AGENT_WORKFLOW_CODEX_BIN=missing-codex bash "$RUNTIME" capabilities --runtime codex >"$TMP_DIR/missing.json" 2>/dev/null; if [ $? -ne 0 ] && grep -F runtime_unavailable "$TMP_DIR/missing.json" >/dev/null; then ok 'unavailable runtime fails closed'; else bad 'unavailable runtime fails closed'; fi
 RUNTIME_ARGV="$TMP_DIR/codex.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime codex --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --issue 1; if grep -Fx -- workspace-write "$TMP_DIR/codex.argv" >/dev/null; then ok 'codex write preserves codex-safe workspace-write'; else bad 'codex write isolation'; fi

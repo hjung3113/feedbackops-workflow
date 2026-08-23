@@ -71,7 +71,7 @@ const PROBE = {
     // omp is a flat CLI: the headless contract is the root -p/--print path.
     // --approval-mode is admitted too: the headless write run passes it, so
     // an omp without it must fail before admission, not after dispatch.
-    help_tokens: ["--print", "--approval-mode", "--model", "--thinking", "--mode", "--cwd"],
+    help_tokens: ["--print", "--approval-mode", "--tools", "--model", "--thinking", "--mode", "--cwd"],
     subcommand: "",
     subcommand_help_tokens: [],
   },

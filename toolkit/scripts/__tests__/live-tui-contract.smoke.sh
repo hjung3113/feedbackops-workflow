@@ -61,7 +61,7 @@ chmod +x "$BIN/opencode"
 cat > "$BIN/omp" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = '--version' ]; then echo 'omp-test 1.0'; exit 0; fi
-if [ "${1:-}" = '--help' ]; then printf '%s\n' '--print --model --thinking --mode --cwd --approval-mode'; exit 0; fi
+if [ "${1:-}" = '--help' ]; then printf '%s\n' '--print --model --thinking --mode --cwd --approval-mode --tools'; exit 0; fi
 printf '%s\n' "$@" > "${RUNTIME_ARGV:-/dev/null}"
 EOF
 chmod +x "$BIN/omp"
