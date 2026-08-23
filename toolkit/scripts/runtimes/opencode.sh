@@ -41,6 +41,10 @@ resolve_opencode_permission_file() {
 
 COMMAND="${1:-}"
 case "$COMMAND" in
+  # Post-admission launch preparation seam (#215/#218): codex pre-seeds its
+  # trust store here; opencode has no equivalent first-run trust dialog, so
+  # this is a safe no-op that transports may call generically.
+  pre-launch) exit 0;;
   permission-file)
     resolve_opencode_permission_file
     [ -r "$OPENCODE_PERMISSION_FILE" ] || { echo "ERROR: opencode_permission_config_missing: $OPENCODE_PERMISSION_FILE" >&2; exit 2; }

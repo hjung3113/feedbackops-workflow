@@ -88,13 +88,40 @@ codex_trust_preseed() {
   node - "$preseed_config" "$preseed_cwd" "$preseed_tmp" <<'NODE'
 const fs = require("fs");
 const [configFile, cwd, tmpFile] = process.argv.slice(2);
-const tomlString = value => "\"" + value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"") + "\"";
-const tableHeader = `[projects.${tomlString(cwd)}]`;
-// Whitespace-normalized comparison: an equivalent valid spelling of the
-// same table header (e.g. `[ projects . "x" ]`) must match instead of
-// producing a duplicate table TOML would reject (#218 review).
-const normalizeHeader = line => line.replace(/\s+/g, "");
-const targetHeader = normalizeHeader(tableHeader);
+// TOML basic-string encoder: escape backslash, double quote, and control
+// characters per the TOML spec so any cwd round-trips through a valid
+// one-line key (#218 review).
+const tomlEncode = value => "\"" + [...value].map(ch => {
+  const cp = ch.codePointAt(0);
+  if (ch === "\"") return "\\\"";
+  if (ch === "\\") return "\\\\";
+  if (ch === "\n") return "\\n";
+  if (ch === "\r") return "\\r";
+  if (ch === "\t") return "\\t";
+  if (cp < 0x20 || cp === 0x7f) return "\\u" + cp.toString(16).padStart(4, "0");
+  return ch;
+}).join("") + "\"";
+const tableHeader = `[projects.${tomlEncode(cwd)}]`;
+// Header matching parses the quoted key and compares DECODED path strings,
+// never raw or whitespace-stripped lines: whitespace inside the quoted path
+// is significant (`/x/a b` must never match `/x/ab`), while whitespace in
+// the TOML syntax around `[`, `projects`, `.`, `]` is tolerated. Both basic
+// and literal strings are accepted; a trailing comment is ignored.
+const decodeTomlString = raw => {
+  const body = raw.slice(1, -1);
+  if (raw.startsWith("'")) return body;
+  return body.replace(/\\(u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|["\\nrtbf])/g, (match, esc) => {
+    if (esc[0] === "u" || esc[0] === "U") return String.fromCodePoint(parseInt(esc.slice(1), 16));
+    const escapes = { '"': '"', "\\": "\\", n: "\n", r: "\r", t: "\t", b: "\b", f: "\f" };
+    return escapes[esc];
+  });
+};
+const headerRe = /^\s*\[\s*projects\s*\.\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\]\s*(?:#.*)?$/;
+const headerCwd = line => {
+  const match = headerRe.exec(line);
+  return match ? decodeTomlString(match[1]) : null;
+};
+const matchesTarget = line => headerCwd(line) === cwd;
 let text = "";
 let existingMode = null;
 try {
@@ -119,7 +146,7 @@ for (const line of lines) {
     trustSeen = true;
   }
   if (isHeader) {
-    inTable = normalizeHeader(line) === targetHeader;
+    inTable = matchesTarget(line);
     if (inTable) tableFound = true;
   }
   if (inTable && /^\s*trust_level\s*=/.test(line)) {

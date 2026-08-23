@@ -7,6 +7,10 @@ RUNTIME_REGISTRY="$SCRIPT_DIR/../lib/runtime-registry.cjs"
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
+  # Post-admission launch preparation seam (#215/#218): codex pre-seeds its
+  # trust store here; claude has no equivalent first-run trust store, so
+  # this is a safe no-op that transports may call generically.
+  pre-launch) exit 0;;
   launch-spec)
     [ "$MODE" = write ] && permission=acceptEdits || permission=plan
     set -- "$BIN" --permission-mode "$permission"

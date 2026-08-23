@@ -407,7 +407,7 @@ fi
 # codex_trust_preseed (lib/codex-policy.sh) so every live transport gets it
 # and transport files never branch on a runtime name (#218 review). These
 # cases drive the helper directly; the full dispatch e2e below proves the
-# launch-spec path itself pre-seeds.
+# launch path itself pre-seeds via pre-launch (launch-spec stays pure).
 CODEX_POLICY="$ROOT/scripts/lib/codex-policy.sh"
 run_preseed() {
   bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$1"
@@ -733,6 +733,168 @@ if grep -q -- 'agent start codex-215 --kind zylophontest' "$STUB_ARGS" && [ "$(c
   pass 'transport launch-live leaves codex trust config untouched (runtime-owned pre-seed)'
 else
   fail 'transport launch mutated codex trust config'
+fi
+
+# --- #218 round 3: preflight purity, pre-launch seam, TOML correctness ----
+
+CODEX_RUNTIME="$ROOT/scripts/runtimes/codex.sh"
+CLAUDE_RUNTIME="$ROOT/scripts/runtimes/claude.sh"
+OPENCODE_RUNTIME="$ROOT/scripts/runtimes/opencode.sh"
+
+# (a) launch-spec is the dispatch-core PREFLIGHT contract: side-effect-free.
+# A direct launch-spec emission must never create or touch config.toml.
+make_worktree preflight
+rm -f "$TRUST_CONFIG"
+MODE=read MODEL="" EFFORT="" CWD="$TMP_ROOT/wt-preflight" BIN=/bin/codex \
+  bash "$CODEX_RUNTIME" launch-spec >"$TMP_ROOT/preflight-spec.json" 2>"$TMP_ROOT/preflight.err"
+preflight_ec=$?
+if [ "$preflight_ec" -eq 0 ] && [ ! -e "$TRUST_CONFIG" ] && [ ! -d "$CODEX_HOME/.config.toml.preseed.lock" ] \
+  && grep -q '"runtime":"codex"' "$TMP_ROOT/preflight-spec.json"; then
+  pass 'launch-spec preflight emission is side-effect-free (no config write)'
+else
+  fail "launch-spec preflight mutation (ec=$preflight_ec err=$(cat "$TMP_ROOT/preflight.err"))"
+fi
+
+# (b) pre-launch is the post-admission seam: only there does the trust
+# entry get written, exactly once, for the exact cwd.
+make_worktree prelaunch
+PRELAUNCH_REAL="$(cd "$TMP_ROOT/wt-prelaunch" && pwd -P)"
+bash "$CODEX_RUNTIME" pre-launch --cwd "$PRELAUNCH_REAL" >/dev/null 2>"$TMP_ROOT/prelaunch.err"
+prelaunch_ec=$?
+node - "$TRUST_CONFIG" "$PRELAUNCH_REAL" >/dev/null 2>&1 <<'NODE'
+const fs = require("fs");
+const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+const decode = raw => {
+  const body = raw.slice(1, -1);
+  if (raw.startsWith("'")) return body;
+  return body.replace(/\\(u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|["\\nrtbf])/g, (m, e) => {
+    if (e[0] === "u" || e[0] === "U") return String.fromCodePoint(parseInt(e.slice(1), 16));
+    const map = { '"': '"', "\\": "\\", n: "\n", r: "\r", t: "\t", b: "\b", f: "\f" };
+    return map[e];
+  });
+};
+const re = /^\s*\[\s*projects\s*\.\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\]\s*(?:#.*)?$/;
+const target = process.argv[3];
+const header = lines.find(line => { const m = re.exec(line); return m && decode(m[1]) === target; });
+if (!header) process.exit(2);
+const start = lines.indexOf(header);
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) process.exit(2);
+NODE
+prelaunch_entry_ec=$?
+bash "$CODEX_RUNTIME" pre-launch >/dev/null 2>&1
+prelaunch_noargs_ec=$?
+if [ "$prelaunch_ec" -eq 0 ] && [ "$prelaunch_entry_ec" -eq 0 ] && [ "$prelaunch_noargs_ec" -eq 2 ]; then
+  pass 'pre-launch pre-seeds the trust entry; missing --cwd is a typed refusal'
+else
+  fail "pre-launch seam (ec=$prelaunch_ec entry=$prelaunch_entry_ec noargs=$prelaunch_noargs_ec $(cat "$TMP_ROOT/prelaunch.err"))"
+fi
+
+# (c) claude/opencode pre-launch is a safe generic no-op: exit 0, no config
+# write, no env requirements.
+rm -f "$TRUST_CONFIG"
+CLAUDE_EC=0; OPENCODE_EC=0
+bash "$CLAUDE_RUNTIME" pre-launch --cwd "$TMP_ROOT/wt-prelaunch" >/dev/null 2>&1 || CLAUDE_EC=$?
+bash "$OPENCODE_RUNTIME" pre-launch --cwd "$TMP_ROOT/wt-prelaunch" >/dev/null 2>&1 || OPENCODE_EC=$?
+if [ "$CLAUDE_EC" -eq 0 ] && [ "$OPENCODE_EC" -eq 0 ] && [ ! -e "$TRUST_CONFIG" ]; then
+  pass 'claude/opencode pre-launch is a safe no-op that never touches codex config'
+else
+  fail "pre-launch no-op (claude=$CLAUDE_EC opencode=$OPENCODE_EC)"
+fi
+
+# (d) herdr launch-live drives the seam generically: a codex launch-live
+# pre-seeds through pre-launch; an unknown runtime without a member script
+# is skipped (covered above by the alien guard).
+make_worktree viapre
+VIA_REAL="$(cd "$TMP_ROOT/wt-viapre" && pwd -P)"
+node - "$TMP_ROOT/spec-viapre.json" "$TMP_ROOT/wt-viapre" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+fs.writeFileSync(file, JSON.stringify({ runtime: "codex", cwd: wt, argv: ["/bin/codex", "--cd", wt], env: {}, prompt_delivery: "transport" }));
+NODE
+printf '[projects."/tmp/viapre-other"]\ntrust_level = "trusted"\n' > "$TRUST_CONFIG"
+fake_state launch-viapre
+herdr_env
+PATH="$BIN:$PATH" bash "$ADAPTER" launch-live --name codex-via --worktree "$TMP_ROOT/wt-viapre" --launch-spec "$TMP_ROOT/spec-viapre.json" >/dev/null 2>&1
+via_ec=$?
+node - "$TRUST_CONFIG" "$VIA_REAL" >/dev/null 2>&1 <<'NODE'
+const fs = require("fs");
+const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+const target = process.argv[3];
+const re = /^\s*\[\s*projects\s*\.\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\]\s*(?:#.*)?$/;
+const decode = raw => raw.slice(1, -1).replace(/\\(u[0-9a-fA-F]{4}|["\\nrt])/g, (m, e) => ({ '"': '"', "\\": "\\", n: "\n", r: "\r", t: "\t" }[e] || ""));
+const header = lines.find(line => { const m = re.exec(line); return m && decode(m[1]) === target; });
+if (!header) process.exit(2);
+NODE
+via_entry_ec=$?
+if [ "$via_ec" -eq 0 ] && [ "$via_entry_ec" -eq 0 ] && grep -q 'viapre-other' "$TRUST_CONFIG"; then
+  pass 'herdr launch-live invokes the runtime pre-launch seam generically (codex pre-seeds)'
+else
+  fail "launch-live pre-launch seam (ec=$via_ec entry=$via_entry_ec)"
+fi
+
+# (e) Whitespace inside quoted paths is significant: pre-seeding a path
+# with a space must not match a squashed-together unrelated table.
+make_worktree "with space"
+SPACE_REAL="$(cd "$TMP_ROOT/wt-with space" && pwd -P)"
+SQUASHED_REAL="$(printf '%s' "$SPACE_REAL" | tr -d ' ')"
+printf '[projects."%s"]\ntrust_level = "untrusted"\n' "$SQUASHED_REAL" > "$TRUST_CONFIG"
+run_preseed "$SPACE_REAL"
+space_ec=$?
+node - "$TRUST_CONFIG" "$SPACE_REAL" "$SQUASHED_REAL" > "$TMP_ROOT/space-check.out" <<'NODE'
+const fs = require("fs");
+const [file, spaced, squashed] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const re = /^\s*\[\s*projects\s*\.\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\]\s*(?:#.*)?$/;
+const decode = raw => raw.slice(1, -1).replace(/\\(u[0-9a-fA-F]{4}|["\\nrt])/g, (m, e) => ({ '"': '"', "\\": "\\", n: "\n", r: "\r", t: "\t" }[e] || ""));
+const problems = [];
+const findTable = target => lines.findIndex(line => { const m = re.exec(line); return m && decode(m[1]) === target; });
+const bodyOf = start => {
+  const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+  return lines.slice(start + 1, end === -1 ? lines.length : end);
+};
+const spacedIdx = findTable(spaced);
+if (spacedIdx === -1) problems.push("spaced-path table missing");
+else if (!bodyOf(spacedIdx).some(line => line.trim() === "trust_level = \"trusted\"")) problems.push("spaced path not trusted");
+const squashedIdx = findTable(squashed);
+if (squashedIdx === -1) problems.push("unrelated squashed table missing");
+else if (!bodyOf(squashedIdx).some(line => line.trim() === "trust_level = \"untrusted\"")) problems.push("unrelated squashed table mutated");
+if (problems.length) { process.stdout.write(problems.join("; ")); process.exit(2); }
+NODE
+if [ "$space_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/space-check.out" ]; then
+  pass 'whitespace inside quoted paths is significant; unrelated squashed table untouched'
+else
+  fail "space-path matching (ec=$space_ec $(cat "$TMP_ROOT/space-check.out"))"
+fi
+
+# (f) Control characters round-trip: a tab in the path is written as a
+# TOML \t escape (never a literal tab in a one-line basic string), and the
+# decoder matches its own encoding on re-run (idempotent).
+make_worktree "$(printf 'ta\tb')"
+CTRL_REAL="$(cd "$TMP_ROOT/wt-$(printf 'ta\tb')" && pwd -P)"
+run_preseed "$CTRL_REAL"
+ctrl_ec=$?
+run_preseed "$CTRL_REAL"
+ctrl_ec2=$?
+node - "$TRUST_CONFIG" "$CTRL_REAL" > "$TMP_ROOT/ctrl-check.out" <<'NODE'
+const fs = require("fs");
+const [file, ctrl] = process.argv.slice(2);
+const text = fs.readFileSync(file, "utf8");
+const problems = [];
+if (text.includes("\t")) problems.push("literal tab written into config");
+if (!text.includes("\\t")) problems.push("tab escape missing");
+const lines = text.split("\n");
+const re = /^\s*\[\s*projects\s*\.\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\]\s*(?:#.*)?$/;
+const decode = raw => raw.slice(1, -1).replace(/\\(u[0-9a-fA-F]{4}|["\\nrt])/g, (m, e) => ({ '"': '"', "\\": "\\", n: "\n", r: "\r", t: "\t" }[e] || ""));
+const headers = lines.filter(line => { const m = re.exec(line); return m && decode(m[1]) === ctrl; });
+if (headers.length !== 1) problems.push("decoded control-char table not present exactly once");
+if (problems.length) { process.stdout.write(problems.join("; ")); process.exit(2); }
+NODE
+if [ "$ctrl_ec" -eq 0 ] && [ "$ctrl_ec2" -eq 0 ] && [ ! -s "$TMP_ROOT/ctrl-check.out" ]; then
+  pass 'control-character path round-trips through valid TOML escapes, idempotently'
+else
+  fail "control-char round-trip (ec=$ctrl_ec/$ctrl_ec2 $(cat "$TMP_ROOT/ctrl-check.out"))"
 fi
 
 # --kind is spec data forwarded verbatim, never a runtime-name branch.
@@ -1148,7 +1310,7 @@ const body = lines.slice(start + 1, end === -1 ? lines.length : end);
 if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) process.exit(2);
 NODE
 if [ $? -eq 0 ]; then
-  pass 'live dispatch pre-seeds the worktree trust entry through the codex launch-spec path'
+  pass 'live dispatch pre-seeds the worktree trust entry at the real launch via the pre-launch seam'
 else
   fail 'live dispatch did not pre-seed codex trust config via launch-spec'
 fi

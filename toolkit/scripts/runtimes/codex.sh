@@ -8,21 +8,34 @@ RUNTIME_REGISTRY="$SCRIPT_DIR/../lib/runtime-registry.cjs"
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
-  launch-spec)
-    # Pre-seed codex's own per-directory trust store for the launch cwd
-    # (#215): its first-run trust prompt can never be classified by
-    # screen-scraping transports (#212). Runtime-owned per the axis rule —
-    # every live transport benefits, transport files never branch on a
-    # runtime name. Only ENOENT counts as absent config; anything else
-    # (unreadable, transient I/O) fails closed.
-    codex_preseed_cwd="$(cd "$CWD" 2>/dev/null && pwd -P)" || {
-      printf '%s\n' '{"ok":false,"code":"codex_trust_preseed_failed","detail":"Codex live launch requires a readable --cwd"}' >&2
-      exit 3
-    }
-    codex_trust_preseed "$codex_preseed_cwd" || {
+  # Post-admission launch preparation, invoked by the transport immediately
+  # before the real launch (never at launch-spec preflight). Pre-seeds
+  # codex's own per-directory trust store (#215): its first-run trust prompt
+  # can never be classified by screen-scraping transports (#212). Runtime-
+  # owned per the axis rule; claude/opencode's pre-launch is a no-op.
+  # Only ENOENT counts as absent config; anything else fails closed.
+  pre-launch)
+    prelaunch_cwd=""
+    shift
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --cwd)
+          [ $# -ge 2 ] || exit 2
+          prelaunch_cwd="$2"; shift 2 ;;
+        *) exit 2 ;;
+      esac
+    done
+    [ -n "$prelaunch_cwd" ] || exit 2
+    codex_trust_preseed "$prelaunch_cwd" || {
       printf '%s\n' '{"ok":false,"code":"codex_trust_preseed_failed","detail":"Codex live launch could not pre-seed the per-directory trust entry in ${CODEX_HOME:-$HOME/.codex}/config.toml"}' >&2
       exit 3
     }
+    exit 0
+    ;;
+  launch-spec)
+    # Pure/spec-only: dispatch-core calls launch-spec as a side-effect-free
+    # preflight before admission, so it must never mutate user config.
+    # Trust-store pre-seeding lives in pre-launch below (#218 review).
     EFFORT="$(codex_pin_effort "$MODEL" "$EFFORT")"
     if [ "$MODE" = write ]; then
       sandbox="workspace-write"

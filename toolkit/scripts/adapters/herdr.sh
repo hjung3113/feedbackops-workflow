@@ -489,8 +489,9 @@ NODE
 # launch-live: workspace create -> root pane -> agent start. The --kind value
 # is the launch-spec runtime field forwarded as data; this file never
 # branches on a runtime name. Runtime-owned launch preparation (such as
-# codex's trust-store pre-seed, #215) happens in the runtime member while
-# emitting the launch spec, before any transport is invoked.
+# codex's trust-store pre-seed, #215) happens through the generic per-runtime
+# `pre-launch` command below, once at the real launch — never at
+# dispatch-core's side-effect-free launch-spec preflight.
 launch_live() {
   live_name=""; live_worktree=""; live_spec_file=""
   while [ $# -gt 0 ]; do
@@ -543,6 +544,24 @@ launch_live() {
     echo 'ERROR: herdr_launch_spec_worktree_mismatch' >&2
     exit 2
   }
+
+  # Runtime-owned launch preparation (#215/#218): dispatch-core treats
+  # launch-spec as a side-effect-free preflight, so mutations like codex's
+  # trust-store pre-seed belong here — once, at the real launch, immediately
+  # before the workspace/agent is started. Called generically per runtime
+  # (same seam as launch-spec/probe/run); this file never branches on a
+  # runtime name. Runtimes without launch preparation (or unknown --kind
+  # values) have no executable member script and are skipped.
+  case "$spec_runtime" in
+    */*|*..*) echo 'ERROR: herdr_launch_spec_invalid' >&2; exit 2 ;;
+  esac
+  runtime_pre_launch="$SCRIPT_DIR/../runtimes/$spec_runtime.sh"
+  if [ -x "$runtime_pre_launch" ]; then
+    "$runtime_pre_launch" pre-launch --cwd "$spec_cwd_real" || {
+      echo 'ERROR: runtime_pre_launch_failed' >&2
+      exit 2
+    }
+  fi
   if [ -s "$temp_dir/spec.env" ]; then
     env_start_help="$("$binary" agent start --help 2>&1)" \
       && help_has "$env_start_help" '--env' || {

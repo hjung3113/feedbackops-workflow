@@ -45,12 +45,14 @@ Revisit once orca/herdr are confirmed stable against real binaries.
   same-issue duplicate-prompt prevention through the full live dispatch E2E.
   Since #215, the codex runtime member pre-seeds codex's own
   `$CODEX_HOME/config.toml` per-directory trust store
-  (`[projects."<cwd>"] trust_level = "trusted"`) while emitting the
-  launch spec, before any transport launches codex, so codex's
-  first-run trust screen never renders (#212's detection defect stays
-  open for other screen-scraped cases). The merge is TOML-safe,
-  idempotent, mode-preserving, lock-serialized with stale-lock
-  reclaim, and fails closed on any non-ENOENT read error.
+  (`[projects."<cwd>"] trust_level = "trusted"`) through its
+  `pre-launch` command, invoked by the transport generically at the
+  real launch (launch-spec stays side-effect-free for dispatch-core's
+  preflight), so codex's first-run trust screen never renders (#212's
+  detection defect stays open for other screen-scraped cases). The
+  merge is TOML-safe (decoded-key matching, control-character
+  escaping), idempotent, mode-preserving, lock-serialized with
+  stale-lock reclaim, and fails closed on any non-ENOENT read error.
 
 - T4 lands the cmux live adapter: direct-argv `run` launch with structured
   `{workspace, surface, terminal}` handles (no `external_handle` alias),
