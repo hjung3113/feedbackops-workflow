@@ -17,7 +17,8 @@
       "properties": {
         "codex": { "$ref": "#/definitions/allocation" },
         "claude": { "$ref": "#/definitions/allocation" },
-        "opencode": { "$ref": "#/definitions/allocation" }
+        "opencode": { "$ref": "#/definitions/allocation" },
+        "omp": { "$ref": "#/definitions/allocation" }
       },
       "additionalProperties": false
     },
@@ -26,7 +27,8 @@
       "properties": {
         "codex": { "$ref": "#/definitions/allocation" },
         "claude": { "$ref": "#/definitions/allocation" },
-        "opencode": { "$ref": "#/definitions/allocation" }
+        "opencode": { "$ref": "#/definitions/allocation" },
+        "omp": { "$ref": "#/definitions/allocation" }
       },
       "additionalProperties": false
     },
@@ -63,6 +65,6 @@
         { "type": "object", "properties": { "model": { "type": "string", "not": { "type": "string", "pattern": "^gpt-5[.-]6(?:-|$)" } }, "effort": { "enum": ["low", "medium", "high"] } } }
       ]
     },
-    "capability": { "type": "object", "required": ["agentic_coding", "static_coding", "reasoning", "input_per_million", "output_per_million"], "properties": { "agentic_coding": { "type": "number" }, "static_coding": { "type": "number" }, "reasoning": { "type": "number" }, "input_per_million": { "type": "number" }, "output_per_million": { "type": "number" }, "available_via": { "type": "array", "minItems": 1, "items": { "enum": ["codex", "claude", "opencode"] } } }, "additionalProperties": false }
+    "capability": { "type": "object", "required": ["agentic_coding", "static_coding", "reasoning", "input_per_million", "output_per_million"], "properties": { "agentic_coding": { "type": "number" }, "static_coding": { "type": "number" }, "reasoning": { "type": "number" }, "input_per_million": { "type": "number" }, "output_per_million": { "type": "number" }, "available_via": { "type": "array", "minItems": 1, "items": { "enum": ["codex", "claude", "opencode", "omp"] } } }, "additionalProperties": false }
   }
 }

@@ -6,7 +6,7 @@
 // capability-probe help-token contract, stash ownership (stash_by), and the
 // model-family effort-enum sub-dimension of the runtime axis. Bash consumers
 // read it through the CLI below; Node consumers require() the exports.
-const RUNTIMES = ["codex", "claude", "opencode"];
+const RUNTIMES = ["codex", "claude", "opencode", "omp"];
 
 // Who stashes partial write work on a stall or crash: "runtime" means the
 // runtime's own wrapper (codex-safe.sh) already stashes; "watchdog" means
@@ -15,6 +15,7 @@ const STASH_BY = {
   codex: "runtime",
   claude: "watchdog",
   opencode: "watchdog",
+  omp: "watchdog",
 };
 
 // Workspace naming: whether the runtime keeps the historical short
@@ -24,6 +25,7 @@ const WS_SHORT_IMPL = {
   codex: true,
   claude: false,
   opencode: false,
+  omp: false,
 };
 
 // Default effort for a model-specific preflight when the caller supplies a
@@ -32,6 +34,7 @@ const EFFORT_DEFAULT = {
   codex: "low",
   claude: "medium",
   opencode: "medium",
+  omp: "low",
 };
 
 // Pinned-binary resolution: dispatch-core may pin one absolute,
@@ -41,6 +44,7 @@ const BIN = {
   codex: { env: "AGENT_WORKFLOW_CODEX_BIN", default: "codex" },
   claude: { env: "AGENT_WORKFLOW_CLAUDE_BIN", default: "claude" },
   opencode: { env: "AGENT_WORKFLOW_OPENCODE_BIN", default: "opencode" },
+  omp: { env: "AGENT_WORKFLOW_OMP_BIN", default: "omp" },
 };
 
 // Capability-probe contract: the top-level --help output must contain every
@@ -62,6 +66,14 @@ const PROBE = {
     help_tokens: [],
     subcommand: "run",
     subcommand_help_tokens: ["--dir", "--format", "--agent", "--model", "--variant", "json"],
+  },
+  omp: {
+    // omp is a flat CLI: the headless contract is the root -p/--print path.
+    // --approval-mode is admitted too: the headless write run passes it, so
+    // an omp without it must fail before admission, not after dispatch.
+    help_tokens: ["--print", "--approval-mode", "--tools", "--model", "--thinking", "--mode", "--cwd"],
+    subcommand: "",
+    subcommand_help_tokens: [],
   },
 };
 
@@ -87,12 +99,18 @@ const LIVE_PROBE = {
     subcommand: "",
     subcommand_help_tokens: [],
   },
+  omp: {
+    help_tokens: ["--cwd", "--model", "--thinking", "--approval-mode"],
+    subcommand: "",
+    subcommand_help_tokens: [],
+  },
 };
 
 const PROMPT_DELIVERY = {
   codex: "transport",
   claude: "transport",
   opencode: "transport",
+  omp: "transport",
 };
 
 // Progress-event contract: flags switch the runtime into NDJSON event output
@@ -128,6 +146,20 @@ const PROGRESS = {
     streams: true,
     final: { match: [["type", "text"]], text_path: "part.text" },
   },
+  omp: {
+    flags: ["--mode", "json"],
+    event_format: "ndjson",
+    stream: "stdout",
+    streams: true,
+    // Verified live (2026-08-23, omp v17.4.2): `-p --mode json` emits NDJSON
+    // events on stdout; the terminal assistant text is the last message_end
+    // event whose message.role is assistant, at message.content[0].text.
+    // message.stopReason must be "stop": JSON mode can exit 0 with an
+    // error/aborted assistant event, which must never read as a successful
+    // terminal answer (omp print-mode.ts converts those to exit 1 only in
+    // the text path).
+    final: { match: [["type", "message_end"], ["message.role", "assistant"], ["message.stopReason", "stop"]], text_path: "message.content.0.text" },
+  },
 };
 
 // Model-family sub-dimension of the runtime axis (not a fourth axis): the
@@ -145,9 +177,40 @@ function effortValid(model, effort) {
   return effortPattern(family).test(effort);
 }
 
+// Capability-probe payloads: what agent-runtime.sh prints after probing.
+// Runtime-specific facts (write-isolation mechanism, failure reason codes,
+// extra required fields) are registry data so admitting a runtime never
+// requires branching on its name in the shared runtime boundary (#219).
+const CAPABILITY_ROLES = ["conductor", "architect", "implementation", "reviewer", "verifier", "visual", "release"];
+const CAPABILITIES = {
+  codex: {
+    fail_code: "capability_missing_exec_contract",
+    fields: { write_isolation: "codex_workspace_write", fallback: false },
+  },
+  claude: {
+    fail_code: "capability_missing_print_permissions_output_model_or_effort",
+    fields: { write_isolation: "runtime_permission_mode", fallback: false },
+  },
+  opencode: {
+    fail_code: "capability_missing_run_contract",
+    fields: {
+      write_isolation: "inline_deny_first_config_plus_explicit_agent",
+      config_application: "OPENCODE_CONFIG_CONTENT",
+      fallback: false,
+      requires: ["opencode_permission_file", "opencode_config_content", "opencode_run_agent"],
+    },
+  },
+  omp: {
+    fail_code: "capability_missing_print_model_thinking_or_mode",
+    fields: { write_isolation: "runtime_approval_mode", fallback: false },
+  },
+};
+
+
 module.exports = {
   RUNTIMES, STASH_BY, WS_SHORT_IMPL, EFFORT_DEFAULT, BIN, PROBE, LIVE_PROBE,
-  PROMPT_DELIVERY, PROGRESS, MODEL_FAMILY_REGEX, EFFORT_ENUMS, effortValid,
+  PROMPT_DELIVERY, PROGRESS, CAPABILITIES, MODEL_FAMILY_REGEX, EFFORT_ENUMS,
+  effortValid,
 };
 
 if (require.main === module) {
@@ -182,6 +245,18 @@ if (require.main === module) {
     case "effort-valid": process.exit(effortValid(process.argv[3], process.argv[4]) ? 0 : 1); break;
     case "progress-flags": PROGRESS[registered(process.argv[3])].flags.forEach(write); break;
     case "progress-stream": write(PROGRESS[registered(process.argv[3])].stream); break;
+    case "capabilities": {
+      const name = registered(process.argv[3]);
+      const status = process.argv[4];
+      if (status === "ok") {
+        const payload = { runtime: name, available: true, executable: process.argv[5], version: process.argv[6], roles: CAPABILITY_ROLES, modes: ["read", "write"], ...CAPABILITIES[name].fields };
+        write(JSON.stringify(payload));
+        break;
+      }
+      write(JSON.stringify({ runtime: name, available: false, code: CAPABILITIES[name].fail_code }));
+      process.exit(1);
+      break;
+    }
     case "extract-final": {
       const name = registered(process.argv[3]);
       const filePath = process.argv[4];
@@ -206,7 +281,7 @@ if (require.main === module) {
       break;
     }
     default:
-      process.stderr.write("usage: runtime-registry.cjs [lines|default-runtime|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | live-probe-help-tokens <runtime> | live-probe-subcommand <runtime> | live-probe-subcommand-help-tokens <runtime> | prompt-delivery <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-default <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | extract-final <runtime> <ndjson-file>\n");
+      process.stderr.write("usage: runtime-registry.cjs [lines|default-runtime|pipe] | is-registered <runtime> | bin <runtime> | probe-help-tokens <runtime> | probe-subcommand <runtime> | probe-subcommand-help-tokens <runtime> | live-probe-help-tokens <runtime> | live-probe-subcommand <runtime> | live-probe-subcommand-help-tokens <runtime> | prompt-delivery <runtime> | stash-by <runtime> | ws-short-impl <runtime> | effort-default <runtime> | effort-valid <model> <effort> | progress-flags <runtime> | progress-stream <runtime> | capabilities <runtime> ok <path> <version>|fail | extract-final <runtime> <ndjson-file>\n");
       process.exit(2);
   }
 }

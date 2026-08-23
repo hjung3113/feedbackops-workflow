@@ -9,7 +9,7 @@
     "artifact_type": { "const": "transport_receipt" },
     "authoritative": { "const": false },
     "issue": { "type": "integer", "minimum": 1 },
-    "runtime": { "enum": ["codex", "claude", "opencode"], "description": "Agent runtime selected independently from transport." },
+    "runtime": { "enum": ["codex", "claude", "opencode", "omp"], "description": "Agent runtime selected independently from transport." },
     "role": { "enum": ["conductor", "architect", "implementation", "reviewer", "verifier", "visual", "release"] },
     "runtime_version": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "Agent runtime version reported by its capability probe." },
     "execution_mode": { "enum": ["headless", "live-tui"] },

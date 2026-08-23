@@ -1,6 +1,6 @@
 ---
 name: model-routing
-description: Routes work to the right model and the right dispatch mechanism — Opus stays on whole-session orchestration and every judgement role (review, verify, audit); all other work goes to a closed list of five model+effort combos (gpt-5.6-sol high, glm-5.3 high/low via opencode, claude-opus-5 high, claude-sonnet-5 high, gpt-5.6-luna max) spawned through orca worktrees and terminals — gpt-5.6-terra is banned. Use before spawning any subagent or delegating implementation, planning, docs, or recon work, and whenever deciding "which model should do this".
+description: Routes work to the right model and the right dispatch mechanism — Opus stays on whole-session orchestration and every judgement role (review, verify, audit); all other work goes to a closed list of five model+effort combos (gpt-5.6-sol high, glm-5.3 high/low via opencode or omp, claude-opus-5 high, claude-sonnet-5 high, gpt-5.6-luna max) spawned through orca worktrees and terminals — gpt-5.6-terra is banned. Use before spawning any subagent or delegating implementation, planning, docs, or recon work, and whenever deciding "which model should do this".
 ---
 
 # Model routing
@@ -33,8 +33,8 @@ banned outright** — do not dispatch to it at any effort.
 
 | Tier | Interchangeable combos | Use for |
 |---|---|---|
-| **Heavy** | `gpt-5.6-sol` (effort `high`) ≡ `glm-5.3` (effort `high`, via opencode) ≡ `claude-opus-5` (effort `high`) | judgement-adjacent / hard design work where any of the three is acceptable |
-| **Light** | `glm-5.3` (effort `low`, via opencode) ≡ `claude-sonnet-5` (effort `high`) | ordinary ongoing/ progress work |
+| **Heavy** | `gpt-5.6-sol` (effort `high`) ≡ `glm-5.3` (effort `high`, via opencode or omp) ≡ `claude-opus-5` (effort `high`) | judgement-adjacent / hard design work where any of the three is acceptable |
+| **Light** | `glm-5.3` (effort `low`, via opencode or omp) ≡ `claude-sonnet-5` (effort `high`) | ordinary ongoing/ progress work |
 | **Implementation** | `gpt-5.6-luna` (effort `max`) | code implementation (mechanical migrations, script moves, everyday engineering — this replaced terra's old role) |
 
 `max` is a distinct tier above `xhigh`. Verified live: `-c model_reasoning_effort="max"`
@@ -50,9 +50,9 @@ never tested and was wrong.)
 | `code-reviewer`, `gsd-code-reviewer` | Opus | `Agent` |
 | `gsd-verifier`, `gsd-plan-checker`, `gsd-doc-verifier`, `gsd-integration-checker` | Opus | `Agent` |
 | `gsd-nyquist-auditor`, `gsd-security-auditor`, `gsd-eval-auditor`, `gsd-ui-auditor` | Opus | `Agent` |
-| `gsd-planner`, `gsd-roadmapper`, `gsd-phase-researcher`, `gsd-project-researcher` | **Heavy tier** (sol/glm-5.3-high/opus5-high) | orca + codex/opencode |
+| `gsd-planner`, `gsd-roadmapper`, `gsd-phase-researcher`, `gsd-project-researcher` | **Heavy tier** (sol/glm-5.3-high/opus5-high) | orca + codex/opencode/omp |
 | `gsd-executor`, `gsd-code-fixer`, `gsd-doc-writer`, `python-engineer` | **Implementation** (luna max) | orca + codex |
-| `explorer`, `gsd-intel-updater`, `curator`, broad greps | **Light tier** (glm-5.3-low/sonnet5-high) | orca + codex/opencode |
+| `explorer`, `gsd-intel-updater`, `curator`, broad greps | **Light tier** (glm-5.3-low/sonnet5-high) | orca + codex/opencode/omp |
 
 A role **absent from a project's `model_overrides`** is not "default Claude" — it is
 codex-routed. Only the roles that stay on Claude are listed there.

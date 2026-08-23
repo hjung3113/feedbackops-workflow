@@ -1,6 +1,6 @@
 # Multi-Agent Workflow — Operating Playbook
 
-This file is the detailed operating authority for the transport-selectable cmux/Orca/Herdr × Codex/Claude Code/OpenCode workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
+This file is the detailed operating authority for the transport-selectable cmux/Orca/Herdr × Codex/Claude Code/OpenCode/OMP workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
 
 ## Distribution, runtime, role, and transport axes
 
@@ -9,7 +9,7 @@ target-neutral product only; the former `--profile feedbackops` compatibility
 distribution was removed and its flag fails closed with guidance.
 
 Dispatch has independent runtime
-(`codex|claude|opencode`), role
+(`codex|claude|opencode|omp`), role
 (`conductor|architect|implementation|reviewer|verifier|visual|release`), and
 transport (`cmux|orca|herdr`) axes. Profile supplies target adoption facts; runtime
 supplies execution/isolation capability; role supplies workflow responsibility;
@@ -36,7 +36,7 @@ re-hardcoding the runtime literal. The registry also owns the model-family
 effort enums as a sub-dimension of the runtime axis — the `gpt-5[.-]6`
 family selects `none|low|medium|high|xhigh|max`, every other model selects
 `low|medium|high` — and the stash policy: Codex stashes partial work itself
-inside scripts/runtimes/codex-safe.sh, while Claude Code and OpenCode are stashed by the
+inside scripts/runtimes/codex-safe.sh, while Claude Code, OpenCode, and OMP are stashed by the
 watchdog. A containment smoke test keeps the full runtime-set literal out of
 the migrated call sites, so a registry lookup cannot silently coexist with a
 revived local case statement.
@@ -57,8 +57,17 @@ while read denies both. The adapter supplies that exact
 JSON through `OPENCODE_CONFIG_CONTENT` and invokes `opencode run --agent
 agent-workflow` for headless work; its live launch-spec uses the root TUI with
 the same explicit agent and config. It never accepts OpenCode's default-agent fallback. A model
-choice cannot waive this gate. Codex, Claude Code, and OpenCode may each
+choice cannot waive this gate. Codex, Claude Code, OpenCode, and OMP may each
 conduct or perform any role only after their own capability probe passes.
+
+OMP (oh-my-pi) is an additive runtime member (#216): headless work runs
+`omp -p --mode json` with `--model`/`--thinking`, the live launch-spec is the
+bare interactive TUI with `--cwd`, and write mode lifts the approval gate via
+`--approval-mode write`. Read mode is fail-closed and config-independent:
+omp v17.4.2 defaults `tools.approvalMode` to `yolo`, so read launches pin a
+read-only tool surface (`--tools read,grep,glob`) that removes the write,
+bash, and exec tools entirely. Its NDJSON event
+stream is wired through the registry `PROGRESS` entry like claude/opencode.
 
 ### Execution mode and live-TUI sessions
 
@@ -391,7 +400,7 @@ an open question.
 `PROGRESS` carries a `streams` boolean per runtime, tracked separately from
 `event_format`/`flags`/`final` — it is the single explicit fact of whether
 `agent-runtime.sh`'s launch for that runtime actually applies `PROGRESS.flags`
-right now. Only when `streams` is true (currently `claude` and `opencode`)
+right now. Only when `streams` is true (currently `claude`, `opencode`, and `omp`)
 do `transcribe_review()` and the `--conductor-control` proposal handoff
 extract the terminal event's result text first (the same match/text-path
 walk `runtime-registry.cjs extract-final <runtime> <file>` performs), then
@@ -406,8 +415,9 @@ itself is deliberately untouched: it is a host-side security boundary and
 must not learn per-runtime output schemas, so `agent-watchdog.sh` performs
 the extraction into a clean, disposable temp file before ever calling it.
 
-As of this design, `claude` and `opencode` are the runtimes with
-`streams: true`. Claude's `agent-runtime.sh` launch applies `PROGRESS.flags`
+As of this design, `claude`, `opencode`, and `omp` are the runtimes with
+`streams: true`. OMP's launch applies `--mode json` (#216; verified live
+2026-08-23 against omp v17.4.2). Claude's `agent-runtime.sh` launch applies `PROGRESS.flags`
 (`--output-format stream-json --verbose --include-partial-messages`,
 confirmed incremental at token-level resolution). Opencode's launch applies
 `--format json` (#155): a five-run reproduction against the real dispatch
@@ -490,9 +500,9 @@ Herdr is the third explicit transport and must be selected as `--orchestrator he
 
 Herdr live sessions use the agent facade, never `pane run` (which stays the headless runner and generic-shell fallback). Before the eight semantic session capabilities are offered, the adapter proves the `herdr agent start/prompt/wait/read/send-keys/get` help-token contract and passes a fresh/untrusted-worktree trust-prompt race acceptance test: in a never-trusted temp workspace it runs a sentinel that renders a first-run trust-prompt screen and requires the installed herdr itself to classify that agent as `blocked` (the documented fix contract for herdrdev/herdr#2410, where 0.8.0-era `agent start` reported interactive-ready while the trust prompt still blocked). Idle, unknown, timeout, or error all leave live unavailable while headless stays intact; that probe runs on every capability call, so an installation that never classifies the sentinel pays its bounded wait (default 8s) per dispatch until herdr is fixed. `launch-live` creates the workspace, takes the root pane, and runs `agent start NAME --kind <launch-spec runtime> --pane <pane> --timeout 120000 [--env K=V ...] -- <spec argv...>`, forwarding `--kind` as spec data (never a runtime-name branch), preserving argv tokens byte-exactly through a NUL-delimited handoff, and requiring a proven `--env` token only when the spec carries a non-empty env. `wait-ready` never trusts `agent start` exit 0: it asks `agent wait --until idle --until blocked` and a `blocked` answer (trust prompt or approval UI) is the typed `herdr_agent_blocked_before_ready` refusal, never a send target. `send` is `agent prompt --wait` with a 15s window: herdr's native `agent_prompt_stalled` becomes a typed failure, a wait timeout is disambiguated through `agent get` (working/blocked/idle/done/unknown defer to the supervisor's activity gate), and the prompt body is never re-sent. `read` wraps `agent read --source recent-unwrapped --lines 200` in a deterministic JSON envelope with no volatile fields so the supervisor's byte-diff only sees real screen change. `wait-settled` maps herdr's native states onto the shared enum (`idle`/`done`→settled, `blocked`→blocked, `working`→working, `unknown`→stale and never success evidence, `agent_not_running`→terminal), `interrupt` sends `agent send-keys esc`, `close` closes the workspace, and `inspect --session-json` resolves workspace liveness from the structured handles (`lifecycle`=workspace, `io`=pane, `agent`=agent name). Offline coverage lives in `scripts/__tests__/herdr-live.smoke.sh`, including the trust-race gate itself, the settled-without-fresh-artifact contract failure, and same-issue redispatch duplicate-prompt prevention.
 
-Before admission, the shared core resolves the selected runtime from its runtime-specific host seam (`AGENT_WORKFLOW_CODEX_BIN`, `AGENT_WORKFLOW_CLAUDE_BIN`, or `AGENT_WORKFLOW_OPENCODE_BIN`) or caller `PATH` to one canonical absolute executable. It exports only the generic absolute `AGENT_WORKFLOW_RUNTIME_BIN` pin into the retained runner, shared watchdog probes, and runtime adapter. Relative, missing, non-executable, mismatched, or unavailable pins fail before admission; target workflow config cannot set one. This prevents a transport terminal with a different inherited PATH from changing runtime identity. cmux handle creation/inspection remains identity-strict as documented below.
+Before admission, the shared core resolves the selected runtime from its runtime-specific host seam (`AGENT_WORKFLOW_CODEX_BIN`, `AGENT_WORKFLOW_CLAUDE_BIN`, `AGENT_WORKFLOW_OPENCODE_BIN`, or `AGENT_WORKFLOW_OMP_BIN`) or caller `PATH` to one canonical absolute executable. It exports only the generic absolute `AGENT_WORKFLOW_RUNTIME_BIN` pin into the retained runner, shared watchdog probes, and runtime adapter. Relative, missing, non-executable, mismatched, or unavailable pins fail before admission; target workflow config cannot set one. This prevents a transport terminal with a different inherited PATH from changing runtime identity. cmux handle creation/inspection remains identity-strict as documented below.
 
-Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca|herdr> --runtime <codex|claude|opencode> --role <role> --issue <N> --worktree <path> ...` for new callers. Add `--read-only --conductor-control` only for the narrow conductor ROUND-STATE publication mode. Use `capabilities` before operator setup. The remaining correctness options below are shared across transports and runtimes.
+Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca|herdr> --runtime <codex|claude|opencode|omp> --role <role> --issue <N> --worktree <path> ...` for new callers. Add `--read-only --conductor-control` only for the narrow conductor ROUND-STATE publication mode. Use `capabilities` before operator setup. The remaining correctness options below are shared across transports and runtimes.
 
 ### Historical cmux incident and compatibility contract
 
