@@ -63,7 +63,10 @@ conduct or perform any role only after their own capability probe passes.
 OMP (oh-my-pi) is an additive runtime member (#216): headless work runs
 `omp -p --mode json` with `--model`/`--thinking`, the live launch-spec is the
 bare interactive TUI with `--cwd`, and write mode lifts the approval gate via
-`--approval-mode write` (read keeps the configured default). Its NDJSON event
+`--approval-mode write`. Read mode is fail-closed and config-independent:
+omp v17.4.2 defaults `tools.approvalMode` to `yolo`, so read launches pin a
+read-only tool surface (`--tools read,grep,glob`) that removes the write,
+bash, and exec tools entirely. Its NDJSON event
 stream is wired through the registry `PROGRESS` entry like claude/opencode.
 
 ### Execution mode and live-TUI sessions

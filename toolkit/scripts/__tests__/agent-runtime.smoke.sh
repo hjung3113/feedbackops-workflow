@@ -6,7 +6,7 @@ ok() { echo "ok   - $1"; }; bad() { echo "NOT OK - $1"; FAILURES=$((FAILURES + 1
 BIN="$TMP_DIR/bin"; WT="$TMP_DIR/wt"; mkdir -p "$BIN" "$WT"; printf 'prompt\n' > "$WT/prompt.txt"
 . "$SCRIPT_DIR/lib/stub-argv.sh"; make_stub_capture_helper "$TMP_DIR/stub-capture.sh"; STUB_CAPTURE_HELPER="$TMP_DIR/stub-capture.sh"; export STUB_CAPTURE_HELPER
 make_bin() { name="$1"; help="$2"; printf '#!/usr/bin/env bash\nif [ "$1" = "--version" ]; then echo test-version; exit 0; fi\nif [ "$1" = "--help" ] || [ "$2" = "--help" ]; then printf "%%s\\n" %s; exit 0; fi\nprintf "%%s\\n" "$@" > "$RUNTIME_ARGV"\n. "$STUB_CAPTURE_HELPER"\n' "'$help'" > "$BIN/$name"; chmod +x "$BIN/$name"; }
-make_bin codex 'exec --sandbox --cd --model --config --output-last-message --json'; make_bin claude '--print --permission-mode --output-format --model --effort --include-partial-messages'; make_bin opencode 'run --dir --format --agent --model --variant json'; make_bin omp '--print --model --thinking --mode --cwd --approval-mode'
+make_bin codex 'exec --sandbox --cd --model --config --output-last-message --json'; make_bin claude '--print --permission-mode --output-format --model --effort --include-partial-messages'; make_bin opencode 'run --dir --format --agent --model --variant json'
 # Refuse launches unless the documented inline config and explicit primary
 # agent are consumed. This proves config application, not only local parsing.
 cat > "$BIN/opencode" <<'EOF'
@@ -41,19 +41,47 @@ PATH="$BIN:$PATH" AGENT_WORKFLOW_CODEX_BIN=missing-codex bash "$RUNTIME" capabil
 RUNTIME_ARGV="$TMP_DIR/codex.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime codex --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --issue 1; if grep -Fx -- workspace-write "$TMP_DIR/codex.argv" >/dev/null; then ok 'codex write preserves codex-safe workspace-write'; else bad 'codex write isolation'; fi
 RUNTIME_ARGV="$TMP_DIR/claude.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime claude --role conductor --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt"; if grep -Fx -- plan "$TMP_DIR/claude.argv" >/dev/null; then ok 'claude conductor read pins plan'; else bad 'claude read isolation'; fi
 if grep -Fx -- stream-json "$TMP_DIR/claude.argv" >/dev/null && grep -Fx -- --verbose "$TMP_DIR/claude.argv" >/dev/null && grep -Fx -- --include-partial-messages "$TMP_DIR/claude.argv" >/dev/null; then ok 'AC-142-A2b2-3 claude launch applies registry PROGRESS.flags, not a hardcoded --output-format text'; else bad 'AC-142-A2b2-3 claude launch applies registry PROGRESS.flags, not a hardcoded --output-format text'; fi
-# omp: read launch stays headless without an approval lift and applies the
-# registry PROGRESS.omp.flags pair.
-RUNTIME_ARGV="$TMP_DIR/omp-read.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime omp --role reviewer --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt"; if grep -Fx -- -p "$TMP_DIR/omp-read.argv" >/dev/null && ! grep -Fx -- --approval-mode "$TMP_DIR/omp-read.argv" >/dev/null; then ok 'omp reviewer read stays -p headless without approval lift'; else bad 'omp read isolation'; fi
+# omp stub: refuses (exit 21/22) any headless launch that is not a write
+# launch but lacks the pinned read-only --tools surface, or whose read
+# surface still exposes a write/exec tool. This is the mutation-negative
+# read-isolation contract: a regression in omp.sh cannot stay green.
+cat > "$BIN/omp" <<'EOF'
+#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo test-version; exit 0; fi
+if [ "$1" = "--help" ]; then printf '%s\n' '--print --approval-mode --model --thinking --mode --cwd --tools'; exit 0; fi
+is_read=1
+for arg in "$@"; do [ "$arg" = "--approval-mode" ] && is_read=0; done
+if [ "$is_read" -eq 1 ]; then
+  tools_ok=0
+  for arg in "$@"; do [ "$arg" = "read,grep,glob" ] && tools_ok=1; done
+  [ "$tools_ok" -eq 1 ] || exit 21
+  for arg in "$@"; do case "$arg" in *bash*|*edit*|*write*|*computer*|*browser*|*python*) exit 22;; esac; done
+fi
+printf '%s\n' "$@" > "$RUNTIME_ARGV"
+. "$STUB_CAPTURE_HELPER"
+EOF
+chmod +x "$BIN/omp"
+# omp read: headless, fail-closed tool surface, no approval lift.
+RUNTIME_ARGV="$TMP_DIR/omp-read.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime omp --role reviewer --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt" >/dev/null 2>&1; omp_read_ec=$?
+if [ "$omp_read_ec" -eq 0 ] && grep -Fx -- -p "$TMP_DIR/omp-read.argv" >/dev/null && grep -Fx -- --tools "$TMP_DIR/omp-read.argv" >/dev/null && grep -Fx -- read,grep,glob "$TMP_DIR/omp-read.argv" >/dev/null && ! grep -Fx -- --approval-mode "$TMP_DIR/omp-read.argv" >/dev/null; then ok 'omp read pins the read-only tool surface without approval lift'; else bad 'omp read isolation (exit '"$omp_read_ec"')'; fi
 if grep -Fx -- --mode "$TMP_DIR/omp-read.argv" >/dev/null && grep -Fx -- json "$TMP_DIR/omp-read.argv" >/dev/null; then ok 'omp read launch applies registry PROGRESS.flags (--mode json)'; else bad 'omp progress flags'; fi
-# omp: write launch lifts the approval gate to writes and forwards the
-# model/thinking tuple as adjacent argv pairs.
+# Mutation-negative: a read launch whose tool surface exposes a write/exec
+# tool is refused by the same contract stub.
+OMP_MUTATE=1 "$BIN/omp" -p --tools read,grep,glob --tools bash "x" >/dev/null 2>&1; if [ $? -eq 22 ]; then ok 'omp read-isolation contract stub refuses a write/exec-capable tool surface'; else bad 'omp read-isolation mutation check'; fi
+"$BIN/omp" -p --model m "x" >/dev/null 2>&1; if [ $? -eq 21 ]; then ok 'omp read-isolation contract stub refuses a missing --tools pin'; else bad 'omp missing-tools mutation check'; fi
+# omp write: lifts the approval gate and forwards model/thinking pairs.
 : > "$TMP_DIR/omp-write.args"
 RUNTIME_ARGV="$TMP_DIR/omp-write.argv" STUB_ARGS_LOG="$TMP_DIR/omp-write.args" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime omp --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --model m3 --effort low
 omp_args="$(tail -n 1 "$TMP_DIR/omp-write.args")"
 if [ "$(printf '%s\n' "$omp_args" | grep -c -- '--approval-mode write')" -eq 1 ] && printf '%s\n' "$omp_args" | grep -q -- '--model m3' && printf '%s\n' "$omp_args" | grep -q -- '--thinking low' && [ "$(printf '%s\n' "$omp_args" | grep -c -- '--mode json')" -eq 1 ]; then ok 'omp write forwards approval lift and model/thinking pairs with the --mode json streaming pair'; else bad 'omp write argv pair capture (got: '"$omp_args"')'; fi
 omp_mutation_glued='--approval-modewrite --model m3'
 if ! printf '%s\n' "$omp_mutation_glued" | grep -q -- '--approval-mode write'; then ok 'omp argv mutation check rejects a token-glued approval pair'; else bad 'omp argv mutation check accepted a mutated argv'; fi
-RUNTIME_ARGV="$TMP_DIR/omp-probe.argv" PATH="$BIN:$PATH" bash "$RUNTIME" probe --runtime omp --model m3 --effort low; if grep -Fx -- -p "$TMP_DIR/omp-probe.argv" >/dev/null && grep -Fx -- m3 "$TMP_DIR/omp-probe.argv" >/dev/null && grep -Fx -- low "$TMP_DIR/omp-probe.argv" >/dev/null; then ok 'omp probe stays headless and forwards model/thinking'; else bad 'omp probe argv'; fi
+# omp run forwards the prompt behind a POSIX separator: a leading-dash
+# prompt must arrive as the final positional, not parse as a flag.
+printf '%s\n' '- leading dash prompt' > "$WT/dash-prompt.txt"
+RUNTIME_ARGV="$TMP_DIR/omp-dash.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime omp --role reviewer --mode read --cwd "$WT" --prompt-file "$WT/dash-prompt.txt" >/dev/null 2>&1
+if grep -Fx -- -- "$TMP_DIR/omp-dash.argv" >/dev/null && [ "$(tail -n 1 "$TMP_DIR/omp-dash.argv")" = '- leading dash prompt' ]; then ok 'omp run passes the prompt behind a POSIX -- separator'; else bad 'omp leading-dash prompt forwarding'; fi
+RUNTIME_ARGV="$TMP_DIR/omp-probe.argv" PATH="$BIN:$PATH" bash "$RUNTIME" probe --runtime omp --model m3 --effort low; if grep -Fx -- -p "$TMP_DIR/omp-probe.argv" >/dev/null && grep -Fx -- read,grep,glob "$TMP_DIR/omp-probe.argv" >/dev/null && grep -Fx -- m3 "$TMP_DIR/omp-probe.argv" >/dev/null && grep -Fx -- low "$TMP_DIR/omp-probe.argv" >/dev/null; then ok 'omp probe stays headless, read-only, and forwards model/thinking'; else bad 'omp probe argv'; fi
 cp "$SCRIPT_DIR/../runtimes/opencode-read.json" "$TMP_DIR/read.json"; cp "$SCRIPT_DIR/../runtimes/opencode-write.json" "$TMP_DIR/write.json"
 RUNTIME_ARGV="$TMP_DIR/opencode.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role reviewer --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt" --opencode-permission-file "$TMP_DIR/read.json"; if ! grep -Fx -- --auto "$TMP_DIR/opencode.argv" >/dev/null && grep -Fx -- agent-workflow "$TMP_DIR/opencode.argv" >/dev/null; then ok 'opencode applies deny-first inline config through explicit agent without auto'; else bad 'opencode config and explicit agent application'; fi
 PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime opencode --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" >/dev/null 2>&1; if [ $? -ne 0 ]; then ok 'opencode missing permission config refused'; else bad 'opencode missing permission config'; fi

@@ -96,6 +96,17 @@ node "$REGISTRY" extract-final claude "$TMP_DIR/extract-final-missing.ndjson" >"
 ef_ec=$?
 if [ "$ef_ec" -eq 3 ] && [ "$(wc -l < "$TMP_DIR/extract-final.err" | tr -d ' ')" -eq 1 ] && grep -F -q 'extract-final: cannot read' "$TMP_DIR/extract-final.err"; then ok "AC-142-A2a-2 extract-final unreadable input exits 3 with one stderr line, no stack trace"; else not_ok "AC-142-A2a-2 extract-final unreadable input exits 3 with one stderr line, no stack trace"; fi
 
+omp_final="$TMP_DIR/extract-final-omp.ndjson"
+printf '%s\n%s\n%s\n' \
+  '{"type":"message_end","message":{"role":"assistant","stopReason":"error","content":[{"type":"text","text":"partial on error"}]}}' \
+  '{"type":"message_end","message":{"role":"assistant","stopReason":"aborted","content":[{"type":"text","text":"aborted run"}]}}' \
+  '{"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"final answer"}]}}' > "$omp_final"
+assert_equals "AC-142-A2a-3 omp extract-final skips error/aborted assistant events and returns the stopped one" \
+  "final answer" "$(node "$REGISTRY" extract-final omp "$omp_final")"
+omp_failed="$TMP_DIR/extract-final-omp-failed.ndjson"
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","stopReason":"error","content":[{"type":"text","text":"partial on error"}]}}' > "$omp_failed"
+node "$REGISTRY" extract-final omp "$omp_failed" >/dev/null 2>&1
+if [ $? -eq 1 ]; then ok "AC-142-A2a-4 omp extract-final exits 1 when only error/aborted terminal events exist"; else not_ok "AC-142-A2a-4 omp extract-final exits 1 when only error/aborted terminal events exist"; fi
 # --- AC-135-2: agent-workflow.sh validates runtimes through the registry ---
 
 assert_contains "AC-135-2 agent-workflow.sh wires the runtime registry" "lib/runtime-registry.cjs" "$PRODUCT_ROOT/agent-workflow.sh"

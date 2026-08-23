@@ -8,9 +8,16 @@ COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
   launch-spec)
-    # omp has no separate read-only sandbox; write mode lifts the approval
-    # gate to writes only, read mode keeps the configured default (ask).
-    [ "$MODE" = write ] && set -- "$BIN" --approval-mode write || set -- "$BIN"
+    # Write mode lifts the approval gate to writes only (--approval-mode
+    # write). Read mode is fail-closed and config-independent: omp v17.4.2
+    # defaults to tools.approvalMode "yolo", so pinning a read-only tool
+    # surface (--tools read,grep,glob) is what actually removes the
+    # write/bash tools — approval mode alone cannot.
+    if [ "$MODE" = write ]; then
+      set -- "$BIN" --approval-mode write
+    else
+      set -- "$BIN" --tools read,grep,glob
+    fi
     set -- "$@" --cwd "$CWD"
     [ -n "$MODEL" ] && set -- "$@" --model "$MODEL"
     [ -n "$EFFORT" ] && set -- "$@" --thinking "$EFFORT"
@@ -20,14 +27,18 @@ case "$COMMAND" in
     exit $?
     ;;
   probe)
-    set -- "$BIN" -p --model "$MODEL" --thinking "$EFFORT" "reply exactly OK"
+    # The probe is a harmless preflight, but headless non-write launches get
+    # the same fail-closed tool surface as workflow read mode.
+    set -- "$BIN" -p --tools read,grep,glob --model "$MODEL" --thinking "$EFFORT" "reply exactly OK"
     exec "$@"
     ;;
   run) ;;
   *) exit 2;;
 esac
 
-[ "$MODE" = write ] && set -- "$BIN" -p --approval-mode write || set -- "$BIN" -p
+# Same fail-closed read policy as launch-spec: a read-only tool surface,
+# not an approval-mode default (see launch-spec comment above).
+if [ "$MODE" = write ]; then set -- "$BIN" -p --approval-mode write; else set -- "$BIN" -p --tools read,grep,glob; fi
 # The progress event stream is registry data (PROGRESS.omp.flags), not a
 # hardcoded --mode json argv — agent-watchdog.sh's progressed() and
 # transcribe_review() key off this same table to read the stream back.
@@ -36,4 +47,7 @@ progress_flags="$(node "$RUNTIME_REGISTRY" progress-flags "$RUNTIME")" || { prin
 while IFS= read -r flag; do [ -n "$flag" ] && set -- "$@" "$flag"; done <<PROGRESS_FLAGS
 $progress_flags
 PROGRESS_FLAGS
-[ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --thinking "$EFFORT"; cd "$CWD"; exec "$@" "$PROMPT"
+[ -n "$MODEL" ] && set -- "$@" --model "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" --thinking "$EFFORT"; cd "$CWD"
+# POSIX separator: a prompt whose first character is "-" (e.g. a Markdown
+# bullet) must never parse as a CLI flag.
+exec "$@" -- "$PROMPT"

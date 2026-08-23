@@ -126,6 +126,17 @@ if (["-p","--print","--mode","json","exec","run"].some(x=>a.indexOf(x)>=0)) proc
 NODE
 then pass 'omp live launch-spec carries write approval lift and drops headless envelope'; else fail 'omp live launch-spec carries write approval lift and drops headless envelope'; fi
 
+OMP_READ_SPEC="$TMP_DIR/omp-read-spec.json"
+PATH="$BIN:$PATH" bash "$RUNTIME" launch-spec --runtime omp --role reviewer --mode read --cwd "$WT" --model "$MODEL" --effort "$EFFORT" > "$OMP_READ_SPEC" 2>"$TMP_DIR/omp-read.err"
+if [ "$?" -eq 0 ] && node - "$OMP_READ_SPEC" "$WT" "$MODEL" "$EFFORT" "$BIN/omp" <<'NODE'
+const fs=require("fs");
+const [file,cwd,model,effort,bin]=process.argv.slice(2), s=JSON.parse(fs.readFileSync(file,"utf8")), a=s.argv;
+const at=x=>a.indexOf(x);
+if (s.runtime!=="omp" || a[0]!==bin || a[at("--tools")+1]!=="read,grep,glob" || a[at("--cwd")+1]!==cwd || a[at("--model")+1]!==model || a[at("--thinking")+1]!==effort) process.exit(2);
+if (["-p","--print","--approval-mode","--mode","json","exec","run"].some(x=>a.indexOf(x)>=0)) process.exit(2);
+NODE
+then pass 'omp live read launch-spec pins the fail-closed read-only tool surface'; else fail 'omp live read launch-spec pins the fail-closed read-only tool surface'; fi
+
 cat > "$BIN/codex-headless" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
