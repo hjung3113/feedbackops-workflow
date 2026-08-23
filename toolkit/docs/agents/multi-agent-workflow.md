@@ -1,6 +1,6 @@
 # Multi-Agent Workflow — Operating Playbook
 
-This file is the detailed operating authority for the transport-selectable cmux/Orca/Herdr × Codex/Claude Code/OpenCode workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
+This file is the detailed operating authority for the transport-selectable cmux/Orca/Herdr × Codex/Claude Code/OpenCode/OMP workflow. The project skill at `.claude/skills/agent-workflow/SKILL.md` is deliberately a thin router into this playbook; do not duplicate model maps, incident contracts, or verifier rules there.
 
 ## Distribution, runtime, role, and transport axes
 
@@ -9,7 +9,7 @@ target-neutral product only; the former `--profile feedbackops` compatibility
 distribution was removed and its flag fails closed with guidance.
 
 Dispatch has independent runtime
-(`codex|claude|opencode`), role
+(`codex|claude|opencode|omp`), role
 (`conductor|architect|implementation|reviewer|verifier|visual|release`), and
 transport (`cmux|orca|herdr`) axes. Profile supplies target adoption facts; runtime
 supplies execution/isolation capability; role supplies workflow responsibility;
@@ -36,7 +36,7 @@ re-hardcoding the runtime literal. The registry also owns the model-family
 effort enums as a sub-dimension of the runtime axis — the `gpt-5[.-]6`
 family selects `none|low|medium|high|xhigh|max`, every other model selects
 `low|medium|high` — and the stash policy: Codex stashes partial work itself
-inside scripts/runtimes/codex-safe.sh, while Claude Code and OpenCode are stashed by the
+inside scripts/runtimes/codex-safe.sh, while Claude Code, OpenCode, and OMP are stashed by the
 watchdog. A containment smoke test keeps the full runtime-set literal out of
 the migrated call sites, so a registry lookup cannot silently coexist with a
 revived local case statement.
@@ -57,8 +57,17 @@ while read denies both. The adapter supplies that exact
 JSON through `OPENCODE_CONFIG_CONTENT` and invokes `opencode run --agent
 agent-workflow` for headless work; its live launch-spec uses the root TUI with
 the same explicit agent and config. It never accepts OpenCode's default-agent fallback. A model
-choice cannot waive this gate. Codex, Claude Code, and OpenCode may each
+choice cannot waive this gate. Codex, Claude Code, OpenCode, and OMP may each
 conduct or perform any role only after their own capability probe passes.
+
+OMP (oh-my-pi) is an additive runtime member (#216): headless work runs
+`omp -p --mode json` with `--model`/`--thinking`, the live launch-spec is the
+bare interactive TUI with `--cwd`, and write mode lifts the approval gate via
+`--approval-mode write`. Read mode is fail-closed and config-independent:
+omp v17.4.2 defaults `tools.approvalMode` to `yolo`, so read launches pin a
+read-only tool surface (`--tools read,grep,glob`) that removes the write,
+bash, and exec tools entirely. Its NDJSON event
+stream is wired through the registry `PROGRESS` entry like claude/opencode.
 
 ### Execution mode and live-TUI sessions
 
@@ -391,7 +400,7 @@ an open question.
 `PROGRESS` carries a `streams` boolean per runtime, tracked separately from
 `event_format`/`flags`/`final` — it is the single explicit fact of whether
 `agent-runtime.sh`'s launch for that runtime actually applies `PROGRESS.flags`
-right now. Only when `streams` is true (currently `claude` and `opencode`)
+right now. Only when `streams` is true (currently `claude`, `opencode`, and `omp`)
 do `transcribe_review()` and the `--conductor-control` proposal handoff
 extract the terminal event's result text first (the same match/text-path
 walk `runtime-registry.cjs extract-final <runtime> <file>` performs), then
@@ -406,8 +415,9 @@ itself is deliberately untouched: it is a host-side security boundary and
 must not learn per-runtime output schemas, so `agent-watchdog.sh` performs
 the extraction into a clean, disposable temp file before ever calling it.
 
-As of this design, `claude` and `opencode` are the runtimes with
-`streams: true`. Claude's `agent-runtime.sh` launch applies `PROGRESS.flags`
+As of this design, `claude`, `opencode`, and `omp` are the runtimes with
+`streams: true`. OMP's launch applies `--mode json` (#216; verified live
+2026-08-23 against omp v17.4.2). Claude's `agent-runtime.sh` launch applies `PROGRESS.flags`
 (`--output-format stream-json --verbose --include-partial-messages`,
 confirmed incremental at token-level resolution). Opencode's launch applies
 `--format json` (#155): a five-run reproduction against the real dispatch
@@ -492,9 +502,9 @@ Herdr live sessions use the agent facade, never `pane run` (which stays the head
 
 # For codex launches the first-run trust prompt is additionally prevented upstream (#215): the codex runtime member pre-seeds codex's own per-directory trust store via its `pre-launch` command — `codex_trust_preseed` in `scripts/lib/codex-policy.sh` merges a `[projects."<resolved-cwd>"] trust_level = "trusted"` entry into `$CODEX_HOME/config.toml` (default `~/.codex`). The transport adapter invokes `runtimes/<runtime>.sh pre-launch --cwd <worktree>` generically immediately before the real launch — `launch-spec` itself stays side-effect-free because dispatch-core uses it as a preflight — so every live transport benefits, transport files never branch on a runtime name, and codex's trust screen never renders. The merge is TOML-safe (decoded-key table matching that respects whitespace inside quoted paths, spec-compliant control-character escaping, in-table key insertion, existing file mode preserved, fresh files 0600, lock-serialized with unique temp files and dead-owner stale-lock reclaim), and any read failure other than ENOENT fails closed instead of rewriting an unreadable config. This is a user-visible mutation: a live-tui codex dispatch writes the worktree's trust entry into the user's codex config. Other runtimes' `pre-launch` is a no-op.
 
-Before admission, the shared core resolves the selected runtime from its runtime-specific host seam (`AGENT_WORKFLOW_CODEX_BIN`, `AGENT_WORKFLOW_CLAUDE_BIN`, or `AGENT_WORKFLOW_OPENCODE_BIN`) or caller `PATH` to one canonical absolute executable. It exports only the generic absolute `AGENT_WORKFLOW_RUNTIME_BIN` pin into the retained runner, shared watchdog probes, and runtime adapter. Relative, missing, non-executable, mismatched, or unavailable pins fail before admission; target workflow config cannot set one. This prevents a transport terminal with a different inherited PATH from changing runtime identity. cmux handle creation/inspection remains identity-strict as documented below.
+Before admission, the shared core resolves the selected runtime from its runtime-specific host seam (`AGENT_WORKFLOW_CODEX_BIN`, `AGENT_WORKFLOW_CLAUDE_BIN`, `AGENT_WORKFLOW_OPENCODE_BIN`, or `AGENT_WORKFLOW_OMP_BIN`) or caller `PATH` to one canonical absolute executable. It exports only the generic absolute `AGENT_WORKFLOW_RUNTIME_BIN` pin into the retained runner, shared watchdog probes, and runtime adapter. Relative, missing, non-executable, mismatched, or unavailable pins fail before admission; target workflow config cannot set one. This prevents a transport terminal with a different inherited PATH from changing runtime identity. cmux handle creation/inspection remains identity-strict as documented below.
 
-Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca|herdr> --runtime <codex|claude|opencode> --role <role> --issue <N> --worktree <path> ...` for new callers. Add `--read-only --conductor-control` only for the narrow conductor ROUND-STATE publication mode. Use `capabilities` before operator setup. The remaining correctness options below are shared across transports and runtimes.
+Use `scripts/agent-workflow.sh dispatch --orchestrator <cmux|orca|herdr> --runtime <codex|claude|opencode|omp> --role <role> --issue <N> --worktree <path> ...` for new callers. Add `--read-only --conductor-control` only for the narrow conductor ROUND-STATE publication mode. Use `capabilities` before operator setup. The remaining correctness options below are shared across transports and runtimes.
 
 ### Historical cmux incident and compatibility contract
 

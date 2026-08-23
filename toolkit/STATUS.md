@@ -115,7 +115,7 @@ Revisit once orca/herdr are confirmed stable against real binaries.
 - The source-only smoke suite is excluded from every installed PRODUCT_HOME;
   an installed target uses its workflow commands and target-owned verification,
   while maintainers run smoke from the source checkout.
-- Runtime (`codex|claude|opencode`), role (including conductor), and transport
+- Runtime (`codex|claude|opencode|omp`), role (including conductor), and transport
   (`cmux|orca|herdr`) are independent admitted axes. Capability probe, observed
   runtime version, RUN/receipt provenance, and no-fallback failures are part
   of the contract; only fresh canonical REVIEW and VERIFY evidence at live HEAD

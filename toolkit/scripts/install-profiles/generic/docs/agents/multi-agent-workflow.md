@@ -9,7 +9,7 @@ Because ignored PRODUCT_HOME files are absent in fresh linked worktrees, invoke
 workflow commands as `"$PRODUCT_HOME/scripts/<command>"` and pass the checkout
 being changed only through `--worktree`; prompt-file relative paths remain
 worktree-relative. Select four independent axes at dispatch: this generic distribution profile,
-runtime (`codex`, `claude`, or `opencode`), role (including `conductor`), and
+runtime (`codex`, `claude`, `opencode`, or `omp`), role (including `conductor`), and
 transport (`cmux`, `orca`, or `herdr`). Run `"$PRODUCT_HOME/scripts/agent-workflow.sh" capabilities`
 before admission. An unavailable runtime/role/mode or transport fails closed
 with a machine-readable reason and is never substituted. OpenCode additionally

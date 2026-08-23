@@ -17,7 +17,7 @@ runtime_bin() {
   fi
   # The runtime set and each runtime's pinned-binary env/default are registry
   # data; this boundary never re-hardcodes the runtime names.
-  bin="$(node "$RUNTIME_REGISTRY" bin "$1")" || machine_error unknown_runtime "runtime must be codex, claude, or opencode"
+  bin="$(node "$RUNTIME_REGISTRY" bin "$1")" || machine_error unknown_runtime "runtime must be a registry-admitted runtime name"
   printf '%s\n' "$bin"
 }
 runtime_path() { command -v "$1" 2>/dev/null || return 1; }
@@ -79,15 +79,15 @@ probe_runtime() {
       done
     fi
   fi
-  case "$runtime" in
-    codex) if [ "$contract" -eq 1 ]; then printf '{"runtime":"codex","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"codex_workspace_write","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"codex","available":false,"code":"capability_missing_exec_contract"}'; return 1; fi;;
-    claude) if [ "$contract" -eq 1 ]; then printf '{"runtime":"claude","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"runtime_permission_mode","fallback":false}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"claude","available":false,"code":"capability_missing_print_permissions_output_model_or_effort"}'; return 1; fi;;
-    # OpenCode documents OPENCODE_CONFIG_CONTENT as its inline runtime config
-    # mechanism. --agent is the complementary CLI contract that makes the
-    # configured, named primary agent explicit rather than accepting the CLI's
-    # default-agent fallback behavior.
-    opencode) if [ "$contract" -eq 1 ]; then printf '{"runtime":"opencode","available":true,"executable":"%s","version":"%s","roles":["conductor","architect","implementation","reviewer","verifier","visual","release"],"modes":["read","write"],"write_isolation":"inline_deny_first_config_plus_explicit_agent","config_application":"OPENCODE_CONFIG_CONTENT","fallback":false,"requires":["opencode_permission_file","opencode_config_content","opencode_run_agent"]}\n' "$path" "$version"; else printf '%s\n' '{"runtime":"opencode","available":false,"code":"capability_missing_run_contract"}'; return 1; fi;;
-  esac
+  # The capability payload (roles, write-isolation mechanism, failure reason
+  # code, per-runtime extra fields) is registry data; this boundary never
+  # branches on runtime names. The registry exits 1 on the fail payload.
+  if [ "$contract" -eq 1 ]; then
+    node "$RUNTIME_REGISTRY" capabilities "$runtime" ok "$path" "$version"
+  else
+    node "$RUNTIME_REGISTRY" capabilities "$runtime" fail
+  fi
+  return $?
 }
 [ "$#" -ge 1 ] || { usage; exit 2; }; COMMAND="$1"; shift
 while [ "$#" -gt 0 ]; do case "$1" in --runtime) RUNTIME="$2"; shift 2;; --role) ROLE="$2"; shift 2;; --mode) MODE="$2"; shift 2;; --cwd) CWD="$2"; shift 2;; --prompt-file) PROMPT_FILE="$2"; shift 2;; --issue) ISSUE_N="$2"; shift 2;; --model) MODEL="$2"; shift 2;; --effort) EFFORT="$2"; shift 2;; --opencode-permission-file) OPENCODE_PERMISSION_FILE="$2"; shift 2;; --produce-review) PRODUCE_REVIEW=1; shift;; *) usage; machine_error unknown_argument "$1";; esac; done
@@ -137,6 +137,6 @@ case "$COMMAND" in
     ;;
 esac
 
-node "$RUNTIME_REGISTRY" is-registered "$RUNTIME" >/dev/null || machine_error unknown_runtime 'runtime must be codex, claude, or opencode'
+node "$RUNTIME_REGISTRY" is-registered "$RUNTIME" >/dev/null || machine_error unknown_runtime 'runtime must be a registry-admitted runtime name'
 export RUNTIME ROLE MODE CWD PROMPT_FILE MODEL EFFORT OPENCODE_PERMISSION_FILE ISSUE_N PRODUCE_REVIEW BIN PROMPT
 exec "$SCRIPT_DIR/runtimes/$RUNTIME.sh" "$COMMAND"
