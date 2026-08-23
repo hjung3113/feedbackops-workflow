@@ -13,6 +13,13 @@ SUPERVISOR="$SCRIPT_DIR/../lib/live-session-supervisor.sh"
 TRANSPORT_REGISTRY="$SCRIPT_DIR/../lib/transport-registry.cjs"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+# Sandbox codex config: this smoke exercises the codex launch-spec path,
+# which must stay mutation-free, but keep any future write inside the
+# test temp dir and never the developer's real ~/.codex (#218 review).
+CODEX_HOME="$TMP_DIR/codex-home"
+mkdir -p "$CODEX_HOME"
+export CODEX_HOME
+
 FAILURES=0
 
 pass() { echo "ok   - $1"; }
