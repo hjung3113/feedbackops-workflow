@@ -611,7 +611,7 @@ FALLBACK_LOG="$TMP_ROOT/fallback.log"
 # Issue 501 now dispatches a write (trivial implementation) seat; its prompt
 # must carry the implementation contract instead of the architect one.
 set_prompt_contract "$WT" 501 implementation
-FALLBACK_LOG="$FALLBACK_LOG" PATH="$BAD_BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 501 --worktree "$WT" --tier trivial >"$unavailable_out" 2>&1
+FALLBACK_LOG="$FALLBACK_LOG" PATH="$BAD_BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 501 --worktree "$WT" --tier trivial --execution-mode headless >"$unavailable_out" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q 'required_capability_missing' "$unavailable_out" \
   && [ ! -e "$FALLBACK_LOG" ] && [ ! -d "$WT/.review/.write-dispatch-issue-501-started" ]; then
@@ -656,7 +656,7 @@ if [ "${1:-}" = "--version" ]; then echo 'orca 1.0'; exit 0; fi
 exit 9
 EOF
 chmod +x "$ORCA_BAD_BIN/orca"
-PATH="$ORCA_BAD_BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 505 --worktree "$ORCA_BAD_WT" --tier trivial >"$TMP_ROOT/orca-bad.out" 2>&1
+PATH="$ORCA_BAD_BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 505 --worktree "$ORCA_BAD_WT" --tier trivial --execution-mode headless >"$TMP_ROOT/orca-bad.out" 2>&1
 ec=$?
 if [ "$ec" -eq 2 ] && grep -q 'required_capability_missing' "$TMP_ROOT/orca-bad.out" \
   && [ ! -d "$ORCA_BAD_WT/.review/.write-dispatch-issue-505-started" ]; then
@@ -940,7 +940,7 @@ TRANSPORT_USED="$TMP_ROOT/cmux-used" CMUX_ARGV="$TMP_ROOT/cmux-argv" ORCA_ARGV="
 AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator cmux --issue 502 --worktree "$CMUX_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/cmux.out" 2>&1
 cmux_ec=$?
 TRANSPORT_USED="$TMP_ROOT/orca-used" CMUX_ARGV="$TMP_ROOT/unused-cmux" ORCA_ARGV="$TMP_ROOT/orca-argv" \
-AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator orca --issue 503 --worktree "$ORCA_WT" --tier trivial --poll-timeout 3 >"$TMP_ROOT/orca.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 bash "$CLI" dispatch --orchestrator orca --issue 503 --worktree "$ORCA_WT" --tier trivial --execution-mode headless --poll-timeout 3 >"$TMP_ROOT/orca.out" 2>&1
 orca_ec=$?
 if [ "$cmux_ec" -eq 0 ] && [ "$orca_ec" -eq 0 ] \
   && [ -d "$CMUX_WT/.review/.write-dispatch-issue-502-started" ] \
@@ -978,7 +978,7 @@ else fail "common runner runtime executable pinning (cmux=$(sed -n '2p' "$cmux_r
 
 PIN_WT="$TMP_ROOT/pin-wt"
 make_worktree "$PIN_WT" 506
-AGENT_WORKFLOW_CODEX_BIN=relative/codex PATH="$BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 506 --worktree "$PIN_WT" --tier trivial >"$TMP_ROOT/pin.out" 2>&1
+AGENT_WORKFLOW_CODEX_BIN=relative/codex PATH="$BIN:$PATH" bash "$CLI" dispatch --orchestrator orca --issue 506 --worktree "$PIN_WT" --tier trivial --execution-mode headless >"$TMP_ROOT/pin.out" 2>&1
 pin_ec=$?
 if [ "$pin_ec" -eq 2 ] && grep -q 'required_runtime_capability_missing' "$TMP_ROOT/pin.out" \
   && [ ! -d "$PIN_WT/.review/.write-dispatch-issue-506-started" ]; then
@@ -1122,7 +1122,7 @@ done
 ORCA_UNPROVABLE_WT="$TMP_ROOT/orca-unprovable"
 make_worktree "$ORCA_UNPROVABLE_WT" 508
 ORCA_CREATE_MODE=missing AGENT_WORKFLOW_CODEX_BIN="$BIN/codex" PATH="$BIN:$PATH" AGENT_WORKFLOW_POLL_INTERVAL=1 \
-bash "$CLI" dispatch --orchestrator orca --issue 508 --worktree "$ORCA_UNPROVABLE_WT" --tier trivial --poll-timeout 1 > "$TMP_ROOT/orca-unprovable.out" 2>&1
+bash "$CLI" dispatch --orchestrator orca --issue 508 --worktree "$ORCA_UNPROVABLE_WT" --tier trivial --execution-mode headless --poll-timeout 1 > "$TMP_ROOT/orca-unprovable.out" 2>&1
 orca_unprovable_ec=$?
 if [ "$orca_unprovable_ec" -eq 2 ] && [ ! -e "$ORCA_UNPROVABLE_WT/.review/ISSUE-508-TRANSPORT.json" ]; then
   pass "Orca launch without a provable terminal handle fails before receipt publication"

@@ -72,7 +72,8 @@ stream is wired through the registry `PROGRESS` entry like claude/opencode.
 ### Execution mode and live-TUI sessions
 
 Permission `mode` (`read|write`) and `execution_mode` (`headless|live-tui`) are
-independent. `headless` is the default and retains the generated runner,
+independent. `headless` is the default for every adapter except `orca`, whose
+omitted-mode CLI default is `live-tui`; it retains the generated runner,
 watchdog, progress parsing, and existing receipt behavior. Phase 1 accepts
 `--execution-mode live-tui` only for `role=implementation` with write
 permission; the flag is CLI-only and is not a workflow-config or model-

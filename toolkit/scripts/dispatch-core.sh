@@ -77,6 +77,7 @@ MODEL=""
 EFFORT=""
 MODEL_SUPPLIED=0
 EFFORT_SUPPLIED=0
+EXECUTION_MODE_SUPPLIED=0
 ALLOCATE=0
 ALLOCATOR_ROLE=""
 TIER=""
@@ -403,7 +404,7 @@ while [ $# -gt 0 ]; do
     --review-capsule) REVIEW_CAPSULE="$2"; shift 2 ;;
     --execution-plan) EXECUTION_PLAN="$2"; shift 2 ;;
     --seat) PLAN_SEAT="$2"; shift 2 ;;
-    --execution-mode) EXECUTION_MODE="$2"; shift 2 ;;
+    --execution-mode) EXECUTION_MODE="$2"; EXECUTION_MODE_SUPPLIED=1; shift 2 ;;
     --poll-timeout) POLL_TIMEOUT="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift 1 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
@@ -412,6 +413,9 @@ done
 
 [ -n "$ADAPTER" ] || { echo "missing --adapter" >&2; usage; exit 2; }
 is_registered_adapter "$ADAPTER" || { echo "unknown adapter: $ADAPTER" >&2; exit 2; }
+if [ "$EXECUTION_MODE_SUPPLIED" -eq 0 ] && [ "$ADAPTER" = "orca" ]; then
+  EXECUTION_MODE="live-tui"
+fi
 is_registered_runtime "$RUNTIME" || { echo "unknown runtime: $RUNTIME" >&2; exit 2; }
 case "$EXECUTION_MODE" in
   headless|live-tui) ;;

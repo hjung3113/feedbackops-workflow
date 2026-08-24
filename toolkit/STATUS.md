@@ -12,8 +12,9 @@ Revisit once orca/herdr are confirmed stable against real binaries.
 
 - T1 adds an additive `execution_mode=headless|live-tui` seam, shell-free
   runtime launch specs, structured live handles, semantic session capability
-  vocabulary, and transport receipt schema v4. Headless remains the default
-  and existing runner/watchdog behavior is preserved. Live phase 1 is
+  vocabulary, and transport receipt schema v4. Headless remains the default for
+  every adapter except `orca`, whose omitted-mode CLI default is `live-tui`;
+  existing runner/watchdog behavior is preserved. Live phase 1 is
   implementation/write-only and fails closed until a transport proves the
   complete live contract; Orca, Herdr, and cmux adapter implementations land
   in the dependent follow-up tasks. `LIVE.json` is launch/liveness evidence,
