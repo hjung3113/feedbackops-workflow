@@ -363,6 +363,23 @@ else
   fail "cmux run receives the spec argv byte-exactly (received: $(cat "$FAKE_RUN_ARGVS"))"
 fi
 
+if node - "$CODEX_HOME/config.toml" "$WT" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(wt)}]`;
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+if (start === -1 || !body.some(line => line.trim() === 'trust_level = "trusted"')) process.exit(2);
+NODE
+then
+  pass "cmux live Codex launch invokes the generic runtime pre-launch trust pre-seed"
+else
+  fail "cmux live Codex launch did not pre-seed the trust entry"
+fi
+
 if node - "$LIVE_DIR/session.json" <<'NODE'
 const fs = require("fs");
 const v = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));

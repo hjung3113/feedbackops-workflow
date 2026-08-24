@@ -509,6 +509,35 @@ else
   fail "header normalization (ec=$norm_ec $(cat "$TMP_ROOT/norm-check.out"))"
 fi
 
+# Quoted basic keys are valid TOML too. Matching must decode the quoted key,
+# otherwise the replacement is appended as a duplicate trust_level key.
+make_worktree quotedkey
+QUOTED_KEY_REAL="$(cd "$TMP_ROOT/wt-quotedkey" && pwd -P)"
+printf '[projects."%s"]\n"trust_level" = "untrusted"\n\n[projects."/tmp/quoted-key-other"]\nmodel = "gpt-5"\n' "$QUOTED_KEY_REAL" > "$TRUST_CONFIG"
+run_preseed "$QUOTED_KEY_REAL"
+quoted_key_ec=$?
+node - "$TRUST_CONFIG" "$QUOTED_KEY_REAL" > "$TMP_ROOT/quoted-key-check.out" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(wt)}]`;
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+const keys = body.filter(line => /^\s*(?:trust_level|"trust_level"|'trust_level')\s*=/.test(line));
+if (keys.length !== 1 || keys[0].trim() !== 'trust_level = "trusted"') process.exit(2);
+NODE
+quoted_key_check_ec=$?
+if [ "$quoted_key_ec" -eq 0 ] && [ "$quoted_key_check_ec" -eq 0 ] && [ ! -s "$TMP_ROOT/quoted-key-check.out" ]; then
+  pass 'pre-seed decodes a quoted trust_level key without creating a duplicate'
+else
+  fail "quoted trust_level key matching (ec=$quoted_key_ec check=$quoted_key_check_ec $(cat "$TMP_ROOT/quoted-key-check.out"))"
+fi
+
+# Restore the normalized fixture used by the trust-screen sentinel below.
+printf '[projects."%s"]\ntrust_level = "trusted"\n' "$NORM_REAL" > "$TRUST_CONFIG"
+
 # Fake codex sentinel (#215): renders the first-run trust screen only when
 # its --cd cwd is not an exact trusted entry. After the pre-seed above the
 # sentinel must never render the trust line; an untrusted control dir must
@@ -637,6 +666,150 @@ if [ "$reclaim_ec" -eq 0 ] && [ "$reclaim_entry_ec" -eq 0 ] \
   pass 'abandoned lock from a dead owner PID is reclaimed, not hung on'
 else
   fail "stale-lock reclaim (ec=$reclaim_ec entry=$reclaim_entry_ec)"
+fi
+
+# Regression for the stale-lock TOCTOU: hold waiter A after it has claimed
+# (or is about to delete, on the old implementation) the stale pathname, let
+# waiter B acquire and hold the replacement lock, then verify A cannot remove
+# B's live lock. The command wrappers only widen this otherwise tiny timing
+# window; the assertion stays at the public pre-seed behavior.
+make_worktree toctou-a
+make_worktree toctou-b
+TOCTOU_A_REAL="$(cd "$TMP_ROOT/wt-toctou-a" && pwd -P)"
+TOCTOU_B_REAL="$(cd "$TMP_ROOT/wt-toctou-b" && pwd -P)"
+TOCTOU_HOME="$TMP_ROOT/toctou-codex-home"
+TOCTOU_BIN="$TMP_ROOT/toctou-bin"
+mkdir -p "$TOCTOU_HOME" "$TOCTOU_BIN"
+TOCTOU_LOCK="$TOCTOU_HOME/.config.toml.preseed.lock"
+TOCTOU_READY="$TMP_ROOT/toctou-reclaim-ready"
+TOCTOU_RELEASE="$TMP_ROOT/toctou-reclaim-release"
+TOCTOU_B_READY="$TMP_ROOT/toctou-b-node-ready"
+TOCTOU_B_RELEASE="$TMP_ROOT/toctou-b-node-release"
+TOCTOU_A_READY="$TMP_ROOT/toctou-a-node-ready"
+TOCTOU_A_RELEASE="$TMP_ROOT/toctou-a-node-release"
+TOCTOU_REAL_RM="$(command -v rm)"
+TOCTOU_REAL_MV="$(command -v mv)"
+TOCTOU_REAL_NODE="$(command -v node)"
+cat > "$TOCTOU_BIN/rm" <<'EOF'
+#!/usr/bin/env bash
+if [ "${TOCTOU_STALE_GATE:-}" = 1 ] \
+  && [ "${1:-}" = "-rf" ] && [ "${2:-}" = "${TOCTOU_LOCK:-}" ] \
+  && [ -f "${TOCTOU_LOCK:-}/owner.pid" ]; then
+  toctou_owner="$(cat "$TOCTOU_LOCK/owner.pid" 2>/dev/null)"
+  if [ -n "$toctou_owner" ] && ! kill -0 "$toctou_owner" 2>/dev/null; then
+    : > "${TOCTOU_READY:?}"
+    while [ ! -f "${TOCTOU_RELEASE:?}" ]; do sleep 0.01; done
+  fi
+fi
+exec "${TOCTOU_REAL_RM:?}" "$@"
+EOF
+cat > "$TOCTOU_BIN/mv" <<'EOF'
+#!/usr/bin/env bash
+if [ "${TOCTOU_STALE_GATE:-}" = 1 ] \
+  && [ "${1:-}" = "${TOCTOU_LOCK:-}" ] && [ -n "${2:-}" ]; then
+  "${TOCTOU_REAL_MV:?}" "$@"
+  toctou_mv_status=$?
+  : > "${TOCTOU_READY:?}"
+  while [ ! -f "${TOCTOU_RELEASE:?}" ]; do sleep 0.01; done
+  exit "$toctou_mv_status"
+fi
+exec "${TOCTOU_REAL_MV:?}" "$@"
+EOF
+cat > "$TOCTOU_BIN/node" <<'EOF'
+#!/usr/bin/env bash
+if [ "${TOCTOU_NODE_HOLD:-}" = 1 ] && [ "${1:-}" = "-" ]; then
+  : > "${TOCTOU_NODE_READY:?}"
+  while [ ! -f "${TOCTOU_NODE_RELEASE:?}" ]; do sleep 0.01; done
+fi
+exec "${TOCTOU_REAL_NODE:?}" "$@"
+EOF
+chmod +x "$TOCTOU_BIN/rm" "$TOCTOU_BIN/mv" "$TOCTOU_BIN/node"
+bash -c 'exit 0' &
+toctou_dead_pid=$!
+wait "$toctou_dead_pid"
+mkdir "$TOCTOU_LOCK"
+printf '%s\n' "$toctou_dead_pid" > "$TOCTOU_LOCK/owner.pid"
+CODEX_HOME="$TOCTOU_HOME" PATH="$TOCTOU_BIN:$PATH" \
+  TOCTOU_STALE_GATE=1 TOCTOU_LOCK="$TOCTOU_LOCK" TOCTOU_READY="$TOCTOU_READY" \
+  TOCTOU_RELEASE="$TOCTOU_RELEASE" TOCTOU_REAL_RM="$TOCTOU_REAL_RM" \
+  TOCTOU_REAL_MV="$TOCTOU_REAL_MV" TOCTOU_REAL_NODE="$TOCTOU_REAL_NODE" \
+  TOCTOU_NODE_HOLD=1 TOCTOU_NODE_READY="$TOCTOU_A_READY" \
+  TOCTOU_NODE_RELEASE="$TOCTOU_A_RELEASE" \
+  bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$TOCTOU_A_REAL" \
+  > "$TMP_ROOT/toctou-a.out" 2>&1 &
+toctou_a_pid=$!
+toctou_ready_count=0
+while [ ! -f "$TOCTOU_READY" ] && [ "$toctou_ready_count" -lt 200 ]; do
+  sleep 0.01
+  toctou_ready_count=$((toctou_ready_count + 1))
+done
+toctou_b_pid=''
+toctou_lock_survived=0
+if [ -f "$TOCTOU_READY" ]; then
+  CODEX_HOME="$TOCTOU_HOME" PATH="$TOCTOU_BIN:$PATH" \
+    TOCTOU_LOCK="$TOCTOU_LOCK" TOCTOU_REAL_RM="$TOCTOU_REAL_RM" \
+    TOCTOU_REAL_MV="$TOCTOU_REAL_MV" TOCTOU_REAL_NODE="$TOCTOU_REAL_NODE" \
+    TOCTOU_NODE_HOLD=1 TOCTOU_NODE_READY="$TOCTOU_B_READY" \
+    TOCTOU_NODE_RELEASE="$TOCTOU_B_RELEASE" \
+    bash -c '. "$1"; codex_trust_preseed "$2"' _ "$CODEX_POLICY" "$TOCTOU_B_REAL" \
+    > "$TMP_ROOT/toctou-b.out" 2>&1 &
+  toctou_b_pid=$!
+  toctou_b_ready_count=0
+  while [ ! -f "$TOCTOU_B_READY" ] && [ "$toctou_b_ready_count" -lt 200 ]; do
+    sleep 0.01
+    toctou_b_ready_count=$((toctou_b_ready_count + 1))
+  done
+  if [ -f "$TOCTOU_B_READY" ]; then
+    : > "$TOCTOU_RELEASE"
+    toctou_a_ready_count=0
+    while [ ! -f "$TOCTOU_A_READY" ] && [ "$toctou_a_ready_count" -lt 100 ]; do
+      sleep 0.01
+      toctou_a_ready_count=$((toctou_a_ready_count + 1))
+    done
+    if [ ! -f "$TOCTOU_A_READY" ] \
+      && [ -f "$TOCTOU_LOCK/owner.pid" ] \
+      && grep -qx "$toctou_b_pid" "$TOCTOU_LOCK/owner.pid"; then
+      toctou_lock_survived=1
+    fi
+  else
+    : > "$TOCTOU_RELEASE"
+  fi
+else
+  : > "$TOCTOU_RELEASE"
+fi
+: > "$TOCTOU_A_RELEASE"
+: > "$TOCTOU_B_RELEASE"
+wait "$toctou_a_pid" 2>/dev/null
+toctou_a_ec=$?
+if [ -n "$toctou_b_pid" ]; then
+  wait "$toctou_b_pid" 2>/dev/null
+  toctou_b_ec=$?
+else
+  toctou_b_ec=1
+fi
+node - "$TOCTOU_HOME/config.toml" "$TOCTOU_A_REAL" "$TOCTOU_B_REAL" > "$TMP_ROOT/toctou-check.out" <<'NODE'
+const fs = require("fs");
+const [file, ...worktrees] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+for (const wt of worktrees) {
+  const norm = line => line.replace(/\s+/g, "");
+  const header = `[projects.${JSON.stringify(wt)}]`;
+  const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+  if (start === -1) { process.stdout.write("missing " + wt); process.exit(2); }
+  const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+  const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+  if (!body.some(line => line.trim() === 'trust_level = "trusted"')) {
+    process.stdout.write("untrusted " + wt);
+    process.exit(2);
+  }
+}
+NODE
+toctou_check_ec=$?
+if [ "$toctou_lock_survived" -eq 1 ] && [ "$toctou_a_ec" -eq 0 ] \
+  && [ "$toctou_b_ec" -eq 0 ] && [ "$toctou_check_ec" -eq 0 ]; then
+  pass 'stale-lock reclaim atomically claims the old pathname without deleting a newer holder lock'
+else
+  fail "stale-lock TOCTOU reclaim (survived=$toctou_lock_survived a=$toctou_a_ec b=$toctou_b_ec check=$toctou_check_ec $(cat "$TMP_ROOT/toctou-check.out" 2>/dev/null))"
 fi
 
 # (3) A matched table without trust_level followed by another table: the

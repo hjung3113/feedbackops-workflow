@@ -456,6 +456,23 @@ NODE
   else fail 'launch-live structured handles'; fi
 else fail "launch-live structured handles (command failed: $(cat "$TMP_ROOT/launch-e2e.err"))"; fi
 
+if node - "$CODEX_HOME/config.toml" "$WT" <<'NODE'
+const fs = require("fs");
+const [file, wt] = process.argv.slice(2);
+const lines = fs.readFileSync(file, "utf8").split("\n");
+const norm = line => line.replace(/\s+/g, "");
+const header = `[projects.${JSON.stringify(wt)}]`;
+const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
+const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
+const body = lines.slice(start + 1, end === -1 ? lines.length : end);
+if (start === -1 || !body.some(line => line.trim() === 'trust_level = "trusted"')) process.exit(2);
+NODE
+then
+  pass 'Orca live Codex launch invokes the generic runtime pre-launch trust pre-seed'
+else
+  fail 'Orca live Codex launch did not pre-seed the trust entry'
+fi
+
 create_argv="$CASE_LOG/create.1.argv"
 if argv_assert "$create_argv" pair --worktree "path:$WT" \
   && argv_assert "$create_argv" pair --title "$SEAT" \

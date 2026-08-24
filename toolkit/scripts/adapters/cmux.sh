@@ -209,6 +209,23 @@ case "$command_name" in
     # documented run envelope cannot deliver, and single-quotes every
     # spec-derived token so nothing crosses a shell unquoted.
     run_args="$(node "$CMUX_HANDLES" run-argv "$SPEC" "$NAME")" || exit 3
+    # Runtime-owned launch preparation belongs immediately before the real
+    # cmux run, after the run envelope has accepted the complete spec. This
+    # keeps launch-spec validation side-effect-free while giving Codex the
+    # same trust-store pre-seed seam as the other live transports.
+    launch_spec_json="$(node "$SCRIPT_DIR/../lib/launch-spec.cjs" validate "$SPEC")" || exit 3
+    launch_runtime="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).runtime)' "$launch_spec_json")" || exit 3
+    launch_cwd="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).cwd)' "$launch_spec_json")" || exit 3
+    case "$launch_runtime" in
+      */*|*..*) echo 'ERROR: live_launch_spec_invalid: runtime is malformed' >&2; exit 3 ;;
+    esac
+    runtime_pre_launch="$SCRIPT_DIR/../runtimes/$launch_runtime.sh"
+    if [ -x "$runtime_pre_launch" ]; then
+      "$runtime_pre_launch" pre-launch --cwd "$launch_cwd" || {
+        echo 'ERROR: runtime_pre_launch_failed' >&2
+        exit 3
+      }
+    fi
     create_output="$(eval "cmux run --new-workspace $run_args")" || exit $?
     live_json="$(node "$CMUX_HANDLES" live-run "$create_output")" || exit 3
     normalized="$(node "$ADAPTER_HANDLE_RESULT" normalize "$live_json")" || {

@@ -580,10 +580,10 @@ live_close() {
 # is never compared to a name here) and dump its env pairs and argv tokens as
 # NUL-separated streams for the shell-side quoting pass.
 launch_live_dump_tokens() {
-  node - "$1" "$ADAPTER_LIB_DIR" "$2" "$3" <<'NODE'
+  node - "$1" "$ADAPTER_LIB_DIR" "$2" "$3" "$4" "$5" <<'NODE'
 const fs = require("fs");
 const path = require("path");
-const [specFile, libDir, envFile, argvFile] = process.argv.slice(2);
+const [specFile, libDir, envFile, argvFile, runtimeFile, cwdFile] = process.argv.slice(2);
 const { normalizeLaunchSpec } = require(path.join(libDir, "launch-spec.cjs"));
 let value;
 try { value = JSON.parse(fs.readFileSync(specFile, "utf8")); } catch (error) { process.exit(2); }
@@ -598,6 +598,8 @@ try {
   const argvFd = fs.openSync(argvFile, "w");
   for (const token of spec.argv) fs.writeSync(argvFd, token + "\0");
   fs.closeSync(argvFd);
+  fs.writeFileSync(runtimeFile, spec.runtime);
+  fs.writeFileSync(cwdFile, spec.cwd);
 } catch (error) { process.exit(2); }
 NODE
 }
@@ -638,10 +640,23 @@ NODE
     echo "ERROR: live_seat_already_exists: worktree already has $dup_count terminal(s) titled for this seat; inspect or close the existing live seat instead of double-prompting" >&2
     exit 1
   fi
-  launch_live_dump_tokens "$launch_spec" "$launch_tmp/env.tokens" "$launch_tmp/argv.tokens" || {
+  launch_live_dump_tokens "$launch_spec" "$launch_tmp/env.tokens" "$launch_tmp/argv.tokens" \
+    "$launch_tmp/runtime" "$launch_tmp/cwd" || {
     echo 'ERROR: live_launch_spec_invalid: launch-spec is malformed' >&2
     exit 2
   }
+  launch_runtime="$(cat "$launch_tmp/runtime")"
+  launch_cwd="$(cat "$launch_tmp/cwd")"
+  case "$launch_runtime" in
+    */*|*..*) echo 'ERROR: live_launch_spec_invalid: runtime is malformed' >&2; exit 2 ;;
+  esac
+  runtime_pre_launch="$SCRIPT_DIR/../runtimes/$launch_runtime.sh"
+  if [ -x "$runtime_pre_launch" ]; then
+    "$runtime_pre_launch" pre-launch --cwd "$launch_cwd" || {
+      echo 'ERROR: runtime_pre_launch_failed' >&2
+      exit 2
+    }
+  fi
   # Orca's --command accepts a single string (no argv-array form), so each
   # spec token is shell-quoted with printf %q before joining. Naive
   # concatenation would let spec values break out as shell syntax.

@@ -69,7 +69,13 @@ codex_trust_preseed() {
         *[!0-9]*|'') ;;
         *)
           if ! kill -0 "$preseed_owner" 2>/dev/null; then
-            rm -rf "$preseed_lock"
+            # Claim this exact stale lock before removing it. A waiter that
+            # loses the rename must never delete a pathname a newer waiter
+            # has already acquired.
+            preseed_stale_lock="$preseed_lock.stale.$$.$RANDOM"
+            if mv "$preseed_lock" "$preseed_stale_lock" 2>/dev/null; then
+              rm -rf "$preseed_stale_lock"
+            fi
           fi
           ;;
       esac
@@ -122,6 +128,8 @@ const headerCwd = line => {
   return match ? decodeTomlString(match[1]) : null;
 };
 const matchesTarget = line => headerCwd(line) === cwd;
+const trustKeyRe = /^\s*(trust_level|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*=/;
+const decodeTomlKey = raw => raw === "trust_level" ? raw : decodeTomlString(raw);
 let text = "";
 let existingMode = null;
 try {
@@ -149,7 +157,8 @@ for (const line of lines) {
     inTable = matchesTarget(line);
     if (inTable) tableFound = true;
   }
-  if (inTable && /^\s*trust_level\s*=/.test(line)) {
+  const trustKey = trustKeyRe.exec(line);
+  if (inTable && trustKey && decodeTomlKey(trustKey[1]) === "trust_level") {
     rewritten.push("trust_level = \"trusted\"");
     trustSeen = true;
     continue;
