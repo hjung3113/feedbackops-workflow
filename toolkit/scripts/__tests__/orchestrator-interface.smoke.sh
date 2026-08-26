@@ -1437,6 +1437,42 @@ env_precedence_case "AC-119-6 AGENT_WORKFLOW_PRE_MARKER_DELAY wins over a set CM
 SHARED_ADAPTER_LIB="$ROOT/scripts/lib/adapter-helpers.sh"
 AC130_ADAPTERS="cmux orca herdr"
 
+ac217_detect_transport_case() {
+  ac217_case="$1"
+  ac217_expected_status="$2"
+  ac217_expected_output="$3"
+  shift 3
+  ac217_output="$TMP_ROOT/ac217-${ac217_case}.out"
+  env -i "$@" /bin/bash -c '. "$1"; detect_current_transport' _ "$SHARED_ADAPTER_LIB" >"$ac217_output"
+  ac217_status=$?
+  ac217_actual_output="$(cat "$ac217_output")"
+  if [ "$ac217_status" -eq "$ac217_expected_status" ] \
+    && [ "$ac217_actual_output" = "$ac217_expected_output" ]; then
+    pass "ISSUE-217 detect_current_transport $ac217_case"
+  else
+    fail "ISSUE-217 detect_current_transport $ac217_case (status=$ac217_status output=$ac217_actual_output)"
+  fi
+}
+
+ac217_detect_transport_case all-set 0 herdr \
+  HERDR_ENV=1 HERDR_WORKSPACE_ID=workspace HERDR_TAB_ID=tab HERDR_PANE_ID=pane
+ac217_detect_transport_case env-unset 1 '' \
+  HERDR_WORKSPACE_ID=workspace HERDR_TAB_ID=tab HERDR_PANE_ID=pane
+ac217_detect_transport_case workspace-unset 1 '' \
+  HERDR_ENV=1 HERDR_TAB_ID=tab HERDR_PANE_ID=pane
+ac217_detect_transport_case tab-unset 1 '' \
+  HERDR_ENV=1 HERDR_WORKSPACE_ID=workspace HERDR_PANE_ID=pane
+ac217_detect_transport_case pane-unset 1 '' \
+  HERDR_ENV=1 HERDR_WORKSPACE_ID=workspace HERDR_TAB_ID=tab
+ac217_detect_transport_case env-empty 1 '' \
+  HERDR_ENV= HERDR_WORKSPACE_ID=workspace HERDR_TAB_ID=tab HERDR_PANE_ID=pane
+ac217_detect_transport_case workspace-empty 1 '' \
+  HERDR_ENV=1 HERDR_WORKSPACE_ID= HERDR_TAB_ID=tab HERDR_PANE_ID=pane
+ac217_detect_transport_case tab-empty 1 '' \
+  HERDR_ENV=1 HERDR_WORKSPACE_ID=workspace HERDR_TAB_ID= HERDR_PANE_ID=pane
+ac217_detect_transport_case pane-empty 1 '' \
+  HERDR_ENV=1 HERDR_WORKSPACE_ID=workspace HERDR_TAB_ID=tab HERDR_PANE_ID=
+
 ac130_adapters_pass() {
   check_description="$1"
   shift

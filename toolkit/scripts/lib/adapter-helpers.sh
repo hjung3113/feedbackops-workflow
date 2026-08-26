@@ -10,6 +10,28 @@ ADAPTER_JSON="$ADAPTER_LIB_DIR/adapter-json.cjs"
 ADAPTER_TRANSPORT_REGISTRY="$ADAPTER_LIB_DIR/transport-registry.cjs"
 ADAPTER_HANDLE_RESULT="$ADAPTER_LIB_DIR/handle-result.cjs"
 
+# Real Herdr's own `herdr --skill` contract only documents HERDR_ENV plus the
+# workspace/tab/pane identity vars; HERDR_SOCKET_PATH is not part of it and is
+# never set on a genuine Herdr-managed pane. Keep this predicate shared with
+# transport detection and the Herdr adapter so the inherited-session contract
+# has one source of truth.
+session_context_available() {
+  [ "${HERDR_ENV:-}" = "1" ] \
+    && [ -n "${HERDR_WORKSPACE_ID:-}" ] \
+    && [ -n "${HERDR_TAB_ID:-}" ] \
+    && [ -n "${HERDR_PANE_ID:-}" ]
+}
+
+# detect_current_transport: identify a reliable ambient transport signal.
+# Herdr is the only transport with one; Orca and cmux have no equivalent.
+detect_current_transport() {
+  if session_context_available; then
+    printf '%s\n' 'herdr'
+    return 0
+  fi
+  return 1
+}
+
 # help_has <help-text> <flag-or-word>: true when the captured --help
 # output contains the needle as a whole token. Non-token characters are
 # normalized to single spaces so `get` cannot match inside `forget`;

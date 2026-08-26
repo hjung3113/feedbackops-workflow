@@ -42,16 +42,6 @@ adapter_json() {
   fi
 }
 
-# Real Herdr's own `herdr --skill` contract only documents HERDR_ENV plus the
-# workspace/tab/pane identity vars; HERDR_SOCKET_PATH is not part of it and is
-# never set on a genuine Herdr-managed pane.
-session_context_available() {
-  [ "${HERDR_ENV:-}" = "1" ] \
-    && [ -n "${HERDR_WORKSPACE_ID:-}" ] \
-    && [ -n "${HERDR_TAB_ID:-}" ] \
-    && [ -n "${HERDR_PANE_ID:-}" ]
-}
-
 resolved_herdr_binary() {
   binary="$(command -v herdr 2>/dev/null)" || return 1
   case "$binary" in

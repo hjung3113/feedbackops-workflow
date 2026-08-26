@@ -124,6 +124,10 @@ both the old and the replacement handle.
 
 ## Choosing between the two paths
 
+Before defaulting to Orca worktree dispatch, the CONDUCTOR/assistant checks
+`detect_current_transport` from `scripts/lib/adapter-helpers.sh`; if it reports
+`herdr`, prefer Herdr unless the user or task explicitly names another transport.
+
 Dispatch to codex when the work produces an **artifact** — code, a plan, a document, a file
 listing. Keep it on Opus when the work produces a **verdict**, or when it is the session's
 own orchestration.
