@@ -76,4 +76,13 @@ if [ "$MODE" = write ] || [ "$PRODUCE_REVIEW" -eq 1 ]; then
   [ "$PRODUCE_REVIEW" -eq 1 ] && set -- "$@" --produce-review
   exec "$@"
 fi
-set -- "$BIN" exec --sandbox read-only --cd "$CWD"; [ -n "$MODEL" ] && set -- "$@" -m "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""; exec "$@" "$PROMPT"
+set -- "$BIN" exec --sandbox read-only --cd "$CWD"
+# The progress event stream is registry data (PROGRESS.codex.flags), not a
+# hardcoded --json argv. Both direct read launches and codex-safe.sh own their
+# respective headless Codex argv construction and fail closed if the registry
+# cannot provide the streaming contract.
+progress_flags="$(node "$RUNTIME_REGISTRY" progress-flags "$RUNTIME")" || { printf '%s\n' '{"ok":false,"code":"runtime_registry_unavailable","detail":"progress-flags lookup failed"}' >&2; exit 3; }
+while IFS= read -r flag; do [ -n "$flag" ] && set -- "$@" "$flag"; done <<PROGRESS_FLAGS
+$progress_flags
+PROGRESS_FLAGS
+[ -n "$MODEL" ] && set -- "$@" -m "$MODEL"; [ -n "$EFFORT" ] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""; exec "$@" "$PROMPT"

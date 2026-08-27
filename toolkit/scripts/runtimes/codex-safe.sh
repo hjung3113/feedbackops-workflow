@@ -21,6 +21,7 @@ PRODUCE_REVIEW=0
 REVIEW_OUTPUT_FILE=""
 CODEX_BIN="${AGENT_WORKFLOW_CODEX_BIN:-codex}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_REGISTRY="$SCRIPT_DIR/../lib/runtime-registry.cjs"
 . "$SCRIPT_DIR/../lib/codex-policy.sh"
 
 while [[ $# -gt 0 ]]; do
@@ -111,6 +112,15 @@ EXTRA=()
 [[ -n "$MODEL" ]] && EXTRA+=( -m "$MODEL" )
 [[ -n "$EFFORT" ]] && EXTRA+=( -c "model_reasoning_effort=\"$EFFORT\"" )
 
+# The safe wrapper is an independent Codex argv owner: direct callers and
+# write/review dispatches must both fail closed rather than silently losing
+# progress streaming when the registry is unavailable.
+codex_progress_flags="$(node "$RUNTIME_REGISTRY" progress-flags codex)" || { printf '%s\n' '{"ok":false,"code":"runtime_registry_unavailable","detail":"progress-flags lookup failed"}' >&2; exit 3; }
+CODEX_PROGRESS_FLAGS=()
+while IFS= read -r flag; do [ -n "$flag" ] && CODEX_PROGRESS_FLAGS+=( "$flag" ); done <<PROGRESS_FLAGS
+$codex_progress_flags
+PROGRESS_FLAGS
+
 # workspace-write makes ONLY --cd (plus /tmp) writable. A git WORKTREE keeps its
 # real gitdir in the MAIN repo at .git/worktrees/<name> — outside that root — so
 # `git commit` cannot create index.lock and dies:
@@ -129,18 +139,20 @@ fi
 if [[ "$PRODUCE_REVIEW" -eq 1 ]]; then
   mkdir -p "$CWD/.review"
   rm -f "$REVIEW_OUTPUT_FILE"
-  set -- "$CODEX_BIN" exec --sandbox read-only --cd "$CWD" --output-last-message "$REVIEW_OUTPUT_FILE"
+  set -- "$CODEX_BIN" exec "${CODEX_PROGRESS_FLAGS[@]}" --sandbox read-only --cd "$CWD" --output-last-message "$REVIEW_OUTPUT_FILE"
   [[ -n "$MODEL" ]] && set -- "$@" -m "$MODEL"
   [[ -n "$EFFORT" ]] && set -- "$@" -c "model_reasoning_effort=\"$EFFORT\""
   "$@" "$PROMPT" &
 elif [[ "${#EXTRA[@]}" -gt 0 ]]; then
   "$CODEX_BIN" exec \
+    "${CODEX_PROGRESS_FLAGS[@]}" \
     --sandbox workspace-write \
     --cd "$CWD" \
     "${EXTRA[@]}" \
     "$PROMPT" &
 else
   "$CODEX_BIN" exec \
+    "${CODEX_PROGRESS_FLAGS[@]}" \
     --sandbox workspace-write \
     --cd "$CWD" \
     "$PROMPT" &

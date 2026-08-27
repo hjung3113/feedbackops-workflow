@@ -67,6 +67,19 @@ if [ "$omp_no_tools_ec" -ne 0 ] && grep -F -q '"code":"capability_missing_print_
 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/codex" PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" bash "$RUNTIME" capabilities --runtime codex > "$TMP_DIR/pinned.json" 2>/dev/null; if [ $? -eq 0 ] && grep -F "\"executable\":\"$BIN/codex\"" "$TMP_DIR/pinned.json" >/dev/null; then ok 'generic absolute runtime pin is honored'; else bad 'generic runtime pin'; fi
 PATH="$BIN:$PATH" AGENT_WORKFLOW_CODEX_BIN=missing-codex bash "$RUNTIME" capabilities --runtime codex >"$TMP_DIR/missing.json" 2>/dev/null; if [ $? -ne 0 ] && grep -F runtime_unavailable "$TMP_DIR/missing.json" >/dev/null; then ok 'unavailable runtime fails closed'; else bad 'unavailable runtime fails closed'; fi
 RUNTIME_ARGV="$TMP_DIR/codex.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime codex --role implementation --mode write --cwd "$WT" --prompt-file "$WT/prompt.txt" --issue 1; if grep -Fx -- workspace-write "$TMP_DIR/codex.argv" >/dev/null; then ok 'codex write preserves codex-safe workspace-write'; else bad 'codex write isolation'; fi
+# #155: direct read seats are the other Codex argv owner. Capture the complete
+# invocation so the streaming flag is proved as a standalone token and in the
+# intended order before the manual model/effort pairs.
+: > "$TMP_DIR/codex-read.args"
+RUNTIME_ARGV="$TMP_DIR/codex-read.argv" STUB_ARGS_LOG="$TMP_DIR/codex-read.args" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime codex --role reviewer --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt" --model m3 --effort high
+codex_read_args="$(tail -n 1 "$TMP_DIR/codex-read.args")"
+codex_json_once() {
+  [ "$(printf '%s\n' "$1" | tr ' ' '\n' | grep -Fx -- --json | wc -l | tr -d ' ')" -eq 1 ]
+}
+if codex_json_once "$codex_read_args" && printf '%s\n' "$codex_read_args" | grep -Fq -- "exec --sandbox read-only --cd $WT --json" && printf '%s\n' "$codex_read_args" | grep -Fq -- '-m m3' && printf '%s\n' "$codex_read_args" | grep -Fq -- 'model_reasoning_effort="high"'; then ok '#155 codex direct read launch forwards one standalone --json with sandbox/model/effort'; else bad '#155 codex direct read argv contract (got: '"$codex_read_args"')'; fi
+codex_mutation_missing='exec --sandbox read-only --cd /wt -m m3 -c model_reasoning_effort="high" prompt'
+codex_mutation_glued='exec --sandbox read-only --cd /wt --json... -m m3 -c model_reasoning_effort="high" prompt'
+if ! codex_json_once "$codex_mutation_missing" && ! codex_json_once "$codex_mutation_glued"; then ok '#155 codex direct read mutation check rejects missing and token-glued --json'; else bad '#155 codex direct read mutation check accepted a malformed --json'; fi
 RUNTIME_ARGV="$TMP_DIR/claude.argv" PATH="$BIN:$PATH" bash "$RUNTIME" run --runtime claude --role conductor --mode read --cwd "$WT" --prompt-file "$WT/prompt.txt"; if grep -Fx -- plan "$TMP_DIR/claude.argv" >/dev/null; then ok 'claude conductor read pins plan'; else bad 'claude read isolation'; fi
 if grep -Fx -- stream-json "$TMP_DIR/claude.argv" >/dev/null && grep -Fx -- --verbose "$TMP_DIR/claude.argv" >/dev/null && grep -Fx -- --include-partial-messages "$TMP_DIR/claude.argv" >/dev/null; then ok 'AC-142-A2b2-3 claude launch applies registry PROGRESS.flags, not a hardcoded --output-format text'; else bad 'AC-142-A2b2-3 claude launch applies registry PROGRESS.flags, not a hardcoded --output-format text'; fi
 # omp read: headless, fail-closed tool surface, no approval lift.

@@ -8,6 +8,7 @@ CODEX_SAFE="$SCRIPT_DIR/../runtimes/codex-safe.sh"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 FAILURES=0
+. "$SCRIPT_DIR/lib/stub-argv.sh"; make_stub_capture_helper "$TMP_DIR/stub-capture.sh"; STUB_CAPTURE_HELPER="$TMP_DIR/stub-capture.sh"; export STUB_CAPTURE_HELPER
 
 run_exit_case() {
   name="$1"; expected="$2"; shift 2
@@ -43,9 +44,20 @@ WT="$TMP_DIR/wt"
 mkdir -p "$BIN" "$WT"
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
+. "$STUB_CAPTURE_HELPER"
 [ -n "${CODEX_STUB_PID:-}" ] && printf '%s\n' "$$" > "$CODEX_STUB_PID"
 if [ "${CODEX_STUB_SLEEP:-0}" -gt 0 ]; then
   /bin/sleep "$CODEX_STUB_SLEEP"
+fi
+if [ "${CODEX_STUB_REVIEW_MODE:-0}" = 1 ]; then
+  review_output=""
+  previous=""
+  for arg in "$@"; do
+    if [ "$previous" = --output-last-message ]; then review_output="$arg"; fi
+    previous="$arg"
+  done
+  [ -n "$review_output" ] || exit 17
+  printf '%s\n' "$CODEX_STUB_REVIEW_BODY" > "$review_output"
 fi
 printf '%s\n' "$*" > "$CODEX_STUB_ARGS"
 exit 0
@@ -87,6 +99,31 @@ run_stub_case() {
 run_stub_case "gpt-5.6-omitted-effort-pins-medium" 1 --model gpt-5.6
 run_stub_case "gpt-5.6-explicit-medium-passes" 1 --model gpt-5.6 --effort medium
 run_stub_case "gpt-5.5-omitted-effort-does-not-pin" 0 --model gpt-5.5
+
+codex_json_once() {
+  [ "$(printf '%s\n' "$1" | tr ' ' '\n' | grep -Fx -- --json | wc -l | tr -d ' ')" -eq 1 ]
+}
+
+run_json_write_case() {
+  name="$1"; shift
+  args_file="$TMP_DIR/$name.args"
+  capture_file="$TMP_DIR/$name.capture"
+  : > "$capture_file"
+  CODEX_STUB_ARGS="$args_file" STUB_ARGS_LOG="$capture_file" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "hello" --cwd "$WT" "$@" >/dev/null 2>&1
+  ec=$?
+  args="$(tail -n 1 "$capture_file")"
+  if [ "$ec" -eq 0 ] && codex_json_once "$args" && printf '%s\n' "$args" | grep -Fq -- "exec --json --sandbox workspace-write --cd $WT"; then
+    echo "ok   - $name carries one standalone --json"
+  else
+    echo "NOT OK - $name must carry one standalone --json (exit $ec, argv: $args)"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+# The no-extra and EXTRA builders are independent argv shapes and both must
+# retain the registry-declared streaming token.
+run_json_write_case "write-without-extra"
+run_json_write_case "write-with-extra" --model gpt-5.6 --effort low
 
 # Record both ticker processes while codex-safe is alive, then assert that
 # cleanup removes the ticker shell AND its sleep child on normal and signal exits.
@@ -176,6 +213,48 @@ if [ "$none_ec" -eq 0 ] && grep -q 'model_reasoning_effort="none"' "$TMP_DIR/non
   echo "ok   - gpt-5.6-terra none effort reaches codex explicitly"
 else
   echo "NOT OK - gpt-5.6-terra none effort reaches codex explicitly (exit $none_ec)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# Review keeps --output-last-message as the canonical authority while also
+# carrying the same registry progress flag as the two write builders.
+REVIEW_WT="$TMP_DIR/review-wt"
+mkdir -p "$REVIEW_WT"
+printf 'review prompt\n' > "$REVIEW_WT/prompt.txt"
+git -C "$REVIEW_WT" init -q -b main
+git -C "$REVIEW_WT" config user.email t@t
+git -C "$REVIEW_WT" config user.name t
+git -C "$REVIEW_WT" add prompt.txt
+git -C "$REVIEW_WT" commit -qm seed
+REVIEW_HEAD="$(git -C "$REVIEW_WT" rev-parse HEAD)"
+REVIEW_BODY="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":33},\"reviewed_head_sha\":\"$REVIEW_HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"safe-wrapper-review\",\"met\":true}]}"
+: > "$TMP_DIR/review.capture"
+CODEX_STUB_ARGS="$TMP_DIR/review.args" STUB_ARGS_LOG="$TMP_DIR/review.capture" CODEX_STUB_REVIEW_MODE=1 CODEX_STUB_REVIEW_BODY="$REVIEW_BODY" PATH="$BIN:$PATH" bash "$CODEX_SAFE" --issue 33 --prompt "review" --cwd "$REVIEW_WT" --produce-review --model gpt-5.6-sol --effort medium >/dev/null 2>&1
+review_ec=$?
+review_args="$(tail -n 1 "$TMP_DIR/review.capture")"
+if [ "$review_ec" -eq 0 ] && codex_json_once "$review_args" && printf '%s\n' "$review_args" | grep -Fq -- "exec --json --sandbox read-only --cd $REVIEW_WT --output-last-message" && [ -f "$REVIEW_WT/.review/ISSUE-33-REVIEW.json" ]; then
+  echo "ok   - review builder carries one --json with read-only sandbox and --output-last-message"
+else
+  echo "NOT OK - review builder argv/publication contract (exit $review_ec, argv: $review_args)"
+  FAILURES=$((FAILURES + 1))
+fi
+
+# Mutation-negative: the same exact-token predicate rejects omission and
+# duplication for each of the three builders.
+mutation_ok=1
+for mutation in \
+  "exec --sandbox workspace-write --cd $WT" \
+  "exec --json --json --sandbox workspace-write --cd $WT" \
+  "exec --sandbox workspace-write --cd $WT -m gpt-5.6 -c model_reasoning_effort=\"low\"" \
+  "exec --json --json --sandbox workspace-write --cd $WT -m gpt-5.6 -c model_reasoning_effort=\"low\"" \
+  "exec --sandbox read-only --cd $REVIEW_WT --output-last-message /tmp/review.json" \
+  "exec --json --json --sandbox read-only --cd $REVIEW_WT --output-last-message /tmp/review.json"; do
+  if codex_json_once "$mutation"; then mutation_ok=0; fi
+done
+if codex_json_once "$(tail -n 1 "$TMP_DIR/write-without-extra.capture")" && codex_json_once "$(tail -n 1 "$TMP_DIR/write-with-extra.capture")" && codex_json_once "$review_args" && [ "$mutation_ok" -eq 1 ]; then
+  echo "ok   - three Codex exec builders reject missing or duplicate --json mutations"
+else
+  echo "NOT OK - three Codex exec builders must reject missing or duplicate --json mutations"
   FAILURES=$((FAILURES + 1))
 fi
 

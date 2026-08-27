@@ -31,10 +31,14 @@ toolkit/scripts/runtimes/claude.sh agent-runtime.smoke.sh
 toolkit/scripts/runtimes/claude.sh live-tui-contract.smoke.sh
 toolkit/scripts/runtimes/claude.sh runtime-model-preflight.smoke.sh
 toolkit/scripts/runtimes/codex-safe.sh codex-safe.smoke.sh
+toolkit/scripts/runtimes/codex-safe.sh agent-watchdog.smoke.sh
+toolkit/scripts/runtimes/codex-safe.sh conductor-control.smoke.sh
 toolkit/scripts/runtimes/codex-safe.sh live-tui-contract.smoke.sh
 toolkit/scripts/runtimes/codex-safe.sh output-contract.smoke.sh
 toolkit/scripts/runtimes/codex-safe.sh sandbox-network-deny.smoke.sh
 toolkit/scripts/runtimes/codex.sh agent-runtime.smoke.sh
+toolkit/scripts/runtimes/codex.sh agent-watchdog.smoke.sh
+toolkit/scripts/runtimes/codex.sh conductor-control.smoke.sh
 toolkit/scripts/runtimes/codex.sh live-tui-contract.smoke.sh
 toolkit/scripts/runtimes/opencode.sh agent-runtime.smoke.sh
 toolkit/scripts/runtimes/opencode.sh live-tui-contract.smoke.sh
@@ -81,6 +85,8 @@ toolkit/scripts/lib/review-publish.cjs review-publish.smoke.sh
 toolkit/scripts/lib/review-snapshot.cjs review-publish.smoke.sh
 toolkit/scripts/lib/runtime-registry.cjs runtime-registry-containment.smoke.sh
 toolkit/scripts/lib/runtime-registry.cjs live-tui-contract.smoke.sh
+toolkit/scripts/lib/runtime-registry.cjs agent-watchdog.smoke.sh
+toolkit/scripts/lib/runtime-registry.cjs conductor-control.smoke.sh
 toolkit/scripts/lib/semver.cjs orchestrator-interface.smoke.sh
 toolkit/scripts/lib/target-verify.mjs target-verify.smoke.sh
 toolkit/scripts/lib/telemetry-sample.cjs telemetry.smoke.sh

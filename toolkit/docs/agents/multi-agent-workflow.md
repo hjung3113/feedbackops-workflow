@@ -401,36 +401,39 @@ an open question.
 `PROGRESS` carries a `streams` boolean per runtime, tracked separately from
 `event_format`/`flags`/`final` — it is the single explicit fact of whether
 `agent-runtime.sh`'s launch for that runtime actually applies `PROGRESS.flags`
-right now. Only when `streams` is true (currently `claude`, `opencode`, and `omp`)
-do `transcribe_review()` and the `--conductor-control` proposal handoff
+right now. All four registered headless runtimes currently have `streams:
+true`, so `transcribe_review()` and the `--conductor-control` proposal handoff
 extract the terminal event's result text first (the same match/text-path
 walk `runtime-registry.cjs extract-final <runtime> <file>` performs), then
 run that extracted text through the same whole-buffer-JSON-then-fenced-JSON
-fallback chain used for a plain-text runtime. A runtime with `streams:
-false` never enters the NDJSON extraction branch at all — this is a hard
-gate, not an inference from a populated `flags`/`final` shape, so a runtime
-whose `PROGRESS` entry exists purely as forward-looking registry data
-(`codex`) cannot be misread as already streaming even if its output ever
-incidentally resembles one matching event. `conductor-control-publish.sh`
-itself is deliberately untouched: it is a host-side security boundary and
-must not learn per-runtime output schemas, so `agent-watchdog.sh` performs
-the extraction into a clean, disposable temp file before ever calling it.
+fallback chain used for a plain-text runtime. A missing terminal event still
+falls through to that chain and therefore fails closed for a truncated
+NDJSON stream. `conductor-control-publish.sh` itself is deliberately
+untouched: it is a host-side security boundary and must not learn per-runtime
+output schemas, so `agent-watchdog.sh` performs the extraction into a clean,
+disposable temp file before ever calling it.
 
-As of this design, `claude`, `opencode`, and `omp` are the runtimes with
-`streams: true`. OMP's launch applies `--mode json` (#216; verified live
-2026-08-23 against omp v17.4.2). Claude's `agent-runtime.sh` launch applies `PROGRESS.flags`
-(`--output-format stream-json --verbose --include-partial-messages`,
-confirmed incremental at token-level resolution). Opencode's launch applies
-`--format json` (#155): a five-run reproduction against the real dispatch
-shape (macOS host, opencode 1.18.18, no container in the dispatch path)
-showed complete event streams with no drops from the known upstream bug
-(opencode issue `#31435`, which fires only under container-level event
-delivery latency) — the caveat is that a future container-based dispatch
-path or opencode upgrade would need re-verification. `codex` keeps its
-`PROGRESS` table entry as registry data only, with `streams: false`: its
-incremental-output behavior still needs a live re-verification once its
-account quota resets. Wiring that runtime's launch argv to stream, and
-flipping its `streams` field to `true`, is separate follow-up scope.
+As of 2026-08-27, all four registered runtimes stream on their headless
+paths. OMP's launch applies `--mode json` (#216; verified live 2026-08-23
+against omp v17.4.2). Claude's `agent-runtime.sh` launch applies
+`PROGRESS.flags` (`--output-format stream-json --verbose
+--include-partial-messages`, confirmed incremental at token-level
+resolution). Codex's two independent argv owners both apply the registry
+flag: `scripts/runtimes/codex.sh` adds `--json` to direct read-mode
+`codex exec`, while `scripts/runtimes/codex-safe.sh` independently adds it
+exactly once to review and both workspace-write builders. Codex review keeps
+`--output-last-message` as the canonical final JSON authority; its NDJSON
+stdout is progress/liveness evidence. A live codex-cli 0.150.1 read-only
+probe on 2026-08-27 emitted 12 JSON lines over 17.079 seconds, with completed
+command events arriving before the final `agent_message` and `turn.completed`;
+the combined `--json --output-last-message` probe emitted a matching final
+message file. OpenCode's launch applies `--format json` (#155): three clean
+runs against the real macOS host dispatch shape (opencode 1.18.21, no
+container in the dispatch path) showed complete event streams with no drops
+from upstream issue `#31435`. That issue remains a container/event-delivery
+latency risk, so a future container-based dispatch path or OpenCode upgrade
+needs re-verification. The generic wall-clock cap remains in force for every
+runtime.
 
 The shared watchdog applies first-progress and stall budgets, kills the
 process tree on a stall, and permits `MAX_RETRIES + 1` total attempts. Each

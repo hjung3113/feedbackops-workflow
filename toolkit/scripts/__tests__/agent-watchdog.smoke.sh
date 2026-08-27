@@ -67,6 +67,39 @@ cat > "$BIN/probe" <<'EOF'
 exit 0
 EOF
 chmod +x "$BIN/codex" "$BIN/probe"
+cat > "$BIN/codex-ndjson" <<'EOF'
+#!/usr/bin/env bash
+. "$STUB_CAPTURE_HELPER"
+if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
+if [ "$1" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
+if [ "$1" = exec ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
+[ "$1" = exec ] || exit 2
+last_message=""
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = --output-last-message ]; then last_message="$arg"; fi
+  previous="$arg"
+done
+if [ -n "$last_message" ]; then printf '%s\n' "${CODEX_NDJSON_REVIEW_BODY:-}" > "$last_message"; fi
+CODEX_NDJSON_REVIEW_BODY="${CODEX_NDJSON_REVIEW_BODY:-ok}" node <<'NODE'
+const body=process.env.CODEX_NDJSON_REVIEW_BODY;
+const command=(id,command)=>({id,type:"command_execution",command,aggregated_output:"",exit_code:0});
+const events=[
+  {type:"thread.started",thread_id:"thread_test"},
+  {type:"turn.started",turn_id:"turn_test"},
+  {type:"item.started",item:command("cmd_1","pwd")},
+  {type:"item.completed",item:command("cmd_1","pwd")},
+  {type:"item.started",item:command("cmd_2","git status --short")},
+  {type:"item.completed",item:command("cmd_2","git status --short")},
+  {type:"item.started",item:command("cmd_3","git log -1")},
+  {type:"item.completed",item:command("cmd_3","git log -1")},
+  {type:"item.completed",item:{id:"message_1",type:"agent_message",text:body}},
+  {type:"turn.completed",turn_id:"turn_test"},
+];
+process.stdout.write(events.map(JSON.stringify).join("\n")+"\n");
+NODE
+EOF
+chmod +x "$BIN/codex-ndjson"
 cp "$SCRIPT_DIR/../runtimes/opencode-read.json" "$TMP/read.json"
 review="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":77},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"ok\",\"met\":true}]}"
 wrapped_review="$(printf 'reviewer summary\n\n```json\n%s\n```\n\n```json\nnot valid JSON\n```\n' "$review")"
@@ -148,6 +181,38 @@ review_93="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":
 wrapped_93="$(printf 'reviewer summary\n\n```json\n%s\n```\n' "$review_93")"
 OPENCODE_STUB_OUTPUT="$(opencode_stream "$wrapped_93")" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 93 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
 if [ $? -eq 0 ] && [ -f "$WT/.review/ISSUE-93-REVIEW.json" ]; then ok '#155 opencode NDJSON terminal text event with fenced-json body publishes validated review'; else bad '#155 opencode NDJSON terminal text event with fenced-json body publishes validated review'; fi
+# #155: Codex review owns canonical output in --output-last-message while its
+# stdout carries the real multi-event JSONL stream. The safe wrapper and the
+# outer watchdog must preserve both the exact canonical review and snapshot.
+review_94="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":94},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"codex-ndjson\",\"met\":true}]}"
+CODEX_NDJSON_REVIEW_BODY="$review_94" AGENT_WORKFLOW_RUNTIME_BIN="$BIN/codex-ndjson" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 94 --runtime codex --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --produce-review --model gpt-5.6-sol --effort medium --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -eq 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="exited"||o.runtime!=="codex"||o.role!=="reviewer")process.exit(1)' "$WT/.review/ISSUE-94-RUN.json" && [ -f "$WT/.review/ISSUE-94-REVIEW.json" ] && [ -f "$WT/.review/ISSUE-94-REVIEW-$HEAD.json" ] && cmp -s "$WT/.review/ISSUE-94-REVIEW.json" "$WT/.review/ISSUE-94-REVIEW-$HEAD.json"; then ok 'AC-142-A2b2-1 codex NDJSON reviewer publishes canonical and immutable exact review'; else bad 'AC-142-A2b2-1 codex NDJSON reviewer publication'; fi
+review_95="{\"schema_version\":\"1\",\"artifact_type\":\"review\",\"lifecycle\":\"final\",\"producer_role\":\"REVIEWER\",\"issue\":{\"number\":95},\"reviewed_head_sha\":\"$HEAD\",\"status\":\"pass\",\"checklist\":[{\"item\":\"codex-fenced\",\"met\":true}]}"
+wrapped_95="$(printf 'reviewer summary\n\n```json\n%s\n```\n' "$review_95")"
+CODEX_NDJSON_REVIEW_BODY="$wrapped_95" AGENT_WORKFLOW_RUNTIME_BIN="$BIN/codex-ndjson" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 95 --runtime codex --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --produce-review --model gpt-5.6-sol --effort medium --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+if [ $? -ne 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="refused")process.exit(1)' "$WT/.review/ISSUE-95-RUN.json" && [ ! -e "$WT/.review/ISSUE-95-REVIEW.json" ] && [ ! -e "$WT/.review/ISSUE-95-REVIEW-$HEAD.json" ]; then ok 'AC-142-A2b2-2 codex fenced NDJSON reviewer refuses non-exact canonical output'; else bad 'AC-142-A2b2-2 codex fenced NDJSON reviewer refusal'; fi
+# Truncated OpenCode JSONL must fail closed even though its process exits 0;
+# the registered streams=true bit cannot turn an incomplete stream into proof.
+if node -e 'const p=require("./toolkit/scripts/lib/runtime-registry.cjs").PROGRESS; if(!p.opencode||p.opencode.streams!==true)process.exit(1)' >/dev/null 2>&1; then
+  opencode_streams_true=1
+else
+  opencode_streams_true=0
+fi
+opencode_stream_truncated() {
+  node <<'NODE'
+const step=t=>JSON.stringify({type:t,sessionID:"ses_truncated",part:{type:t==="step_start"?"step-start":"step-finish"}});
+const out=[];
+for (const file of ["runtime-registry.cjs","opencode-read.json","STATUS.md"]) {
+  out.push(step("step_start"));
+  out.push(JSON.stringify({type:"tool_use",sessionID:"ses_truncated",part:{type:"tool",tool:"read",state:{status:"completed",input:{filePath:"/wt/"+file}}}}));
+  out.push(step("step_finish"));
+}
+process.stdout.write(out.join("\n")+"\n");
+NODE
+}
+OPENCODE_STUB_OUTPUT="$(opencode_stream_truncated)" AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" bash "$WATCHDOG" --issue 96 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --produce-review --first-progress-timeout 5 --stall-timeout 5 >/dev/null 2>&1
+opencode_truncated_ec=$?
+if [ "$opencode_streams_true" -eq 1 ] && [ "$opencode_truncated_ec" -ne 0 ] && node -e 'const o=require(process.argv[1]); if(o.status!=="refused"||o.refusal_reason!=="unparseable_output")process.exit(1)' "$WT/.review/ISSUE-96-RUN.json" && [ ! -e "$WT/.review/ISSUE-96-REVIEW.json" ]; then ok '#155 truncated OpenCode NDJSON exits fail-closed without terminal text'; else bad '#155 truncated OpenCode NDJSON fail-closed reviewer contract'; fi
 wallclock_start="$(date +%s)"
 OPENCODE_STUB_MODE=heartbeat AGENT_WATCHDOG_MAX_WALLCLOCK=2 AGENT_WATCHDOG_POLL_INTERVAL=1 PATH="$BIN:$PATH" timeout 20 bash "$WATCHDOG" --issue 88 --runtime opencode --role reviewer --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --first-progress-timeout 5 --stall-timeout 5 --max-retries 0 >/dev/null 2>&1
 wallclock_ec=$?; wallclock_elapsed=$(( $(date +%s) - wallclock_start )); rm -f "$WT/hb"

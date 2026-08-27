@@ -1,6 +1,6 @@
 # Status
 
-_Current as of 2026-08-21. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
+_Current as of 2026-08-27. `git log -1` and the schemas/scripts win any disagreement over this file's prose; see "Shipped timeline" below for release-by-release detail._
 
 **cmux archived (2026-08-22):** only orca + herdr are actively worked. cmux (#208)
 stays registered in `transport-registry.cjs` and its adapter/tests are untouched
@@ -54,6 +54,16 @@ Revisit once orca/herdr are confirmed stable against real binaries.
   merge is TOML-safe (decoded-key matching, control-character
   escaping), idempotent, mode-preserving, lock-serialized with
   stale-lock reclaim, and fails closed on any non-ENOENT read error.
+
+- Issue #155's Codex half is shipped: a live codex-cli 0.150.1 read-only
+  re-verification on 2026-08-27 emitted 12 incremental JSON lines over
+  17.079 seconds, and the combined `--json --output-last-message` probe
+  produced a last-message file matching the terminal `agent_message`. The
+  direct read owner (`runtimes/codex.sh`) and the independent write/review
+  owner (`runtimes/codex-safe.sh`) both apply the registry `--json` flag;
+  review retains `--output-last-message` as canonical final-output authority.
+  `PROGRESS.codex.streams` is now `true`, with focused watchdog, conductor,
+  and argv mutation coverage.
 
 - T4 lands the cmux live adapter: direct-argv `run` launch with structured
   `{workspace, surface, terminal}` handles (no `external_handle` alias),

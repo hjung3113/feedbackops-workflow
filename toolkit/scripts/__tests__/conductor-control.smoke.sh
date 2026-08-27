@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"; WATCHDOG="$SCRIPT_DIR/../agent-watc
 ok(){ echo "ok   - $1"; }; bad(){ echo "NOT OK - $1"; FAIL=$((FAIL + 1)); }
 BIN="$TMP/bin"; WT="$TMP/wt"; mkdir -p "$BIN" "$WT"; printf 'conductor prompt\n' > "$WT/prompt.txt"
 git -C "$WT" init -q -b main; git -C "$WT" config user.email t@t; git -C "$WT" config user.name t; git -C "$WT" add prompt.txt; git -C "$WT" commit -qm seed
+. "$SCRIPT_DIR/lib/stub-argv.sh"; make_stub_capture_helper "$TMP/stub-capture.sh"; STUB_CAPTURE_HELPER="$TMP/stub-capture.sh"; export STUB_CAPTURE_HELPER
 for runtime in codex claude opencode; do
   cat > "$BIN/$runtime" <<'EOF'
 #!/usr/bin/env bash
@@ -81,6 +82,40 @@ if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCT
 make_proposal 724 1 '.review/ISSUE-724-ROUND-STATE.json'
 CONTROL_PROPOSAL="$TMP/proposal.json" OPENCODE_NDJSON_FENCE=1 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/opencode-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 724 --runtime opencode --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --opencode-permission-file "$TMP/read.json" --conductor-control --max-retries 0 >"$TMP/724.out" 2>&1
 if [ $? -eq 0 ] && node -e 'if(require(process.argv[1]).producer_role!=="CONDUCTOR")process.exit(1)' "$WT/.review/ISSUE-724-ROUND-STATE.json"; then ok '#155 opencode NDJSON conductor proposal with fenced-json body publishes host-validated control'; else cat "$TMP/724.out" >&2; bad '#155 opencode NDJSON conductor proposal with fenced-json body publishes host-validated control'; fi
+cat > "$BIN/codex-ndjson" <<'EOF'
+#!/usr/bin/env bash
+. "$STUB_CAPTURE_HELPER"
+if [ "$1" = "--version" ]; then echo 9.9; exit 0; fi
+if [ "$1" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
+if [ "$1" = exec ] && [ "$2" = "--help" ]; then echo 'exec --sandbox --cd --model --config --output-last-message --json'; exit 0; fi
+[ "$1" = exec ] || exit 2
+CONTROL_PROPOSAL="$CONTROL_PROPOSAL" CODEX_NDJSON_FENCE="${CODEX_NDJSON_FENCE:-0}" node <<'NODE'
+const fs=require("fs");
+const proposal=fs.readFileSync(process.env.CONTROL_PROPOSAL,"utf8");
+const body=process.env.CODEX_NDJSON_FENCE === "1" ? "here is the proposal\n\n```json\n"+proposal+"\n```\n" : proposal;
+const command=(id,command)=>({id,type:"command_execution",command,aggregated_output:"",exit_code:0});
+const events=[
+  {type:"thread.started",thread_id:"thread_test"},
+  {type:"turn.started",turn_id:"turn_test"},
+  {type:"item.started",item:command("cmd_1","pwd")},
+  {type:"item.completed",item:command("cmd_1","pwd")},
+  {type:"item.started",item:command("cmd_2","git status --short")},
+  {type:"item.completed",item:command("cmd_2","git status --short")},
+  {type:"item.started",item:command("cmd_3","git log -1")},
+  {type:"item.completed",item:command("cmd_3","git log -1")},
+  {type:"item.completed",item:{id:"message_1",type:"agent_message",text:body}},
+  {type:"turn.completed",turn_id:"turn_test"},
+];
+process.stdout.write(events.map(JSON.stringify).join("\n")+"\n");
+NODE
+EOF
+chmod +x "$BIN/codex-ndjson"
+make_proposal 725 1 '.review/ISSUE-725-ROUND-STATE.json'
+CONTROL_PROPOSAL="$TMP/proposal.json" AGENT_WORKFLOW_RUNTIME_BIN="$BIN/codex-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 725 --runtime codex --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >"$TMP/725.out" 2>&1
+if [ $? -eq 0 ] && node -e 'const a=require(process.argv[1]),r=require(process.argv[2]); if(a.producer_role!=="CONDUCTOR"||r.status!=="exited"||r.runtime!=="codex"||r.role!=="conductor")process.exit(1)' "$WT/.review/ISSUE-725-ROUND-STATE.json" "$WT/.review/ISSUE-725-RUN.json"; then ok '#155 codex NDJSON conductor proposal publishes host-validated control'; else cat "$TMP/725.out" >&2; bad '#155 codex NDJSON conductor proposal publication'; fi
+make_proposal 726 1 '.review/ISSUE-726-ROUND-STATE.json'
+CONTROL_PROPOSAL="$TMP/proposal.json" CODEX_NDJSON_FENCE=1 AGENT_WORKFLOW_RUNTIME_BIN="$BIN/codex-ndjson" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue 726 --runtime codex --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >"$TMP/726.out" 2>&1
+if [ $? -eq 0 ] && node -e 'const a=require(process.argv[1]),r=require(process.argv[2]); if(a.producer_role!=="CONDUCTOR"||r.status!=="exited"||r.runtime!=="codex"||r.role!=="conductor")process.exit(1)' "$WT/.review/ISSUE-726-ROUND-STATE.json" "$WT/.review/ISSUE-726-RUN.json"; then ok '#155 codex NDJSON conductor proposal with fenced-json body publishes host-validated control'; else cat "$TMP/726.out" >&2; bad '#155 codex NDJSON fenced conductor proposal publication'; fi
 issue=705; make_proposal "$issue" 1 ".review/ISSUE-$issue-ROUND-STATE.json"
 CONTROL_PROPOSAL="$TMP/proposal.json" PATH="$BIN:$PATH" AGENT_WATCHDOG_POLL_INTERVAL=1 bash "$WATCHDOG" --issue "$issue" --runtime codex --role conductor --mode read --prompt-file "$WT/prompt.txt" --cwd "$WT" --conductor-control --max-retries 0 >/dev/null 2>&1
 make_proposal "$issue" 2 ".review/ISSUE-$issue-ROUND-STATE.json"
