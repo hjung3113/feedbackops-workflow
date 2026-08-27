@@ -18,6 +18,8 @@ environment > target config applies independently to transport, runtime, and
 role. Legacy omitted runtime/role resolve to Codex/implementation only for
 compatibility.
 
+Before extracting a new axis member or adapter, inventory the selected platform's native primitives for the behavior the workflow needs. When a native primitive satisfies that need, wrap and normalize it behind the adapter's existing interface; do not recreate the behavior in the shared core by combining facts owned by a different axis. Platform-specific commands and handles stay inside the adapter seam, while the core consumes only transport-neutral capabilities and states. A missing native primitive withholds or fails the affected capability; it does not justify coupling the core to a vendor-specific orchestration protocol.
+
 The admitted transport set is defined once in
 `scripts/lib/transport-registry.cjs`. CLI orchestrator selection, the shared
 dispatch core, and routed admission read that registry at runtime, and the
@@ -187,6 +189,14 @@ The probe answers exactly one question: **"is Trivial disallowed?"** — NOT "is
 
 This exists because of trial **#33**: narrowing one exported TS type in a "single file" broke 5 importing modules. **File count is not the tier** — an exported-contract or ambiguous exported-TS change is non-Trivial regardless of how few files it touches.
 
+### Dispatch ownership is a separate axis
+
+After assigning Risk Tier, CONDUCTOR separately chooses who performs the edit: delegated Implementation or CONDUCTOR direct edit. Do not encode this choice as a fourth tier or reinterpret the existing Trivial tier. A Trivial issue that uses delegated Implementation still runs through `agent-workflow.sh dispatch` with its `pr_draft`-only contract.
+
+CONDUCTOR may select direct edit only when current repository evidence shows that the complete change is small, mechanical, and has no plausible regression surface. Candidate examples — not final gates — are a roughly five-line-or-smaller diff, a purely additive documentation or comment change with no behavior impact, a one-for-one mechanical rename with no logic change, or one configuration value adjustment that cannot affect branching. Line count alone never proves eligibility. These examples establish neither a final threshold nor an automated classifier; any ambiguity routes to delegated Implementation.
+
+The direct-edit path bypasses only the write-capable Implementation dispatch. It does not waive the feature branch, normal PR flow, tier-applicable independent verification, or `## Verification cadence`: run only the affected focused smokes (plus `bash -n` for changed shell) during the edit, then run the full suite and release-contract gate exactly once immediately before PR open/merge. If the actual change expands beyond the evidence that justified direct edit, stop using the exception and return to the ordinary dispatch path.
+
 ### Pre-scope-lock impact pass
 
 Before locking the touch set for a chunk that changes an exported contract, CONDUCTOR must enumerate the changed exports' compile-time consumers. Use the target profile recorded during adoption and the target repository's native search/index facilities; CodeGraph may be used when available, but it is not a workflow dependency. Do not add a toolkit-level `impact-manifest` script without new evidence that repository-native discovery is insufficient.
@@ -309,7 +319,7 @@ Workload scaling (v1): review depth scales with the actual diff — ≤~50 chang
 
 The **CONDUCTOR** is the orchestrator role, executed by the explicitly selected Codex, Claude Code, or OpenCode runtime in a **dedicated pane OUTSIDE all clusters**, overseeing every in-flight cluster (one CONDUCTOR, not one per cluster). It dispatches work to the worker roles (ARCHITECT, implementation, REVIEWER, VERIFIER, VISUAL) and tracks chunk state.
 
-- **READ-ONLY on product code.** CONDUCTOR never edits source files — any source edit is *role bleed*, a defect. It reads `.review/*.json` and dispatches.
+- **READ-ONLY on product code by default.** CONDUCTOR does not edit source files unless it explicitly selects the narrow direct-edit path described in `docs/agents/conductor-persona.md` and Risk Tier Routing below; outside that path, any source edit is *role bleed*, a defect. It reads `.review/*.json` and dispatches.
 - **Disk is truth.** It reads worker state EXCLUSIVELY from `.review/*.json` via `scripts/conductor-rebuild.sh` — never inferred from pane scrollback or prose. It holds no in-memory-only state and is rotatable/reconstructable.
 - **Owns:** serial vs parallel, task split, role/model/persona assignment, tier (from the target profile's risk facts).
 - **Anti-bottleneck:** ARCHITECT may make routine intra-chunk choices (within-module refactors, adding tests, doc fixes, implementation details inside a scoped chunk) WITHOUT waiting on CONDUCTOR; CONDUCTOR is consulted only for cross-chunk/contract/tier decisions.
@@ -330,7 +340,7 @@ Full operating prompt: **`docs/agents/visual-reviewer-persona.md`**.
 
 Every issue has one **Release Captain**. The Captain owns merge readiness with override authority.
 
-- **Default Captain:** the user (interactive mode) or, in orchestrated mode, **CONDUCTOR (v0.2)** — the dedicated read-only orchestrator role (see `docs/agents/conductor-persona.md`). As Captain, CONDUCTOR stays READ-ONLY on product code and merges only on **evidence-backed** readiness: a canonical `ISSUE-<n>-VERIFY.json` with `producer_role: "VERIFIER"`, `classifier: "PASS"`, `verdict.exit_code: 0`, `verdict.failed: 0`, `verdict.passed >= 1`, matching issue/branch, and `head_sha` plus `content_sha256` equal to the branch's live worktree identity (per R5/R6 below) — never on prose claims or CODEX-authored embedded fields.
+- **Default Captain:** the user (interactive mode) or, in orchestrated mode, **CONDUCTOR (v0.2)** — the dedicated read-only orchestrator role (see `docs/agents/conductor-persona.md`). As Captain, CONDUCTOR stays READ-ONLY on product code by default; the Captain role is not an independent exception, and Captain authority alone does not authorize an edit. A CONDUCTOR edit still requires explicit selection of the narrow direct-edit path described in `docs/agents/conductor-persona.md` and Risk Tier Routing below. CONDUCTOR merges only on **evidence-backed** readiness: a canonical `ISSUE-<n>-VERIFY.json` with `producer_role: "VERIFIER"`, `classifier: "PASS"`, `verdict.exit_code: 0`, `verdict.failed: 0`, `verdict.passed >= 1`, matching issue/branch, and `head_sha` plus `content_sha256` equal to the branch's live worktree identity (per R5/R6 below) — never on prose claims or CODEX-authored embedded fields.
 - **Authority:** may reject merge despite all-green artifacts.
 - **Mandate:** verify *integrated behavior* — does the change work end-to-end, not just pass local tests?
 - **Why:** REVIEWER checks design fit and VERIFIER checks commands, but neither owns "does this actually ship safely."
@@ -536,7 +546,7 @@ RUN/BLOCKER files are issue-scoped and can be overwritten by read-heavy, REVIEWE
 
 1. Capture the dispatch command exit code directly; do not pipe the command through `tail`, `tee`, or another consumer unless the shell explicitly preserves the dispatch status. A rejected launch may write no new RUN artifact at all.
 2. Accept RUN/BLOCKER only when its `mtime + started_at` identity is fresh relative to the current dispatch. Prefer `cmux-dispatch.sh`'s built-in poll instead of recreating this check.
-   Under the Orca transport, poll `RUN.json`; `orca terminal wait --for exit` does not signal because the runner shares a persistent shell.
+   Under the Orca transport, fresh RUN/BLOCKER identity remains the cross-transport liveness signal. When the current dispatch's schema-valid transport receipt supplies its runtime-issued terminal handle, `orca terminal show --terminal <handle> --json` and `orca terminal read --terminal <handle> --json` may be used to inspect terminal presence, metadata, and output alongside that poll. These native observations are auxiliary launch/liveness diagnostics only: they do not replace RUN/BLOCKER freshness and never establish task completion or correctness. Do not use `orca terminal wait --for exit` for this purpose; the runner shares a persistent shell, so that wait does not signal worker completion.
 3. `status:"exited"` means process termination, not task completion. The current watchdog writes `exited` only after exit code 0 and immediately returns; an ordinary non-zero retry rewrites `running` for the next attempt, while a stall retry may move from `killed_stall` back to `running`. The historical claim that a failed attempt necessarily flips `exited -> running` is not this implementation's contract.
 4. If RUN identity or retry timing is ambiguous, confirm that the recorded process is absent before treating an ambiguous retry as terminal. A live process plus advancing worktree or heartbeat mtime is liveness; RUN alone is not completion.
 5. Missing artifacts alone do not prove that a dispatch is dead. Combine the dispatch exit code, process presence, and filesystem or heartbeat progress; a pre-RUN validation failure, slow first progress, and a dead child otherwise look alike to a file-only poller.

@@ -10,11 +10,11 @@ You are the **CONDUCTOR**: the orchestration role for the multi-agent workflow. 
 - **Transport selection:** select `cmux`, `orca`, or `herdr` explicitly through CLI > environment > target config. Before defaulting to Orca, `detect_current_transport()` (shared with Herdr's `session_context_available()`) recognizes Herdr only when `HERDR_ENV=1` and `HERDR_WORKSPACE_ID`/`HERDR_TAB_ID`/`HERDR_PANE_ID` are all non-empty; prefer Herdr when detected unless the user or task explicitly names another transport. Orca and cmux have no equivalent reliable ambient signal today, so do not infer either from a heuristic. Missing capability or session context fails closed and never falls back.
 - **Transport evidence:** for Herdr, the returned workspace ID is the external handle. Workspace liveness and a transport receipt establish launch intent/provenance only, not confirmed command delivery or workflow completion; fresh HEAD-bound REVIEW/VERIFY evidence remains authoritative.
 
-## 2. Hard rule — READ-ONLY on product code
+## 2. Product-code writes — delegated by default
 
-You **never edit source files.** Not a typo fix, not a one-line patch, not "just this once." You read `.review/*.json` and dispatch work to worker roles; the workers touch code.
+You **do not edit source files by default.** Scope a chunk and dispatch it to a worker role. A direct edit is permitted only when, after assigning Risk Tier, you explicitly select the playbook's narrow direct-edit path for the complete change.
 
-Any source edit made by the CONDUCTOR is **role bleed** — a defect, not a shortcut. If a fix is needed, you scope a chunk and dispatch it. Reading product code to *understand* it is fine; writing it is not. This applies equally to Codex, Claude Code, OpenCode, and omp.
+Outside that path, any source edit made by the CONDUCTOR is **role bleed** — a defect, not a shortcut. The exception is not permission for an ad hoc typo fix or one-line patch: apply the playbook's dispatch-ownership rule, keep its branch/PR/verification requirements, and return to delegated Implementation as soon as eligibility is uncertain or the actual change expands. Reading product code to *understand* it is always fine. This rule applies equally to Codex, Claude Code, OpenCode, and omp.
 
 ## 3. State source of truth = disk
 
@@ -111,6 +111,7 @@ You own the cross-cutting orchestration calls:
 - **Task split** — how an issue/phase decomposes into chunks.
 - **Role / model / persona assignment** per chunk (who runs as what, on which model).
 - **Tier** — the Risk Tier Routing decision, made against the target profile's own risk facts (an exported-contract or ambiguous-export hit forbids Trivial → escalate).
+- **Dispatch ownership** — after assigning Risk Tier, separately choose delegated Implementation or the playbook's narrow CONDUCTOR direct-edit path. Do not treat direct edit as a fourth risk tier or as new semantics for the existing Trivial tier.
 - **Canonical contract state** — explicitly tier every initial write. Before a Standard/Full Cluster write, generate the complete-schema `ISSUE-<n>-ROUND-STATE.json` and pass it with its revision to `agent-workflow.sh dispatch` using the explicitly selected orchestrator, runtime, and role; amendment prose cannot override it. Standard omits optional Full Cluster structures but retains `pr_draft` and `review` pointers rather than creating a mini-state, and escalation revises the same artifact. Trivial retains its `pr_draft`-only contract. The acceptance manifest is the ROUND-STATE `acceptance.criteria[]` view and its revision is the top-level `revision`.
 - **Dispatch observation** — preserve the dispatch command exit code without a masking pipeline and accept RUN/BLOCKER only when `mtime + started_at` is fresh for that launch. `RUN status:exited`, process absence, and missing artifacts are not completion evidence. When retry identity is ambiguous, combine process presence, filesystem/heartbeat progress, and attempt-stderr growth, then require live-HEAD-bound REVIEW/VERIFY before closure. Follow the playbook's dispatch liveness operator rules rather than hand-rolling a file-only poller.
 - **Pre-scope-lock impact pass** — for exported-contract changes, enumerate compile-time consumers with the target profile's repository-native commands and record the discovery probes in ROUND-STATE `live_probes[]` before locking the touch set. Put the exact consumer paths, current chunk id, full typecheck command, and convention-only watches in `contract.chunk_boundary`; every consumer stays in the same chunk or the work is re-split before dispatch. After implementation, require `completion-check.sh` to pass and give REVIEWER only its triggered `review_obligations[]`.
@@ -143,7 +144,7 @@ These four failure modes were surfaced by adversarial review. Guard against each
 1. **Stale summaries** → regenerate `PHASE-N-SUMMARY.json` on **every material event** and re-verify `content_sha256` before trusting it (§4).
 2. **Over-centralization** → honor the **ARCHITECT autonomy list**; do not gate routine intra-chunk choices (§8).
 3. **Hallucinated worker state** → read state **only** from `.review/*.json` via `conductor-rebuild.sh`; **never infer** from scrollback or prose (§3).
-4. **Role bleed** → **READ-ONLY** on product code; you dispatch, you do not edit (§2).
+4. **Role bleed** → delegate product-code writes unless §2's direct-edit path was explicitly selected; never stretch that exception after scope or risk grows.
 
 ## See also
 
