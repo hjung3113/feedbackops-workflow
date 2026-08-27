@@ -119,9 +119,20 @@ unconfirmed either way this session.) Worth filing against orca if it recurs.
 
 **`generic-conductor-persona` worktree still has uncommitted, unmerged work**
 (`/Users/hyojung/orca/workspaces/feedbackops-workflow/generic-conductor-persona`, branch
-`fix/generic-conductor-persona`, `bd82991`) — flagged again, still not investigated (out of
-scope, carried forward from prior sessions, user has been asked and this has not yet been
-picked up). Check with the user before touching it if it comes up.
+`fix/generic-conductor-persona`, `bd82991`) — this session actually checked it (prior
+sessions only flagged it): `git diff main --stat` from that worktree shows **211 files
+changed, +5556/-17878 lines** against current `main` — this branch is old enough to predate
+the toolkit reorg (it still has since-removed files like `round-state-init.sh`,
+`round-state-render-ac.sh`, and pre-split `runtimes/{claude,codex,omp,opencode}.sh` shapes
+that don't match current `agent-runtime.sh`'s runtime-neutral-router design from ADR 0006).
+It also has 2 uncommitted changes on top: `toolkit/scripts/__tests__/install-into.smoke.sh`
+(modified) and a new untracked
+`toolkit/scripts/install-profiles/generic/docs/agents/conductor-persona.md`. Asked the user
+this session whether to investigate, merge, or discard it — **user chose to defer again**
+("이번엔 보류, 핸드오프에만 기록"). Do not silently rebase or merge this — the diff is large
+enough that a naive rebase risks reintroducing removed files or reverting since-landed
+design decisions (#149/#150/#155/#212 all touch files this branch also touches in older
+shapes). Ask the user again before doing anything with it.
 
 With the priority backlog now fully cleared and only an on-hold issue open, the natural
 next step is either picking up `generic-conductor-persona` (pending user direction) or
