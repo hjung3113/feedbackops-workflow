@@ -159,6 +159,8 @@ assert_no_maintainer_leakage() {
 assert_generic_profile() {
   target="$1"
   assert_true "generic install records generic profile" grep -F -q '"profile":"generic"' "$target/.agent-workflow/install-profile.json"
+  assert_true "generic install includes target-neutral conductor persona" test -f "$target/.agent-workflow/docs/agents/conductor-persona.md"
+  assert_true "generic conductor persona preserves read-only role" grep -F -q 'CONDUCTOR is read-only on product code' "$target/.agent-workflow/docs/agents/conductor-persona.md"
   assert_true "generic install retains target-neutral verifier" test -x "$target/.agent-workflow/scripts/target-verify.sh"
   assert_true "generic install includes VERIFY semantic validator" test -e "$target/.agent-workflow/scripts/lib/verify-artifact.cjs"
   assert_true "generic install includes worktree content identity helper" test -e "$target/.agent-workflow/scripts/lib/worktree-content-id.cjs"
@@ -492,6 +494,14 @@ else
 fi
 assert_true "generic install does not create root instructions" test ! -e "$generic/AGENTS.md"
 assert_true "generic install excludes maintainer docs" test ! -e "$generic/docs"
+generic_agents="$TMP_DIR/generic-agents-target"
+mkdir -p "$generic_agents"
+printf '%s\n' '# Target instructions' > "$generic_agents/AGENTS.md"
+assert_exit "generic install with target instructions succeeds" PASS bash "$INSTALL" "$generic_agents" --profile generic
+assert_true "generic managed pointer resolves conductor persona" bash -c '
+  ref=$(sed -n "s/^- \(\.agent-workflow\/docs\/agents\/conductor-persona\.md\).*/\1/p" "$1/AGENTS.md")
+  [ -n "$ref" ] && [ -f "$1/$ref" ]
+' _ "$generic_agents"
 assert_exit_output "generic upgrade refuses FeedbackOps profile substitution" 2 "refusing to change an existing generic installation" bash "$INSTALL" "$generic" --upgrade
 assert_exit "generic same-profile upgrade succeeds" PASS bash "$INSTALL" "$generic" --profile generic --upgrade
 assert_generic_profile "$generic"
