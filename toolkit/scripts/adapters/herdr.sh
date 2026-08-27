@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Herdr transport adapter. It translates the public typed seat seam into one
 # inherited-session workspace, root-pane command, and exact workspace probe.
-# Live sessions use the agent facade (start/prompt/wait/read/send-keys), not
+# Live sessions use the agent facade (start/prompt/wait/read/send-keys/get), not
 # `pane run`; pane run stays the headless runner and generic-shell fallback.
 # bash-3.2-compatible: no associative arrays, lowercase expansion, or arrays.
 set -u
@@ -14,7 +14,7 @@ shift || true
 # Headless capability vocabulary (workspace + pane facade).
 HERDR_HEADLESS_CAPABILITIES='session.inherited,workspace.create.cwd,workspace.create.label,workspace.create.no_focus,workspace.get.read_only,workspace.close,pane.run'
 # Agent-facade evidence appended to the headless set when the full live
-# contract (help tokens + trust-race acceptance test) is proven.
+# contract (help tokens + production-shaped trust characterization) is proven.
 HERDR_LIVE_AGENT_CAPABILITIES='agent.start,agent.prompt_wait,agent.read_recent,agent.wait_state,agent.send_keys'
 # Live session tuning. These are adapter-internal bounds; the supervisor's
 # LIVE_* timeouts own the caller-facing budgets.
@@ -22,11 +22,10 @@ HERDR_LIVE_READ_LINES=200
 HERDR_LIVE_SEND_WAIT_MS=15000
 HERDR_LIVE_TRUST_WAIT_MS=8000
 HERDR_LIVE_START_TIMEOUT_MS=120000
-# The trust-race sentinel is launched through `pane run` as a manually
-# started agent, so its executable basename must be a herdr-supported agent
-# kind for lifecycle classification. This is herdr vendor vocabulary for the
-# documented trust-prompt race (herdrdev/herdr#2410), not a dispatch branch
-# on a workflow runtime name.
+# The trust-race sentinel is launched through `agent start`, so its executable
+# basename must be a herdr-supported agent kind. This is herdr vendor
+# vocabulary for the documented trust-prompt race (herdrdev/herdr#2410), not a
+# dispatch branch on a workflow runtime name.
 HERDR_TRUST_PROBE_KIND='codex'
 
 adapter_json() {
@@ -96,25 +95,23 @@ agent_facade_help_proven() {
   return 0
 }
 
-# Fresh/untrusted-worktree trust-prompt race acceptance test (design #203
-# Herdr, herdrdev/herdr#2410). herdr 0.8.0-era builds reported
-# interactive-ready while a first-run trust prompt was still blocking, so a
-# prompt sent after `agent start` could be eaten by the trust dialog. The
-# fixed contract makes a trust-prompt-blocked agent discoverable as
-# `blocked`. This probe launches a sentinel that renders a trust-prompt
-# screen in a never-trusted temp worktree and requires herdr itself to
-# classify it as blocked; anything else (idle, unknown, timeout, error)
-# means the race is unhandled or unprovable, so live stays unavailable.
+# Fresh/untrusted-worktree trust-prompt characterization (design #203 Herdr,
+# herdrdev/herdr#2410). This probe crosses the production `agent start` seam,
+# then classifies only its structured result and the paired `agent get` result.
+# Herdr 0.8.0 reports `timeout` and then loses the managed agent as
+# `agent_not_found`; the future fixed contract reports `agent_not_ready` and
+# retains an addressable agent whose state is `blocked`. Neither outcome is
+# admitted under issue #212, so this predicate remains false for every branch.
 # Note (#215): for codex launches the trust prompt is prevented upstream by
 # the codex runtime member itself, which pre-seeds codex's own
 # per-directory trust store while emitting the launch spec (see
 # lib/codex-policy.sh), so live codex capability does not depend on this
-# probe for the trust case. The probe still guards the general
-# blocked-classification contract herdr must honor for any other blocking
-# UI (approval prompts, other vendors' dialogs).
+# probe for the trust case. The production-shaped probe still records the
+# general managed-start contract for any other blocking UI.
 herdr_trust_race_proven() {
   trust_binary="$1"
   trust_root="$(mktemp -d "${TMPDIR:-/tmp}/herdr-trust-probe.XXXXXX")" || return 1
+  trust_root="$(cd "$trust_root" && pwd -P)" || return 1
   trust_workspace=""
   herdr_trust_cleanup() {
     if [ -n "$trust_workspace" ]; then
@@ -128,17 +125,15 @@ herdr_trust_race_proven() {
   cat > "$trust_sentinel" <<'SENTINEL'
 #!/usr/bin/env bash
 # agent-workflow herdr trust-race probe sentinel. Renders a first-run
-# directory trust prompt and blocks, exactly the screen state that must be
-# classified as a blocked agent rather than interactive-ready.
-printf '%s\n' 'Do you trust the files in this folder?'
+# directory trust prompt and blocks long enough for the bounded probe.
+printf '> You are in %s\n' "$(pwd -P)"
 printf '%s\n' 'Do you trust the contents of this directory?'
-printf '%s\n' '1. Yes, proceed with the session  2. No, exit'
-sleep 120
+exec sleep 120
 SENTINEL
   chmod +x "$trust_sentinel" || { rm -rf "$trust_root"; return 1; }
   trust_stdout="$trust_root/.create.stdout"
   trust_stderr="$trust_root/.create.stderr"
-  "$trust_binary" workspace create --cwd "$trust_root" --label agent-workflow-trust-probe --no-focus >"$trust_stdout" 2>"$trust_stderr" || {
+  "$trust_binary" workspace create --cwd "$trust_dir" --label agent-workflow-trust-probe --no-focus >"$trust_stdout" 2>"$trust_stderr" || {
     herdr_trust_cleanup
     return 1
   }
@@ -157,20 +152,51 @@ SENTINEL
     herdr_trust_cleanup
     return 1
   fi
-  "$trust_binary" pane run "$trust_pane" "'$trust_sentinel' --trust-probe" >/dev/null 2>&1 || {
+  trust_probe_name="agent-workflow-trust-probe-$$"
+  trust_start_out="$trust_root/.start.stdout"
+  trust_start_err="$trust_root/.start.stderr"
+  # #212 intentionally pays this bounded wait on each probe to record the production failure pair while live stays false.
+  "$trust_binary" agent start "$trust_probe_name" \
+    --kind "$HERDR_TRUST_PROBE_KIND" \
+    --pane "$trust_pane" \
+    --timeout "$HERDR_LIVE_TRUST_WAIT_MS" \
+    -- "$trust_sentinel" --trust-probe >"$trust_start_out" 2>"$trust_start_err"
+  trust_start_status=$?
+  if [ "$trust_start_status" -eq 0 ]; then
     herdr_trust_cleanup
     return 1
-  }
-  trust_wait_out="$trust_root/.wait.stdout"
-  trust_wait_err="$trust_root/.wait.stderr"
-  "$trust_binary" agent wait "$trust_pane" --until blocked --timeout "$HERDR_LIVE_TRUST_WAIT_MS" >"$trust_wait_out" 2>"$trust_wait_err"
-  trust_wait_status=$?
-  if [ "$trust_wait_status" -eq 0 ] \
-    && trust_state="$(parse_agent_state "$trust_wait_out" 2>/dev/null)" \
-    && [ "$trust_state" = "blocked" ]; then
-    herdr_trust_cleanup
-    return 0
   fi
+
+  trust_start_code=""
+  if ! trust_start_code="$(parse_adapter_error "$trust_start_out" 2>/dev/null)"; then
+    trust_start_code="$(parse_adapter_error "$trust_start_err" 2>/dev/null)" || trust_start_code=""
+  fi
+  case "$trust_start_code" in
+    timeout|agent_not_ready)
+      trust_get_out="$trust_root/.get.stdout"
+      trust_get_err="$trust_root/.get.stderr"
+      "$trust_binary" agent get "$trust_probe_name" >"$trust_get_out" 2>"$trust_get_err"
+      trust_get_status=$?
+      trust_get_code=""
+      if ! trust_get_code="$(parse_adapter_error "$trust_get_out" 2>/dev/null)"; then
+        trust_get_code="$(parse_adapter_error "$trust_get_err" 2>/dev/null)" || trust_get_code=""
+      fi
+      if [ "$trust_start_code" = "timeout" ]; then
+        if [ "$trust_get_status" -ne 0 ] && [ "$trust_get_code" = "agent_not_found" ]; then
+          herdr_trust_cleanup
+          return 1
+        fi
+      else
+        trust_state=""
+        if [ "$trust_get_status" -eq 0 ] \
+          && trust_state="$(parse_agent_state "$trust_get_out" 2>/dev/null)" \
+          && [ "$trust_state" = "blocked" ]; then
+          herdr_trust_cleanup
+          return 1
+        fi
+      fi
+      ;;
+  esac
   herdr_trust_cleanup
   return 1
 }
@@ -264,7 +290,7 @@ NODE
     return 0
   fi
   # Live admission is proven separately and fails closed: the agent-facade
-  # help tokens plus the trust-race acceptance test must both pass before the
+  # help tokens plus the production-shaped trust characterization must both pass before the
   # semantic session capabilities are offered. A missing token or an
   # unproven race leaves this payload headless-only; callers refuse live
   # dispatch on the missing capabilities instead of silently falling back.

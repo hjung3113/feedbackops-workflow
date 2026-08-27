@@ -50,6 +50,24 @@ error_json() {
   printf '{"error":{"code":"%s","message":"%s"}}\n' "$1" "$2" >&2
   exit 1
 }
+trust_error_json() {
+  trust_error_stream="${3:-stderr}"
+  if [ "$trust_error_stream" = 'stdout' ]; then
+    printf '{"error":{"code":"%s","message":"%s"}}\n' "$1" "$2"
+  else
+    printf '{"error":{"code":"%s","message":"%s"}}\n' "$1" "$2" >&2
+  fi
+  exit 1
+}
+trust_malformed_json() {
+  trust_error_stream="${1:-stderr}"
+  if [ "$trust_error_stream" = 'stdout' ]; then
+    printf '%s\n' '{malformed trust probe response}'
+  else
+    printf '%s\n' '{malformed trust probe response}' >&2
+  fi
+  exit 1
+}
 case "${1:-}" in
   --version) printf '%s\n' "${HERDR_FAKE_VERSION:-0.8.0}"; exit 0 ;;
   workspace)
@@ -93,6 +111,25 @@ NODE
       close)
         if [ "${3:-}" = '--help' ]; then printf '%s\n' 'Usage: herdr workspace close ID'; exit 0; fi
         printf '%s\n' "${3:-}" >> "$STATE/close.log"
+        if [ "${3:-}" = 'ws-trust' ] && [ -f "$STATE/trust-sentinel.pid" ]; then
+          trust_sentinel_pid="$(cat "$STATE/trust-sentinel.pid")"
+          kill "$trust_sentinel_pid" 2>/dev/null || true
+          if kill -0 "$trust_sentinel_pid" 2>/dev/null; then
+            kill -9 "$trust_sentinel_pid" 2>/dev/null || true
+          fi
+          trust_reap_attempt=0
+          while kill -0 "$trust_sentinel_pid" 2>/dev/null \
+            && [ "$trust_reap_attempt" -lt 100 ]; do
+            trust_reap_attempt=$((trust_reap_attempt + 1))
+            sleep 0.01
+          done
+          if kill -0 "$trust_sentinel_pid" 2>/dev/null; then
+            printf '%s\n' 0 > "$STATE/trust-sentinel-reaped"
+          else
+            printf '%s\n' 1 > "$STATE/trust-sentinel-reaped"
+          fi
+          rm -f "$STATE/trust-sentinel.pid"
+        fi
         [ "${HERDR_FAKE_CLOSE:-success}" = 'success' ] || exit 9
         exit 0 ;;
       list) printf '%s\n' '{"result":{"type":"workspace_list","workspaces":[]}}'; exit 0 ;;
@@ -131,6 +168,59 @@ NODE
           [ "$dash_seen" -eq 1 ] && printf '%s\0' "$arg" >> "$STATE/agent-start-args.nul"
           [ "$arg" = '--' ] && dash_seen=1
         done
+        case "${3:-}" in
+          agent-workflow-trust-probe-*)
+            trust_probe_sentinel=""
+            trust_after_dash=0
+            for trust_arg in "$@"; do
+              if [ "$trust_after_dash" -eq 1 ] && [ -z "$trust_probe_sentinel" ]; then
+                trust_probe_sentinel="$trust_arg"
+              fi
+              [ "$trust_arg" = '--' ] && trust_after_dash=1
+            done
+            if [ -n "$trust_probe_sentinel" ] && [ -x "$trust_probe_sentinel" ]; then
+              trust_probe_cwd="$(cat "$STATE/create-cwd.log")"
+              (
+                cd "$trust_probe_cwd" || exit 1
+                exec "$trust_probe_sentinel" --trust-probe
+              ) >"$STATE/trust-sentinel.out" 2>&1 &
+              printf '%s\n' "$!" > "$STATE/trust-sentinel.pid"
+              trust_output_attempt=0
+              while [ ! -s "$STATE/trust-sentinel.out" ] && [ "$trust_output_attempt" -lt 100 ]; do
+                trust_output_attempt=$((trust_output_attempt + 1))
+                sleep 0.01
+              done
+            fi
+            case "${HERDR_FAKE_TRUST:-legacy_missing_registration}" in
+              legacy_missing_registration)
+                printf '%s\n' 'start timeout' >> "$STATE/trust-events.log"
+                trust_error_json timeout 'agent start timed out' "${HERDR_FAKE_TRUST_START_STREAM:-stderr}" ;;
+              fixed_blocked)
+                printf '%s\n' 'start agent_not_ready' >> "$STATE/trust-events.log"
+                trust_error_json agent_not_ready 'agent is blocked by trust prompt' "${HERDR_FAKE_TRUST_START_STREAM:-stderr}" ;;
+              false_ready)
+                printf '%s\n' 'start success' >> "$STATE/trust-events.log"
+                agent_json "${3:-}" "w1:trust" idle
+                exit 0 ;;
+              malformed|malformed_get)
+                if [ "${HERDR_FAKE_TRUST:-}" = 'malformed_get' ]; then
+                  printf '%s\n' 'start timeout' >> "$STATE/trust-events.log"
+                  trust_error_json timeout 'agent start timed out' "${HERDR_FAKE_TRUST_START_STREAM:-stderr}"
+                fi
+                printf '%s\n' 'start malformed' >> "$STATE/trust-events.log"
+                trust_malformed_json "${HERDR_FAKE_TRUST_START_STREAM:-stderr}" ;;
+              timeout_found)
+                printf '%s\n' 'start timeout' >> "$STATE/trust-events.log"
+                trust_error_json timeout 'agent start timed out' "${HERDR_FAKE_TRUST_START_STREAM:-stderr}" ;;
+              agent_not_ready_missing|agent_not_ready_nonblocked)
+                printf '%s\n' 'start agent_not_ready' >> "$STATE/trust-events.log"
+                trust_error_json agent_not_ready 'agent is blocked by trust prompt' "${HERDR_FAKE_TRUST_START_STREAM:-stderr}" ;;
+              *)
+                printf '%s\n' 'start unknown' >> "$STATE/trust-events.log"
+                trust_error_json server_error 'unknown trust probe mode' "${HERDR_FAKE_TRUST_START_STREAM:-stderr}" ;;
+            esac
+            ;;
+        esac
         [ "${HERDR_FAKE_START:-success}" = 'success' ] || error_json agent_start_failed 'agent start rejected'
         agent_json "${3:-}" "w1:live" idle
         exit 0 ;;
@@ -173,13 +263,7 @@ NODE
         done
         printf '%s\n' "$wait_target $wait_until_count $wait_timeout" >> "$STATE/wait-calls.log"
         if [ "$wait_until_count" -eq 1 ]; then
-          # Trust-race acceptance probe: exactly one --until (blocked).
-          case "${HERDR_FAKE_TRUST:-pass}" in
-            pass) agent_json trust-probe "w1:trust" blocked; exit 0 ;;
-            race) error_json timeout 'agent stayed idle' ;;
-            unproven) error_json server_error 'classification unavailable' ;;
-          esac
-          exit 9
+          error_json trust_probe_wait_forbidden 'trust probe must use agent start' ;
         fi
         if [ "$wait_until_count" -eq 2 ]; then
           # wait-ready: --until idle --until blocked. The dispatch log is
@@ -220,6 +304,34 @@ NODE
         printf '%s\n' "$*" >> "$STATE/send-keys.log"
         exit 0 ;;
       get)
+        printf '%s\0' "${3:-}" >> "$STATE/agent-get-target.nul"
+        case "${3:-}" in
+          agent-workflow-trust-probe-*)
+            case "${HERDR_FAKE_TRUST:-legacy_missing_registration}" in
+              legacy_missing_registration|agent_not_ready_missing)
+                printf '%s\n' 'get agent_not_found' >> "$STATE/trust-events.log"
+                trust_error_json agent_not_found 'agent was not found' "${HERDR_FAKE_TRUST_GET_STREAM:-stderr}" ;;
+              fixed_blocked)
+                printf '%s\n' 'get blocked' >> "$STATE/trust-events.log"
+                agent_json "${3:-}" "w1:trust" blocked
+                exit 0 ;;
+              timeout_found)
+                printf '%s\n' 'get found' >> "$STATE/trust-events.log"
+                agent_json "${3:-}" "w1:trust" working
+                exit 0 ;;
+              agent_not_ready_nonblocked)
+                printf '%s\n' 'get working' >> "$STATE/trust-events.log"
+                agent_json "${3:-}" "w1:trust" working
+                exit 0 ;;
+              malformed_get)
+                printf '%s\n' 'get malformed' >> "$STATE/trust-events.log"
+                trust_malformed_json "${HERDR_FAKE_TRUST_GET_STREAM:-stderr}" ;;
+              *)
+                printf '%s\n' 'get unexpected' >> "$STATE/trust-events.log"
+                trust_error_json agent_not_found 'agent was not found' "${HERDR_FAKE_TRUST_GET_STREAM:-stderr}" ;;
+            esac
+            ;;
+        esac
         case "${HERDR_FAKE_GET:-ok}" in
           ok) agent_json "${3:-}" "w1:live" "${HERDR_FAKE_GET_STATE:-working}"; exit 0 ;;
           gone) error_json agent_not_running 'agent not running' ;;
@@ -285,36 +397,83 @@ fs.writeFileSync(state, JSON.stringify({
 NODE
 }
 
-# --- Capabilities: live offered only when tokens + trust race pass ---------
+trust_probe_contract_ok() {
+  trust_get_required="${1:-yes}"
+  [ -s "$FAKE_STATE/agent-start-full.nul" ] || return 1
+  [ -s "$FAKE_STATE/trust-sentinel.out" ] || return 1
+  [ "$(cat "$FAKE_STATE/trust-sentinel-reaped" 2>/dev/null)" = 1 ] || return 1
+  [ ! -e "$FAKE_STATE/trust-sentinel.pid" ] || return 1
+  grep -qx 'ws-trust' "$FAKE_STATE/close.log" 2>/dev/null || return 1
+  if [ -s "$FAKE_STATE/trust-pane-run.log" ] \
+    && grep -Eq 'w1:trust|agent-workflow-trust-probe-' "$FAKE_STATE/trust-pane-run.log"; then
+    return 1
+  fi
+  if [ -s "$FAKE_STATE/wait-calls.log" ] \
+    && grep -Eq 'w1:trust|agent-workflow-trust-probe-' "$FAKE_STATE/wait-calls.log"; then
+    return 1
+  fi
+  node - "$FAKE_STATE/agent-start-full.nul" "$FAKE_STATE/agent-get-target.nul" \
+    "$FAKE_STATE/create-cwd.log" "$FAKE_STATE/trust-sentinel.out" "$trust_get_required" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+try {
+  const nul = file => fs.readFileSync(file).toString("utf8").split("\0").filter(Boolean);
+  const start = nul(process.argv[2]);
+  const getFile = process.argv[3];
+  const cwd = fs.readFileSync(process.argv[4], "utf8").trim();
+  const sentinelLines = fs.readFileSync(process.argv[5], "utf8").split(/\r?\n/);
+  const sentinelOutput = sentinelLines[0];
+  const sentinelPrompt = sentinelLines[1];
+  const getRequired = process.argv[6] === "yes";
+  const name = start[2];
+  const expected = [
+    "agent", "start", name, "--kind", "codex", "--pane", "w1:trust",
+    "--timeout", "8000", "--", path.join(cwd, "codex"), "--trust-probe"
+  ];
+  if (!name || !name.startsWith("agent-workflow-trust-probe-")) process.exit(2);
+  if (JSON.stringify(start) !== JSON.stringify(expected)) process.exit(2);
+  if (sentinelOutput !== `> You are in ${cwd}`) process.exit(2);
+  if (sentinelPrompt !== "Do you trust the contents of this directory?") process.exit(2);
+  const get = fs.existsSync(getFile) ? nul(getFile) : [];
+  if (getRequired && (get.length !== 1 || get[0] !== name)) process.exit(2);
+  if (!getRequired && get.length !== 0) process.exit(2);
+} catch (error) { process.exit(2); }
+NODE
+}
+
+# --- Capabilities: production-shaped trust probe stays unavailable ---------
 
 fake_state caps-headless-only
 caps_out="$TMP_ROOT/caps-headless-only.json"
 capabilities_json > "$caps_out"
 if [ "$(live_session_capability_count "$caps_out")" = 0 ] \
   && grep -q '"available":true' "$caps_out" \
-  && [ ! -f "$FAKE_STATE/trust-pane-run.log" ] \
+  && [ ! -f "$FAKE_STATE/agent-start-full.nul" ] \
+  && [ ! -f "$FAKE_STATE/agent-get-target.nul" ] \
   && [ ! -s "$FAKE_STATE/close.log" ]; then
   pass 'plain capabilities (no --probe-live) never runs the trust-race probe and stays side-effect-free'
 else
   fail "plain capabilities leaked a live probe side effect ($(cat "$caps_out"))"
 fi
 
-fake_state caps-pass
-caps_out="$TMP_ROOT/caps-pass.json"
-capabilities_json --probe-live > "$caps_out"
-if [ "$(live_session_capability_count "$caps_out")" = 8 ] \
-  && grep -q 'agent.start' "$caps_out" && grep -q 'pane.run' "$caps_out" \
-  && grep -q '"available":true' "$caps_out"; then
-  pass 'capabilities offer the full live contract when tokens and trust race pass'
+# Herdr 0.8.0's production-shaped outcome is timeout plus a missing managed
+# agent. Keep the first error on stdout and the paired get error on stderr so
+# both structured error streams are covered.
+fake_state caps-legacy_missing_registration
+caps_out="$TMP_ROOT/caps-legacy_missing_registration.json"
+HERDR_FAKE_TRUST=legacy_missing_registration \
+HERDR_FAKE_TRUST_START_STREAM=stdout \
+HERDR_FAKE_TRUST_GET_STREAM=stderr \
+  capabilities_json --probe-live > "$caps_out"
+if grep -q '"available":true' "$caps_out" \
+  && [ "$(live_session_capability_count "$caps_out")" = 0 ] \
+  && grep -q 'workspace.create.cwd' "$caps_out" \
+  && grep -qx 'start timeout' "$FAKE_STATE/trust-events.log" \
+  && grep -qx 'get agent_not_found' "$FAKE_STATE/trust-events.log" \
+  && trust_probe_contract_ok yes; then
+  pass 'legacy trust probe records agent start timeout plus agent_not_found and stays headless-only'
 else
-  fail "capabilities live pass ($(cat "$caps_out"))"
-fi
-if grep -q -- '--trust-probe' "$FAKE_STATE/trust-pane-run.log" 2>/dev/null \
-  && grep -q '/agent-workflow-trust-probe/codex' "$FAKE_STATE/trust-pane-run.log" 2>/dev/null \
-  && grep -qx 'ws-trust' "$FAKE_STATE/close.log" 2>/dev/null; then
-  pass 'trust-race acceptance test runs the fresh-dir sentinel and cleans its workspace up'
-else
-  fail 'trust-race acceptance test protocol (sentinel pane run or cleanup missing)'
+  fail "legacy trust probe contract ($(cat "$caps_out"))"
 fi
 leftover="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'herdr-trust-probe.*' -print 2>/dev/null | wc -l | tr -d ' ')"
 if [ "$leftover" = 0 ]; then
@@ -323,14 +482,33 @@ else
   fail "trust-race probe leaked $leftover temp dir(s)"
 fi
 
-for trust_case in race unproven; do
+for trust_case in fixed_blocked false_ready malformed malformed_get timeout_found agent_not_ready_missing agent_not_ready_nonblocked; do
   fake_state "caps-$trust_case"
   caps_out="$TMP_ROOT/caps-$trust_case.json"
+  case "$trust_case" in
+    fixed_blocked)
+      trust_get_required=yes; trust_start_event='start agent_not_ready'; trust_get_event='get blocked' ;;
+    false_ready)
+      trust_get_required=no; trust_start_event='start success'; trust_get_event='' ;;
+    malformed)
+      trust_get_required=no; trust_start_event='start malformed'; trust_get_event='' ;;
+    malformed_get)
+      trust_get_required=yes; trust_start_event='start timeout'; trust_get_event='get malformed' ;;
+    timeout_found)
+      trust_get_required=yes; trust_start_event='start timeout'; trust_get_event='get found' ;;
+    agent_not_ready_missing)
+      trust_get_required=yes; trust_start_event='start agent_not_ready'; trust_get_event='get agent_not_found' ;;
+    agent_not_ready_nonblocked)
+      trust_get_required=yes; trust_start_event='start agent_not_ready'; trust_get_event='get working' ;;
+  esac
   HERDR_FAKE_TRUST="$trust_case" capabilities_json --probe-live > "$caps_out"
   if grep -q '"available":true' "$caps_out" \
     && [ "$(live_session_capability_count "$caps_out")" = 0 ] \
-    && grep -q 'workspace.create.cwd' "$caps_out"; then
-    pass "trust-race $trust_case leaves live unavailable while headless stays intact"
+    && grep -q 'workspace.create.cwd' "$caps_out" \
+    && grep -qx "$trust_start_event" "$FAKE_STATE/trust-events.log" \
+    && { [ -z "$trust_get_event" ] || grep -qx "$trust_get_event" "$FAKE_STATE/trust-events.log"; } \
+    && trust_probe_contract_ok "$trust_get_required"; then
+    pass "trust-race $trust_case remains live-unavailable while headless stays intact"
   else
     fail "trust-race $trust_case capabilities ($(cat "$caps_out"))"
   fi
@@ -350,7 +528,7 @@ for token_case in missing-prompt-wait missing-get missing-kind missing-esc; do
   unset "$token_env_var"
   if grep -q '"available":true' "$caps_out" \
     && [ "$(live_session_capability_count "$caps_out")" = 0 ] \
-    && [ ! -f "$FAKE_STATE/trust-pane-run.log" ]; then
+    && [ ! -f "$FAKE_STATE/agent-start-full.nul" ]; then
     pass "missing agent-facade token ($token_case) disables live only, without running the trust probe"
   else
     fail "missing token case $token_case ($(cat "$caps_out"))"
@@ -1414,7 +1592,7 @@ else
   fail "blocked classification (got=$blocked_result)"
 fi
 
-# --- Full live dispatch through dispatch-core (fake codex + fake herdr) ------
+# --- Full live dispatch stays fail-closed through dispatch-core --------------
 
 cat > "$BIN/codex" <<'EOF'
 #!/usr/bin/env bash
@@ -1434,9 +1612,9 @@ E2E_PROMPT="$TMP_ROOT/wt-e2e/.review-prompt.txt"
 mkdir -p "$(dirname "$E2E_PROMPT")"
 printf 'run the live implementation turn\nsecond "quoted" line\n' > "$E2E_PROMPT"
 fake_state e2e
-# The dispatch e2e doubles as the launch-spec pre-seed proof (#215): with a
-# pristine codex config, the runtime's launch-spec emission must pre-seed
-# the resolved worktree before any transport launch.
+# The full dispatch path must refuse before launch while the production-shaped
+# #212 probe remains unproven. The runtime pre-launch seam is covered directly
+# above; capability refusal must not reach it or send a prompt.
 rm -f "$TRUST_CONFIG"
 herdr_env
 E2E_OUT="$TMP_ROOT/e2e-dispatch.out"
@@ -1451,41 +1629,20 @@ e2e_ec=$?
 e2e_receipt="$TMP_ROOT/wt-e2e/.review/ISSUE-203-TRANSPORT.json"
 e2e_live="$(find "$TMP_ROOT/wt-e2e/.review" -name LIVE.json -path '*launch.*' | sed -n '1p')"
 e2e_prompts="$(cat "$FAKE_STATE/prompt.count" 2>/dev/null || printf '%s' 0)"
-e2e_body_ok=0
-[ -f "$FAKE_STATE/prompt-bodies.nul" ] && { printf '%s\0' "$(cat "$E2E_PROMPT")" | cmp -s - "$FAKE_STATE/prompt-bodies.nul" && e2e_body_ok=1; }
-if [ "$e2e_ec" -eq 0 ] && [ -n "$e2e_live" ] && [ "$e2e_prompts" = 1 ] && [ "$e2e_body_ok" -eq 1 ] \
-  && node - "$e2e_receipt" "$e2e_live" <<'NODE'
-const fs = require("fs");
-const receipt = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-const ack = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
-if (receipt.schema_version !== "4" || receipt.execution_mode !== "live-tui" || receipt.adapter !== "herdr") process.exit(2);
-if (!/^[a-f0-9]{64}$/.test(receipt.launch_spec_sha256)) process.exit(2);
-if (receipt.handles.lifecycle !== "ws-live" || receipt.handles.io !== "w1:live" || receipt.handles.agent !== "codex-203") process.exit(2);
-if (receipt.runner !== undefined) process.exit(2);
-if (ack.state !== "prompt_started" || ack.activity_observed !== true) process.exit(2);
-NODE
-then
-  pass 'full live herdr dispatch publishes a v4 receipt and LIVE.json after exactly one prompt'
+if [ "$e2e_ec" -eq 2 ] \
+  && grep -q 'live_tui_capability_missing' "$E2E_OUT" \
+  && [ -z "$e2e_live" ] \
+  && [ ! -e "$e2e_receipt" ] \
+  && [ "$e2e_prompts" = 0 ]; then
+  pass 'full live herdr dispatch refuses before launch when the trust probe is unproven'
 else
-  fail "live dispatch E2E (ec=$e2e_ec prompts=$e2e_prompts body=$e2e_body_ok $(cat "$E2E_OUT"))"
+  fail "live dispatch E2E (ec=$e2e_ec prompts=$e2e_prompts $(cat "$E2E_OUT"))"
 fi
 
-E2E_WT_REAL="$(cd "$TMP_ROOT/wt-e2e" && pwd -P)"
-node - "$TRUST_CONFIG" "$E2E_WT_REAL" >/dev/null 2>&1 <<'NODE'
-const fs = require("fs");
-const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
-const norm = line => line.replace(/\s+/g, "");
-const header = `[projects.${JSON.stringify(process.argv[3])}]`;
-const start = lines.findIndex(line => /^\s*\[/.test(line) && norm(line) === norm(header));
-if (start === -1) process.exit(2);
-const end = lines.findIndex((line, index) => index > start && line.trim().startsWith("["));
-const body = lines.slice(start + 1, end === -1 ? lines.length : end);
-if (!body.some(line => line.trim() === "trust_level = \"trusted\"")) process.exit(2);
-NODE
-if [ $? -eq 0 ]; then
-  pass 'live dispatch pre-seeds the worktree trust entry at the real launch via the pre-launch seam'
+if [ ! -e "$TRUST_CONFIG" ]; then
+  pass 'live dispatch capability refusal leaves the runtime trust config untouched'
 else
-  fail 'live dispatch did not pre-seed codex trust config via launch-spec'
+  fail 'live dispatch refusal reached the runtime pre-launch seam'
 fi
 if find "$TMP_ROOT/wt-e2e/.review" -type f -name 'launch.sh' | grep -q .; then
   fail 'live dispatch must not generate a launch.sh runner'
@@ -1506,9 +1663,10 @@ redispatch_ec=$?
 redispatch_prompts="$(cat "$FAKE_STATE/prompt.count" 2>/dev/null || printf '%s' 0)"
 if [ "$redispatch_ec" -ne 0 ] \
   && { grep -q 'write redispatch requires --round-state and --manifest-revision' "$TMP_ROOT/e2e-redispatch.out" \
-    || grep -q 'concurrent write dispatch' "$TMP_ROOT/e2e-redispatch.out"; } \
+    || grep -q 'concurrent write dispatch' "$TMP_ROOT/e2e-redispatch.out" \
+    || grep -q 'live_tui_capability_missing' "$TMP_ROOT/e2e-redispatch.out"; } \
   && [ "$redispatch_prompts" = 0 ]; then
-  pass 'same-issue redispatch is refused before launch and sends no duplicate prompt body'
+  pass 'same-issue live redispatch remains pre-launch and sends no prompt while Herdr is unavailable'
 else
   fail "same-issue redispatch duplicate-prompt prevention (ec=$redispatch_ec prompts=$redispatch_prompts)"
 fi

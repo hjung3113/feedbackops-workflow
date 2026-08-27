@@ -36,14 +36,21 @@ Revisit once orca/herdr are confirmed stable against real binaries.
   received argv per ADR 0004).
 
 - T3 lands the Herdr live adapter path: the agent facade
-  (`start/prompt --wait/wait/read/send-keys`) behind the T1 session seam,
+  (`start/prompt --wait/wait/read/send-keys/get`) behind the T1 session seam,
   `--kind` forwarded as launch-spec data, NUL-exact argv forwarding, and a
-  per-capability-call fresh/untrusted-worktree trust-prompt race acceptance
-  test (herdrdev/herdr#2410) that keeps live unavailable — headless intact —
-  unless the installed herdr classifies the trust-prompt sentinel as
-  `blocked`. Covered offline by `herdr-live.smoke.sh`, including native
-  `agent_prompt_stalled`, settled-without-fresh-artifact refusal, and
-  same-issue duplicate-prompt prevention through the full live dispatch E2E.
+  per-capability-call production-shaped fresh/untrusted-worktree trust-prompt
+  characterization through `agent start`. The sentinel starts in the exact
+  fresh directory with the runtime first line `> You are in <dir>`; structured
+  `agent start`/`agent get` results are parsed from either stdout or stderr.
+  Herdr 0.8.0 records `timeout` followed by `agent_not_found`, so live remains
+  unavailable — headless intact. `agent_not_ready` followed by retained
+  `agent_status:"blocked"` is the fixed v0.8.2+ contract for later real-binary
+  verification and is not admitted by #212. False-ready, malformed,
+  mismatched, and non-blocked results fail closed; workspace close reaps the
+  retained probe agent and sentinel. Covered offline by
+  `herdr-live.smoke.sh`, including native `agent_prompt_stalled`,
+  settled-without-fresh-artifact refusal, and same-issue duplicate-prompt
+  prevention through the full live dispatch E2E.
   Since #215, the codex runtime member pre-seeds codex's own
   `$CODEX_HOME/config.toml` per-directory trust store
   (`[projects."<cwd>"] trust_level = "trusted"`) through its
