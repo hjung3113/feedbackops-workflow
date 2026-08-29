@@ -7,14 +7,18 @@ RUNTIME_REGISTRY="$SCRIPT_DIR/../lib/runtime-registry.cjs"
 COMMAND="${1:-}"
 case "$COMMAND" in
   permission-file) exit 0;;
+  pre-launch) exit 0;;
   launch-spec)
     # Write mode lifts the approval gate to writes only (--approval-mode
-    # write). Read mode is fail-closed and config-independent: omp v17.4.2
-    # defaults to tools.approvalMode "yolo", so pinning a read-only tool
-    # surface (--tools read,grep,glob) is what actually removes the
-    # write/bash tools — approval mode alone cannot.
+    # write) plus --auto-approve: relying on tools.approvalMode's default
+    # (yolo on v17.4.2) proved version-fragile — v18.0.10 no longer defaults
+    # to non-interactive, so headless write-mode dispatch stalled on bash
+    # approval prompts (#confirmed on v18.0.10). Read mode is fail-closed and
+    # config-independent: pinning a read-only tool surface (--tools
+    # read,grep,glob) is what actually removes the write/bash tools —
+    # approval mode alone cannot.
     if [ "$MODE" = write ]; then
-      set -- "$BIN" --approval-mode write
+      set -- "$BIN" --approval-mode write --auto-approve
     else
       set -- "$BIN" --tools read,grep,glob
     fi
@@ -38,7 +42,7 @@ esac
 
 # Same fail-closed read policy as launch-spec: a read-only tool surface,
 # not an approval-mode default (see launch-spec comment above).
-if [ "$MODE" = write ]; then set -- "$BIN" -p --approval-mode write; else set -- "$BIN" -p --tools read,grep,glob; fi
+if [ "$MODE" = write ]; then set -- "$BIN" -p --approval-mode write --auto-approve; else set -- "$BIN" -p --tools read,grep,glob; fi
 # The progress event stream is registry data (PROGRESS.omp.flags), not a
 # hardcoded --mode json argv — agent-watchdog.sh's progressed() and
 # transcribe_review() key off this same table to read the stream back.
