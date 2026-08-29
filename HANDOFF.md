@@ -103,6 +103,32 @@ assume `--ff-only` will just work when merging multiple sibling branches back-to
 All 4 issues closed with comments citing their commit + review verdicts. 4 commits landed
 on `main` this session: `be577a8` (#155), `1e0e639` (#149, #150), `c19d1fb` (#212).
 
+## 2026-08-29 addendum — herdr live usage clarified (not a code change)
+
+User asked whether herdr TUI is still unusable. Re-ran `herdr --version` (now 0.8.2,
+installed via `/Users/hyojung/.local/bin/herdr`, was 0.8.0 when ADR 0007's T5 gate was last
+written) and re-ran `herdr_trust_race_proven`'s exact probe manually against the real 0.8.2
+binary: `agent start --kind codex` on a synthetic trust-prompt sentinel still returns
+`timeout`, and the agent is still lost as `agent_not_found` on the follow-up `agent get` —
+same old-contract shape as 0.8.0, upstream herdrdev/herdr#2537 fix still not in 0.8.2. So
+`herdr.sh`'s `capabilities --probe-live` still reports no live capabilities, unchanged.
+
+**But this formal gate is not what the user's real herdr usage goes through.** The user's
+actual workflow — telling an agent to make a herdr worktree, work hands-off, close it when
+done — works fine and always has, because real codex launches never hit the trust prompt in
+the first place: `launch_live` pre-seeds codex's own `config.toml` trust store before
+`agent start` (#215/#218, real-binary verified 2026-08-24), so the trust-race condition this
+probe exists to catch doesn't occur on the actual dispatch path. The probe is a narrow,
+deliberately-conservative formal admission check for a different edge case (some *other*
+blocking UI mid-launch, not the codex trust prompt) — its `false` result does not mean
+day-to-day herdr TUI dispatch is broken.
+
+Net: no code or ADR-decision change from this — `execution_mode=live-tui` for herdr stays
+gated per ADR 0007 T5 (correct, since the narrow contract genuinely isn't proven yet). What
+was wrong was answering "can I still use herdr TUI" by quoting that gate's `false` value
+without checking it against the actual usage path first. Corrected in ADR 0007's herdr
+section (see inline 2026-08-29 note there) so this doesn't get mis-read the same way again.
+
 ## Next session
 
 Open issues remaining: only **#208** (cmux live-tui adapter's `cmux run` primitive doesn't
